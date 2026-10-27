@@ -65,6 +65,8 @@ struct ChartAmendment: Identifiable {
     var browsingDirty:Set<MarketDomain>=[]
     var summaryTask:Task<Void,Never>?
     var summaryMinute:Int64 = -1
+    var summaryAttemptedIDs:Set<String>=[]
+    var summaryGeneration=UUID()
     var lastNewsFetch:Int64=0
     var lastChartRefresh:Int64=0
     @Published var state: AccountState?
@@ -223,6 +225,7 @@ struct ChartAmendment: Identifiable {
     }
     func suspend() async {
         foreground=false
+        summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute = -1;summaryGeneration=UUID()
         browseSaveTask?.cancel();await flushBrowsing()
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID()
         if let context{await quoteScheduler.cancel(context:context)}
@@ -374,7 +377,7 @@ struct ChartAmendment: Identifiable {
     func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
     func rebindRestoredAccount()async throws{
         guard let previous=engine,let old=context else{throw TradeError.wrongAccount}
-        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel();browseSaveTask?.cancel();browsingDirty=[];summaryTask?.cancel()
+        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel();browseSaveTask?.cancel();browsingDirty=[];summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute = -1;summaryGeneration=UUID()
         await quoteScheduler.cancel(context:old);try await previous.retire(context:old)
         let snapshot=await previous.snapshot(),next=AccountContext(mode:old.mode),root=self.root
         do{

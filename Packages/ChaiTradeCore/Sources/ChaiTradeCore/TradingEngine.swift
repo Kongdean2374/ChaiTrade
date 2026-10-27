@@ -684,7 +684,10 @@ public actor TradingEngine {
         var start=max(floor,CandleCalendar.next(anchor,interval:interval,zone:instrument.rules.timeZone,offset:-count))
         while true{
             let simulation=try simulationSnapshot(instrumentID:instrumentID,from:start,through:end,context:context)
-            do{return try await Task.detached(priority:.userInitiated){try Simulation.candles(instrument,state:simulation,interval:interval,count:count,before:before)}.value}
+            do{
+                let worker=Task.detached(priority:.userInitiated){try Simulation.candles(instrument,state:simulation,interval:interval,count:count,before:before)}
+                return try await withTaskCancellationHandler{try await worker.value}onCancel:{worker.cancel()}
+            }
             catch SimulationHistoryError.needsArchivedImpacts{
                 try check(context);try Task.checkCancellation()
                 guard start>floor else{throw SimulationHistoryError.needsArchivedImpacts}

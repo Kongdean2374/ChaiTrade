@@ -121,13 +121,18 @@ extension AppModel {
     func updateSimulatedSummaries()async{
         guard let state,let sim=state.simulation,let captured=context,let engine else{return}
         let minute=sim.time/60,ids=requiredQuoteIDs
-        let needed=state.instruments.filter{ids.contains($0.id) && (summaryMinute != minute || simulatedSummaries[$0.id]==nil)}
+        if summaryMinute != minute{summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute=minute;summaryGeneration=UUID()}
+        guard summaryTask==nil else{return}
+        let needed=state.instruments.filter{ids.contains($0.id) && !summaryAttemptedIDs.contains($0.id)}
         guard !needed.isEmpty else{return}
-        summaryTask?.cancel();summaryMinute=minute
+        summaryAttemptedIDs.formUnion(needed.map(\.id));let generation=UUID();summaryGeneration=generation
         summaryTask=Task{
-            let values=await Task.detached(priority:.utility){()->[String:QuoteSummary] in var values:[String:QuoteSummary]=[:];for i in needed{if Task.isCancelled{break};if let start=try? Simulation.summaryHistoryStart(i,state:sim),let history=try? await engine.simulationSnapshot(instrumentID:i.id,from:start,context:captured){values[i.id]=try? Simulation.summary(i,state:history)}};return values}.value
-            guard self.context==captured,!Task.isCancelled else{return}
+            let worker=Task.detached(priority:.utility){()->[String:QuoteSummary] in var values:[String:QuoteSummary]=[:];for i in needed{if Task.isCancelled{break};if let start=try? Simulation.summaryHistoryStart(i,state:sim),let history=try? await engine.simulationSnapshot(instrumentID:i.id,from:start,context:captured){values[i.id]=try? Simulation.summary(i,state:history)}};return values}
+            let values=await withTaskCancellationHandler{await worker.value}onCancel:{worker.cancel()}
+            guard summaryGeneration==generation else{return};summaryTask=nil
+            guard self.context==captured,!Task.isCancelled,let currentTime=self.state?.simulation?.time,currentTime/60==minute else{return}
             for (id,value) in values{simulatedSummaries[id]=value}
+            await updateSimulatedSummaries()
         }
     }
     func ensureQuoteService()async{

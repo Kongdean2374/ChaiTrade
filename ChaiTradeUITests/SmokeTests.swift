@@ -109,6 +109,7 @@ import XCTest
         XCTAssertTrue(save.isHittable);save.tap()
         let exportImage=app.buttons["匯出這張模擬圖表"]
         for _ in 0..<6 where !exportImage.isHittable{app.swipeUp()}
+        if !exportImage.exists{self.capture("FAIL saved chart export missing before original assertion")}
         XCTAssertTrue(exportImage.waitForExistence(timeout:10),app.debugDescription)
         XCTAssertFalse(app.alerts["操作未完成"].exists)
         XCTAssertTrue(app.images["savedJournalChart"].exists)

@@ -162,13 +162,14 @@ struct JournalView: View {
     @State private var attach=false
     @State private var saving=false
     @State private var draftID=UUID().uuidString
+    @FocusState private var editingJournal:Bool
     var body: some View {
         Form{
             Section("新增本機檢討"){
                 TextField("策略／原因標籤",text:$tags)
                 TextField("情緒與執行評價",text:$emotion)
                 TextField("關聯委託 ID（可留空）",text:$orderID).textInputAutocapitalization(.never)
-                TextEditor(text:$text).frame(minHeight:120).accessibilityIdentifier("journalText")
+                TextEditor(text:$text).frame(minHeight:120).focused($editingJournal).accessibilityIdentifier("journalText")
                 if model.journalScreenshot != nil{Toggle("附加剛擷取的本機圖表",isOn:$attach).accessibilityIdentifier("attachJournalChart")}
                 if attach,let data=model.journalScreenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit().frame(maxHeight:220).accessibilityLabel("待儲存的模擬圖表").accessibilityIdentifier("journalChartPreview")}
 
@@ -191,6 +192,7 @@ struct JournalView: View {
     private var saveButton:some View{
         Button(saving ? "保存中…":"保存日誌"){
                     guard !saving,!model.interactionBlocked,!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else{return}
+                    editingJournal=false;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)
                     saving=true
                     var entry=JournalEntry(id:draftID,text:text,tags:tags,time:model.now)
                     entry.emotion=emotion;entry.orderID=orderID.isEmpty ? nil:orderID;entry.instrumentID=model.selectedID.isEmpty ? nil:model.selectedID
