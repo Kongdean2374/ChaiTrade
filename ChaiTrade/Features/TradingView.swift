@@ -188,6 +188,14 @@ struct OrderForm:View{
         advancedSection
         summarySection
     }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
+        ToolbarItem(placement:.principal){
+            Text("模擬下單").font(.headline).frame(minHeight:44).contentShape(Rectangle())
+                .accessibilityHint("向下拖曳可取消尚未送出的委託")
+                .simultaneousGesture(DragGesture(minimumDistance:30,coordinateSpace:.global).onEnded{value in
+                    guard !sending,!confirm,value.translation.height>70,abs(value.translation.width)<value.translation.height else{return}
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);dismiss()
+                })
+        }
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
         ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}

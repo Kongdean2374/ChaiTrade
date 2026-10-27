@@ -20,11 +20,15 @@ struct RootView: View {
                 VStack(spacing:0) {
                     HStack {
                         Image(systemName:"circle.fill").font(.system(size:7)).foregroundStyle(model.state?.mode == .offline ? .orange:.cyan)
-                        Text(model.state!.mode.label).font(.caption.weight(.medium)).accessibilityIdentifier("activeModeBanner")
+                        Text(model.state!.mode == .online ? "A 真實行情":"B 離線模擬").font(.caption.weight(.medium)).accessibilityLabel(model.state!.mode.label).accessibilityIdentifier("activeModeBanner")
                         Spacer()
                         if model.settings.pendingMode != nil { Image(systemName:"arrow.triangle.2.circlepath").accessibilityLabel("待下次完整啟動切換") }
                         Button { settings=true } label: { Image(systemName:"gearshape") }.accessibilityLabel("設定").disabled(model.interactionBlocked)
                     }.padding(.horizontal).padding(.vertical,10).background(.bar)
+                    if let notice=model.notice{
+                        Button{model.notice=nil}label:{Label(notice,systemImage:"info.circle").font(.caption).lineLimit(2).frame(maxWidth:.infinity,alignment:.leading)}
+                            .accessibilityLabel(notice).padding(.horizontal).padding(.vertical,6).background(.thinMaterial)
+                    }
                     MarketSwitcher()
                     TabView(selection:$model.tab) {
                         NavigationStack { DashboardView(domain:model.market).id(model.market) }.tabItem{Label("總覽",systemImage:"square.grid.2x2")}.tag(0)
@@ -73,8 +77,6 @@ struct RootView: View {
                     Button("放棄未完成的推進",role:.destructive){model.clockWarning="確定放棄尚未處理的推進區段？已完成的行情與交易會保留。"}
                         .disabled(model.progress != nil || model.catchingUp)
                 }.padding().frame(maxWidth:420).background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
-            } else if let notice=model.notice {
-                Button{model.notice=nil}label:{Text(notice).font(.caption).padding().foregroundStyle(.primary).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12))}.padding()
             }
         }
         .fileExporter(isPresented:$model.exporting,document:model.exportDocument,contentType:.data,defaultFilename:model.exportName){ result in

@@ -39,7 +39,18 @@ import XCTest
         capture("Clean baseline")
     }
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
-        for _ in 0..<7{if element.exists && element.isHittable{return};app.swipeUp()}
+        for _ in 0..<7{
+            if element.exists && element.isHittable{return}
+            if element.exists{
+                // Large text can move a control above the viewport after a long swipe.
+                // Follow its real frame back toward the visible middle instead of
+                // continuing to scroll past it. The original seven-gesture bound stays.
+                let frame=element.frame,screen=app.frame,up=frame.midY>screen.midY
+                let start=app.coordinate(withNormalizedOffset:CGVector(dx:0.85,dy:up ? 0.65:0.35))
+                let end=app.coordinate(withNormalizedOffset:CGVector(dx:0.85,dy:up ? 0.40:0.60))
+                start.press(forDuration:0.1,thenDragTo:end)
+            }else{app.swipeUp(velocity:.slow)}
+        }
         try check(element.exists && element.isHittable,"Control is not reachable: "+element.identifier)
     }
     func journal(_ app:XCUIApplication)throws{

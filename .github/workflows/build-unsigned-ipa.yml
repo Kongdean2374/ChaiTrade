@@ -2,7 +2,7 @@ name: Build unsigned IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, product-experience-20261027]
     paths-ignore: ['docs/**', '**.md']
 permissions:
   contents: read

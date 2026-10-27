@@ -32,3 +32,9 @@
 
 - [SQLite db_config](https://www.sqlite.org/c3ref/c_dbconfig_defensive.html)、[SQLite compile options](https://www.sqlite.org/compile.html#omit_load_extension)、[SQLite read-only WAL](https://www.sqlite.org/wal.html#read_only_databases)。
 - [Fugle 股票歷史 K](https://developer.fugle.tw/docs/data/http-api/historical/candles/)、[期權歷史 K](https://developer.fugle.tw/docs/data-futopt/http-api/historical/candles/)、[期權日內 K](https://developer.fugle.tw/docs/data-futopt/http-api/intraday/candles/)、[期權目錄](https://developer.fugle.tw/docs/data-futopt/http-api/intraday/tickers/)。
+
+## 最新可核對結果
+
+- [40593066791](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40593066791)，commit 06f67d5abebb88bc7b70fbb2de115cb112dce583：iPhoneOS Release 與 XCTest build 均成功，134 個核心測試成功；公開 Coinbase BTC／ETH 多輪、真實 K 線、官方 RSS／Nasdaq 實連成功。原 T45 100,000 fills／100,001 equity、30 筆 p95 樣本：寫入 79.626ms、分頁 2.688125ms、熱載入 54.283ms、CSV 841.493583ms；完整 integrity 12.877525292s，未修改門檻。這是 macOS 儲存與報表測試。
+- 16ba6f0 原互動雙輪／focused 共 20 次執行，19 通過；第二次鍵盤開啟後下拉下單視窗失敗。日誌連點兩次、下單兩次加 focused 兩次、自選兩次、截圖日誌兩次、補算兩次、A／B 冷切換兩次皆通過。失敗 artifact 12775820531，SHA256 3e511dcba0b29fe54b55d7d1a7ca7d212f2d951677ef8d6ec04cd064cb4a8bb2；仍未全數通過。
+- 在工作區不可用期間，已採用較安全的替代診斷：僅輸出已知控制項名稱與數字矩形，不讀取或公開圖片內容。SE 日誌入口從 y=1276.5 被捲到 y=-1014.0，原 helper 只有向上捲動，會越過目標。修正依實際目標矩形調整方向，保留七次手勢與 120 秒／例上限；增加資產入口自適應直向排列、簡短帳戶標籤、訊息改為頁面內橫幅，避免覆蓋操作區。下單標題加入向下拖曳取消與收鍵盤，送出中仍禁止取消。這些變更待新全套 UI 回歸；矩形診斷不替代實際圖片檢視。

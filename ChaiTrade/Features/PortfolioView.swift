@@ -99,8 +99,10 @@ struct PortfolioView:View{
         VStack(alignment:.leading,spacing:8){Text(model.valuation?.complete == true ? "總資產":"已知部分資產").font(.subheadline).foregroundStyle(.secondary);Text(model.money(model.valuation?.total)).font(.largeTitle.bold()).monospacedDigit();Text((model.state?.baseCurrency ?? "")+" · "+(model.state?.mode.label ?? "")).font(.caption).foregroundStyle(.secondary)}
         if let value=model.valuation,!value.complete{MarketCard{Label("估值資料尚未齊全",systemImage:"info.circle").font(.headline);Text(value.missing.joined(separator:"\n")).font(.caption).foregroundStyle(.orange);Text("缺少匯率或價格時只顯示已知部分，不以假匯率合計。").font(.caption).foregroundStyle(.secondary)}}
         MarketCard{MarketSectionTitle(title:"資金與損益");LabeledContent("交易淨損益（扣除歷史投入成本）",value:model.money(model.valuation?.tradingPnL));ForEach(model.valuation?.performanceMissing ?? [],id:\.self){Text($0).font(.caption).foregroundStyle(.orange)};ForEach(model.state?.cash.keys.sorted() ?? [],id:\.self){currency in currencySummary(currency)};Button("調整虛擬資金／換匯"){cash=true}}
-        HStack{Button("本機交易日誌"){journal=true}.accessibilityIdentifier("openJournal");Spacer();Button("績效與資金流分析"){performance=true}}
-            .font(.subheadline).buttonStyle(.bordered)
+        ViewThatFits(in:.horizontal){
+            HStack(spacing:12){journalButton;performanceButton}.fixedSize(horizontal:true,vertical:false)
+            VStack(alignment:.leading,spacing:12){journalButton;performanceButton}
+        }.font(.subheadline).buttonStyle(.bordered)
         MarketCard{MarketSectionTitle(title:"資金曲線",subtitle:"依實際估值事件；缺少資料的區段保留空缺");let points=Analytics.equitySeries(model.state?.equity ?? []);if points.count>=2{Chart(Array(points.suffix(500))){point in LineMark(x:.value("時間",Date(timeIntervalSince1970:TimeInterval(point.time))),y:.value("資產",point.value),series:.value("有效區段",point.segment)).foregroundStyle(.orange)}.frame(height:180)}else{Text("開始交易或推進模擬時間後，可查看已保存的資金變化。每次虛擬增減資金會另外記錄。").font(.subheadline).foregroundStyle(.secondary)}}
         positionSection(derivative:false)
         positionSection(derivative:true)
@@ -108,6 +110,8 @@ struct PortfolioView:View{
         MarketCard{Button("交易紀錄"){model.tab=3};NavigationLink("帳務、交割與市場事件"){AccountingToolsView()};NavigationLink("資料工具：匯出與帳本"){DataToolsView()}}
         Text("已到資產頁底部").font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity).accessibilityIdentifier("portfolioBottom")
     }.padding(18).padding(.bottom,20)}.background(Color(.systemGroupedBackground)).navigationTitle("資產").sheet(isPresented:$cash){NavigationStack{CashView()}}.sheet(isPresented:$journal){NavigationStack{JournalView()}}.sheet(isPresented:$performance){NavigationStack{PerformanceView()}}}
+    private var journalButton:some View{Button{journal=true}label:{Text("本機交易日誌").frame(maxWidth:.infinity,minHeight:44,alignment:.leading)}.accessibilityIdentifier("openJournal")}
+    private var performanceButton:some View{Button{performance=true}label:{Text("績效與資金流分析").frame(maxWidth:.infinity,minHeight:44,alignment:.leading)}}
     private func currencySummary(_ currency:String)->some View{
         let balance=model.state?.cash[currency] ?? .zero
         let available=(try? model.state.map{try TradingEngine.available($0,currency:currency)}) ?? .zero
