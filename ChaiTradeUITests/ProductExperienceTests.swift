@@ -129,7 +129,7 @@ import XCTest
     func testCryptoSpotBuySellJourneyHasExactLocalAccounting()throws{
         let app=launchClean();defer{finish()};try onboard(app,currency:"USD")
         app.buttons["marketCrypto"].tap();let product=app.buttons["market-SIM:Coinbase_Exchange:BTC-USD"].firstMatch;try reveal(product,in:app);product.tap()
-        try waitUntil("Crypto chart has no actual local candles",timeout:10){(try? self.state(app)["chartTime"] as? Int64 ?? 0)>0}
+        try waitUntil("Crypto chart has no actual local candles",timeout:10){guard let snapshot=try? self.state(app),let time=snapshot["chartTime"] as? NSNumber else{return false};return time.int64Value>0}
         capture("AFTER B USD crypto chart before trade")
         for action in ["openOrder","openSellOrder"]{
             app.tabBars.buttons["交易"].tap();let entry=app.buttons[action];try reveal(entry,in:app);entry.tap()
