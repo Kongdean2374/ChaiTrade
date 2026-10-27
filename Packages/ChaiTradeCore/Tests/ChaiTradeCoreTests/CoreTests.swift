@@ -296,6 +296,31 @@ private struct FixtureTransport: MarketTransport {
     let s=await r.engine.snapshot();#expect(s.cash["TWD"] == (try a("99999")));#expect(s.lifecycle?.carry.count == 1)
     #expect(try AccountRepository.validate(s,mode:.online) == ())
 }
+@Test func fundingConsumesOnlyTheRequiredIsolatedMarginAndPreservesDeficit()async throws{
+    let r=try Rig(capital:"110",derivative:true)
+    try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    _=try await r.engine.submit(r.buy(quantity:"1"),time:1000,context:r.context)
+    try await r.engine.applyCarry(instrumentID:"TEST",rate:a("0.2"),mark:a("100"),time:1005,eventID:"fee-a",kind:"funding",source:"synthetic",context:r.context)
+    var s=await r.engine.snapshot()
+    #expect(try s.cash["TWD"]==a("90"));#expect(try s.positions["TEST"]?.margin==a("90"))
+    #expect(try TradingEngine.available(s,currency:"TWD") == .zero)
+    try await r.engine.applyCarry(instrumentID:"TEST",rate:a("1"),mark:a("100"),time:1005,eventID:"fee-b",kind:"funding",source:"synthetic",context:r.context)
+    s=await r.engine.snapshot();#expect(s.positions["TEST"]?.quantity == .zero);#expect(try s.cash["TWD"]==a("-10"))
+}
+@Test func crossMarginDoesNotSubtractAnotherCurrencyIsolatedCollateral()async throws{
+    let r=try Rig(capital:"100",derivative:true);var s=await r.engine.snapshot(),usd=r.instrument
+    usd.id="USDTEST";usd.currency="USD";s.instruments.append(usd)
+    try await r.engine.restore(s,context:r.context)
+    try await r.engine.cashFlow(currency:"USD",amount:a("1500"),time:1000,context:r.context)
+    try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    var first=try r.buy(quantity:"1");first.leverage=10;first.marginMode = .cross
+    _=try await r.engine.submit(first,time:1000,context:r.context)
+    var q=try r.quote();q.instrumentID="USDTEST";try await r.engine.ingest(q,now:1000,context:r.context)
+    _=try await r.engine.submit(OrderRequest(instrumentID:"USDTEST",side:.buy,kind:.market,quantity:a("10")),time:1000,context:r.context)
+    try await r.engine.ingest(r.quote(time:1005),now:1005,context:r.context)
+    s=await r.engine.snapshot();#expect(s.positions["TEST"]?.quantity == .one);#expect(try s.positions["USDTEST"]?.margin==a("1000"))
+    #expect(!s.events.contains{$0.kind=="liquidation"})
+}
 @Test func bracketPartialExitRemainsProtected() async throws {
     let r=try Rig();try await r.engine.ingest(r.quote(),now:1000,context:r.context)
     var main=try r.buy(quantity:"10");main.bracketProfit=try a("110");main.bracketStop=try a("90")

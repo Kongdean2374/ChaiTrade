@@ -143,10 +143,14 @@ public enum Simulation {
             for n in 1...count {
                 let symbol = "\(asset.rawValue.uppercased())\(String(format:"%02d", n))"
                 var rules = RulePack(tick: try Amount(asset == .forex ? "0.00001" : asset == .crypto ? "0.01" : "0.1"), quantityStep: try Amount(asset == .crypto || asset == .forex ? "0.001" : "1"))
+                rules.version="offline-sim-2"
                 rules.fees.taker = try Amount("0.001"); rules.fees.maker = try Amount("0.0005")
                 if asset == .taiwanStock || asset == .etf { rules.timeZone = "Asia/Taipei"; rules.weekdaysOnly = true; rules.openMinute = 9*60; rules.closeMinute = 13*60+30 }
                 if asset == .usStock { rules.timeZone = "America/New_York"; rules.weekdaysOnly = true; rules.openMinute = 9*60+30; rules.closeMinute = 16*60 }
                 if asset == .future { rules.multiplier = try Amount(50); rules.expiry = 1_824_940_800 }
+                if asset == .future{rules.dailySettlementMinute=0}
+                if asset == .perpetual{rules.carrySchedule=CarrySchedule(longRate:try Amount("0.0001"),shortRate:try Amount("-0.0001"))}
+                if asset == .forex{rules.weekdaysOnly=true;rules.carrySchedule=CarrySchedule(interval:86400,longRate:try Amount("0.00005"),shortRate:try Amount("0.00005"),kind:"interest")}
                 let initial = try Amount(asset == .forex ? "1.12" : String(20 + n * 17))
                 result.append(Instrument(id: "SIM:\(symbol)", symbol: symbol, name: "\(prefix)\(n)\(asset.label)", asset: asset, currency: currency, rules: rules, initialPrice: initial))
             }

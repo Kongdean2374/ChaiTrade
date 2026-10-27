@@ -29,9 +29,9 @@
 | T23 | 缺少匯率／估值價格 | 通過 | moneyFlowIsNotProfitAndFXIsIncomplete |
 | T24 | 人工入金／減資 | 通過 | moneyFlowIsNotProfitAndFXIsIncomplete |
 | T25 | 逐倉／全倉與調整保證金 | 未執行 | 需完整整合／UI／實機驗證 |
-| T26 | 資金費率、借貸利息重啟重播 | 未執行 | fundingReplayAndMarginAdjustment |
+| T26 | 資金費率、借貸利息重啟重播 | B 核心通過；A 未實測 | offlineFundingScheduleIsExactSignedAndReplaySafe; fundingReplayAndMarginAdjustment; source entitlements pending |
 | T27 | 強平與穿倉 | 通過 | derivativeNotionalIsNotAnAssetAndLiquidationKeepsDeficit |
-| T28 | 每日／到期結算 | 通過 | futureSettlementResetsBasisAndExpires |
+| T28 | 每日／到期結算 | 核心通過 | futureSettlementResetsBasisAndExpires; offlineDailyAndFinalSettlementAreAtomicAcrossRestart; missing-DST-time schedule |
 | T29 | 分割／反向分割／股息 | 通過 | splitVectorDAndDividendIdempotency; corporateSplitDoesNotRewriteOfflineHistory |
 | T30 | 日光節約時間、休市與零股盤 | 未執行 | 需完整整合／UI／實機驗證 |
 | T31 | B 固定種子連續執行與多次重啟 | 通過 | offlineRejectsNetworkAndReplayCheckpoint |

@@ -52,6 +52,7 @@ public actor TradingEngine {
     }
     public static func initial(mode: Mode, baseCurrency: String = "TWD", capital: Amount, time: Int64) throws -> AccountState {
         var s = AccountState(mode: mode, baseCurrency: baseCurrency, instruments: try mode == .offline ? Simulation.catalog() : Providers.catalog())
+        if mode == .offline{s.schema=2}
         try adjustCash(&s, currency: baseCurrency, amount: capital, time: time, eventID: "initial-capital")
         return s
     }
@@ -447,7 +448,7 @@ public actor TradingEngine {
         var maintenance = try mark * p.quantity.magnitude * i.rules.multiplier * (i.rules.maintenance+i.rules.fees.taker)
         var collateral = p.margin
         if p.marginMode == .cross {
-            collateral = try (s.cash[i.currency] ?? .zero) - sum(s.positions.values.filter { $0.marginMode == .isolated && $0.id != p.id }.map(\.margin))
+            collateral = try (s.cash[i.currency] ?? .zero) - sum(s.positions.values.filter { other in other.marginMode == .isolated && other.id != p.id && s.instruments.first(where:{$0.id==other.id})?.currency==i.currency }.map(\.margin))
             for other in s.positions.values where other.id != p.id && other.marginMode == .cross && other.quantity != .zero {
                 guard let oi = s.instruments.first(where: { $0.id == other.id }), oi.currency == i.currency else { continue }
                 guard let oq=s.quotes[other.id],oq.valid,oq.quality == .realtime,now-oq.time<=oq.maximumAge,let om=oq.mark else{return}
@@ -481,6 +482,7 @@ public actor TradingEngine {
                 s.simulation!.time += Simulation.step
                 let sim = s.simulation!
                 try Self.settleDue(&s,now:sim.time)
+                try Self.scheduledOfflineLifecycle(&s,previous:sim.time-Simulation.step,now:sim.time)
                 for i in s.instruments.sorted(by: { $0.id < $1.id }) where i.rules.isOpen(at: sim.time) && !i.halted {
                     let q = try Simulation.quote(i, state: sim); s.quotes[i.id] = q
                     try Self.match(&s, quote: q, now: sim.time); try Self.risk(&s, quote: q, now: sim.time)
@@ -577,6 +579,7 @@ public actor TradingEngine {
         try transaction { s in
             guard let n=s.instruments.firstIndex(where:{$0.id==instrumentID}) else { throw TradeError.invalid("找不到商品") }
             guard (s.positions[instrumentID]?.quantity ?? .zero) == .zero,!s.orders.values.contains(where:{$0.status.open && $0.request.instrumentID==instrumentID}) else { throw TradeError.invalid("有持倉或未完成委託時不得直接更改商品規格") }
+            if rules.carrySchedule != nil || rules.dailySettlementMinute != nil{s.schema=2}
             s.instruments[n].rules=rules;s.audit("rulesChanged","自訂模擬規則 \(rules.version)",time:s.simulation?.time ?? Int64(Date().timeIntervalSince1970))
             if s.instruments[n].requiresRuleConfirmation == true {
                 guard s.instruments[n].asset != .future || rules.expiry != nil else{throw TradeError.invalid("到期期貨必須有明確到期日")}
@@ -601,38 +604,75 @@ public actor TradingEngine {
             p.margin=changed;s.positions[instrumentID]=p;s.audit("marginAdjustment","\(instrumentID) 保證金調整 \(amount)",time:time)
         }
     }
+    private static func postCarry(_ s:inout AccountState,instrument i:Instrument,rate:Amount,mark:Amount,amount:Amount,time:Int64,eventID:String,kind:String,source:String,model:String)throws{
+        guard !s.appliedEvents.contains(eventID) else{return}
+        if amount > .zero,var position=s.positions[i.id],position.marginMode == .isolated{
+            let free=max(Amount.zero,try Self.available(s,currency:i.currency)),fromMargin=max(Amount.zero,try amount-free)
+            position.margin=max(Amount.zero,try position.margin-fromMargin);s.positions[i.id]=position
+        }
+        s.cash[i.currency]=try (s.cash[i.currency] ?? .zero)-amount
+        s.post(event:eventID,currency:i.currency,debit:kind,credit:"cash",amount:amount,time:time)
+        if s.lifecycle==nil{s.lifecycle=LifecycleState()}
+        s.lifecycle!.carry.append(CarryEvent(id:eventID,instrumentID:i.id,time:time,rate:rate,mark:mark,amount:amount,kind:kind,source:source,calculationModel:model))
+        s.appliedEvents.insert(eventID);s.audit(kind,"\(i.id) \(source)；費率 \(rate)；費用 \(amount)",time:time,id:eventID)
+    }
     public func applyCarry(instrumentID: String,rate: Amount,mark: Amount,time: Int64,eventID: String,kind: String,source: String,context: AccountContext) throws {
         try check(context)
         guard mark > .zero,!source.isEmpty,rate.magnitude <= .one else {throw TradeError.invalid("費率、標記價或來源不合法")}
-        try transaction { s in
-            guard !s.appliedEvents.contains(eventID) else {return}
+        try transaction{s in
+            guard !s.appliedEvents.contains(eventID) else{return}
             let i=try Self.instrument(s,instrumentID)
-            guard i.asset.derivative else {throw TradeError.invalid("此介面僅限合約持有費用")}
-            let quantity=s.positions[instrumentID]?.quantity ?? .zero
-            let amount=try mark*quantity*i.rules.multiplier*rate
-            s.cash[i.currency]=try (s.cash[i.currency] ?? .zero)-amount
-            s.post(event:eventID,currency:i.currency,debit:kind,credit:"cash",amount:amount,time:time)
-            if s.lifecycle == nil{s.lifecycle=LifecycleState()}
-            s.lifecycle!.carry.append(CarryEvent(id:eventID,instrumentID:instrumentID,time:time,rate:rate,mark:mark,amount:amount,kind:kind,source:source))
-            s.appliedEvents.insert(eventID);s.audit(kind,"\(instrumentID) \(source)；費率 \(rate)；費用 \(amount)",time:time,id:eventID)
+            guard i.asset.derivative else{throw TradeError.invalid("此介面僅限合約持有費用")}
+            let amount=try mark*(s.positions[instrumentID]?.quantity ?? .zero)*i.rules.multiplier*rate
+            try Self.postCarry(&s,instrument:i,rate:rate,mark:mark,amount:amount,time:time,eventID:eventID,kind:kind,source:source,model:"signed-notional-rate-1")
+            if let quote=s.quotes[i.id]{try Self.risk(&s,quote:quote,now:time)}
         }
+    }
+    private static func settleFutureState(_ s:inout AccountState,instrument i:Instrument,price:Amount,time:Int64,eventID:String,final:Bool,source:String)throws{
+        guard !s.appliedEvents.contains(eventID) else{return}
+        guard i.asset == .future,price > .zero else{throw TradeError.invalid("需為有效期貨結算價")}
+        if var p=s.positions[i.id],p.quantity != .zero{
+            let pnl=try (price-p.average)*p.quantity*i.rules.multiplier
+            s.cash[i.currency]=try (s.cash[i.currency] ?? .zero)+pnl;p.realized=try p.realized+pnl;p.average=price
+            s.post(event:eventID,currency:i.currency,debit:"cash",credit:"future-settlement",amount:pnl,time:time)
+            if final{p.quantity = .zero;p.average = .zero;p.margin = .zero}
+            s.positions[i.id]=p
+        }
+        if final,let idx=s.instruments.firstIndex(where:{$0.id==i.id}){s.instruments[idx].rules.expiry=time}
+        if final{for id in s.orders.keys where s.orders[id]!.status.open && s.orders[id]!.request.instrumentID==i.id{s.orders[id]!.status = .expired;s.orders[id]!.reserved = .zero}}
+        s.appliedEvents.insert(eventID);s.audit("futureSettlement","\(i.id) \(final ? "到期現金結算":"每日結算，重設成本基準")；\(source)",time:time,id:eventID)
     }
     public func settleFuture(instrumentID: String,price: Amount,time: Int64,eventID: String,final: Bool,context: AccountContext) throws {
         try check(context)
-        try transaction {s in
-            guard !s.appliedEvents.contains(eventID) else{return}
-            let i=try Self.instrument(s,instrumentID)
-            guard i.asset == .future,price > .zero else {throw TradeError.invalid("需為有效期貨結算價")}
-            if var p=s.positions[instrumentID],p.quantity != .zero {
-                let pnl=try (price-p.average)*p.quantity*i.rules.multiplier
-                s.cash[i.currency]=try (s.cash[i.currency] ?? .zero)+pnl;p.realized=try p.realized+pnl;p.average=price
-                s.post(event:eventID,currency:i.currency,debit:"cash",credit:"future-settlement",amount:pnl,time:time)
-                if final{p.quantity = .zero;p.average = .zero;p.margin = .zero}
-                s.positions[instrumentID]=p
+        try transaction{s in try Self.settleFutureState(&s,instrument:Self.instrument(s,instrumentID),price:price,time:time,eventID:eventID,final:final,source:"使用者人工結算價")}
+    }
+    private static func scheduledOfflineLifecycle(_ s:inout AccountState,previous:Int64,now:Int64)throws{
+        guard s.mode == .offline,let sim=s.simulation else{throw TradeError.wrongAccount}
+        for i in s.instruments.sorted(by:{$0.id<$1.id}) where i.asset.derivative{
+            let held=s.positions[i.id]?.quantity ?? .zero
+            if i.asset == .future,let expiry=i.rules.expiry,previous<expiry,expiry<=now{
+                let mark=try s.quotes[i.id]?.mark ?? Simulation.price(i,at:previous,state:sim)
+                try settleFutureState(&s,instrument:i,price:mark,time:expiry,eventID:"sim-expiry-\(i.id)-\(expiry)",final:true,source:"B 自訂最後權威標記價模型；非交易所結算價")
+                continue
             }
-            if final,let idx=s.instruments.firstIndex(where:{$0.id==instrumentID}){s.instruments[idx].rules.expiry=time}
-            if final{for id in s.orders.keys where s.orders[id]!.status.open && s.orders[id]!.request.instrumentID==instrumentID{s.orders[id]!.status = .expired;s.orders[id]!.reserved = .zero}}
-            s.appliedEvents.insert(eventID);s.audit("futureSettlement",final ? "到期現金結算":"每日結算，重設成本基準",time:time,id:eventID)
+            guard held != .zero else{continue}
+            if let schedule=i.rules.carrySchedule,now%schedule.interval==schedule.offset,i.rules.isOpen(at:now){
+                let mark=try i.halted ? (s.quotes[i.id]?.mark ?? Simulation.price(i,at:previous,state:sim)):Simulation.price(i,at:now,state:sim)
+                let rate=held > .zero ? schedule.longRate:schedule.shortRate
+                let amount=try mark*held.magnitude*i.rules.multiplier*rate
+                try postCarry(&s,instrument:i,rate:rate,mark:mark,amount:amount,time:now,eventID:"sim-\(schedule.kind)-\(i.id)-\(now)",kind:schedule.kind,source:"B 自訂固定排程；正費率扣款、負費率返還",model:"absolute-notional-side-rate-1")
+            }
+            if i.asset == .future,let minute=i.rules.dailySettlementMinute{
+                var calendar=Calendar(identifier:.gregorian);calendar.timeZone=TimeZone(identifier:i.rules.timeZone)!
+                let day=Date(timeIntervalSince1970:TimeInterval(now))
+                if let due=calendar.date(bySettingHour:minute/60,minute:minute%60,second:0,of:day,matchingPolicy:.nextTime,repeatedTimePolicy:.first,direction:.forward){
+                    let time=Int64(due.timeIntervalSince1970)
+                    if previous<time,time<=now,(i.rules.isOpen(at:previous) || i.rules.isOpen(at:now)){
+                        let mark=try s.quotes[i.id]?.mark ?? Simulation.price(i,at:previous,state:sim)
+                        try settleFutureState(&s,instrument:i,price:mark,time:time,eventID:"sim-daily-\(i.id)-\(Self.utcDay(time,zone:i.rules.timeZone))",final:false,source:"B 自訂時區排程／最後權威標記價；DST 缺時取下一有效時間、重複時取首次")
+                    }
+                }
+            }
         }
     }
     public func corporateAction(_ action: CorporateAction,context: AccountContext) throws {

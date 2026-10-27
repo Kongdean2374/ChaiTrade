@@ -113,6 +113,13 @@ struct RuleEditor: View {
     @State private var days=0
     @State private var holidays=""
     @State private var expiry=Date().addingTimeInterval(2592000)
+    @State private var scheduledCarry=false
+    @State private var carryHours=8
+    @State private var carryOffset=0
+    @State private var longCarry="0.0001"
+    @State private var shortCarry="-0.0001"
+    @State private var dailySettlement=false
+    @State private var settlementMinute=0
     var body: some View {
         Form{
             Text("自訂模擬規則，不代表交易所已核驗制度。商品有持倉或未完成委託時禁止直接更改規格，避免回頭重寫歷史。").font(.footnote).foregroundStyle(.orange)
@@ -122,9 +129,25 @@ struct RuleEditor: View {
                 Picker("IANA 時區",selection:$zone){ForEach(["UTC","Asia/Taipei","America/New_York","Europe/London","Asia/Tokyo"],id:\.self){Text($0)}}
                 Stepper("開盤分鐘（當日 0 起算）\(open)",value:$open,in:0...1440,step:15);Stepper("收盤分鐘 \(close)",value:$close,in:0...1440,step:15)
                 Toggle("週一至週五",isOn:$weekdays);TextField("休市日 YYYY-MM-DD，以逗號分隔",text:$holidays).autocorrectionDisabled();Stepper(days == 0 ? "即時交割（簡化）":"交割 \(days) 個營業日（自訂日曆）",value:$days,in:0...10)
-                if model.selected?.asset == .future{DatePicker("實際契約到期時間",selection:$expiry)}
+                if model.selected?.asset == .future{DatePicker(model.state?.mode == .offline ? "模擬契約到期時間":"契約到期時間",selection:$expiry)}
             }
-            Button("保存未來規則"){Task{guard let i=model.selected,let engine=model.engine,let context=model.context else{return};await model.run{var r=i.rules;r.tick=try Amount(tick);r.quantityStep=try Amount(step);r.multiplier=try Amount(multiplier);r.fees.maker=try Amount(maker);r.fees.taker=try Amount(taker);r.fees.fixed=try Amount(fixed);r.fees.minimum=try Amount(minimum);r.fees.sellTax=try Amount(tax);r.timeZone=zone;r.openMinute=open;r.closeMinute=close;r.weekdaysOnly=weekdays;r.holidays=holidays.split(separator:",").map{String($0).trimmingCharacters(in:.whitespaces)};r.settlementBusinessDays=days;if i.asset == .future{r.expiry=Int64(expiry.timeIntervalSince1970)};r.verifiedAt=nil;r.source="使用者自訂模擬規則；非交易所核驗";r.version="custom-\(model.now)";try await engine.updateRules(instrumentID:i.id,rules:r,context:context)}}}
-        }.navigationTitle("自訂模擬規則").onAppear{guard let r=model.selected?.rules else{return};tick=r.tick.description;step=r.quantityStep.description;multiplier=r.multiplier.description;maker=r.fees.maker.description;taker=r.fees.taker.description;fixed=r.fees.fixed.description;minimum=r.fees.minimum.description;tax=r.fees.sellTax.description;zone=r.timeZone;open=r.openMinute;close=r.closeMinute;weekdays=r.weekdaysOnly;days=r.settlementBusinessDays ?? 0;holidays=r.holidays.joined(separator:",");if let t=r.expiry{expiry=Date(timeIntervalSince1970:TimeInterval(t))}}
+            if model.state?.mode == .offline,model.selected?.asset.derivative==true{
+                Section("B 自訂自動持有費與結算"){
+                    Toggle("按固定模擬時鐘收取持有費",isOn:$scheduledCarry)
+                    if scheduledCarry{
+                        Stepper("間隔 \(carryHours) 小時（UTC）",value:$carryHours,in:1...168)
+                        Stepper("週期偏移 \(carryOffset) 分鐘",value:$carryOffset,in:0...(carryHours*60-1))
+                        TextField("多方費率（正扣款、負返還）",text:$longCarry).keyboardType(.numbersAndPunctuation)
+                        TextField("空方費率（正扣款、負返還）",text:$shortCarry).keyboardType(.numbersAndPunctuation)
+                    }
+                    if model.selected?.asset == .future{
+                        Toggle("自動每日現金結算",isOn:$dailySettlement)
+                        if dailySettlement{Stepper(String(format:"每日結算 %02d:%02d（規則時區）",settlementMinute/60,settlementMinute%60),value:$settlementMinute,in:0...1439,step:15)}
+                    }
+                    Text("只使用 B 自產標記價與自訂費率；有部位才收費。期貨到期會自動結清並釋放委託。A 不以這些規則冒充真實來源的結算事件。").font(.caption)
+                }
+            }
+            Button("保存未來規則"){Task{guard let i=model.selected,let engine=model.engine,let context=model.context else{return};await model.run{var r=i.rules;r.tick=try Amount(tick);r.quantityStep=try Amount(step);r.multiplier=try Amount(multiplier);r.fees.maker=try Amount(maker);r.fees.taker=try Amount(taker);r.fees.fixed=try Amount(fixed);r.fees.minimum=try Amount(minimum);r.fees.sellTax=try Amount(tax);r.timeZone=zone;r.openMinute=open;r.closeMinute=close;r.weekdaysOnly=weekdays;r.holidays=holidays.split(separator:",").map{String($0).trimmingCharacters(in:.whitespaces)};r.settlementBusinessDays=days;if i.asset == .future{r.expiry=Int64(expiry.timeIntervalSince1970)};if model.state?.mode == .offline,i.asset.derivative{r.carrySchedule=scheduledCarry ? try CarrySchedule(interval:Int64(carryHours*3600),offset:Int64(carryOffset*60),longRate:Amount(longCarry),shortRate:Amount(shortCarry),kind:i.asset == .forex ? "interest":"funding"):nil;r.dailySettlementMinute=i.asset == .future && dailySettlement ? settlementMinute:nil};r.verifiedAt=nil;r.source="使用者自訂模擬規則；非交易所核驗";r.version="custom-\(model.now)";try await engine.updateRules(instrumentID:i.id,rules:r,context:context)}}}
+        }.navigationTitle("自訂模擬規則").onAppear{guard let r=model.selected?.rules else{return};tick=r.tick.description;step=r.quantityStep.description;multiplier=r.multiplier.description;maker=r.fees.maker.description;taker=r.fees.taker.description;fixed=r.fees.fixed.description;minimum=r.fees.minimum.description;tax=r.fees.sellTax.description;zone=r.timeZone;open=r.openMinute;close=r.closeMinute;weekdays=r.weekdaysOnly;days=r.settlementBusinessDays ?? 0;holidays=r.holidays.joined(separator:",");if let t=r.expiry{expiry=Date(timeIntervalSince1970:TimeInterval(t))};scheduledCarry=r.carrySchedule != nil;if let p=r.carrySchedule{carryHours=max(1,Int(p.interval/3600));carryOffset=Int(p.offset/60);longCarry=p.longRate.description;shortCarry=p.shortRate.description};dailySettlement=r.dailySettlementMinute != nil;settlementMinute=r.dailySettlementMinute ?? 0}
     }
 }

@@ -40,7 +40,7 @@ public struct PerformanceReport:Codable,Sendable{
 struct OpenCycle:Codable,Sendable{var quantity=Amount.zero,net=Amount.zero;var openedAt:Int64}
 struct PerformanceCheckpoint:Codable,Sendable{
     var open:[String:OpenCycle]
-    var actions:Set<String>
+    @CanonicalStringSet var actions:Set<String>
     var processed:Int
     var lastTime:Int64
     var firstTime:Int64?

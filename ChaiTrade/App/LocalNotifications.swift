@@ -11,10 +11,10 @@ private final class NoticePresenter:NSObject,UNUserNotificationCenterDelegate,@u
     init(){center.delegate=presenter}
     func requestPermission()async throws->Bool{try await center.requestAuthorization(options:[.alert,.sound,.badge])}
     func deliver(_ notices:[LocalNotice],context:AccountContext)async throws->Set<String>{
-        let settings=await center.notificationSettings()
-        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else{return Set(notices.map(\.id))}
-        let delivered=Set(await center.deliveredNotifications().map{ $0.request.identifier })
-        let pending=Set(await center.pendingNotificationRequests().map(\.identifier))
+        let authorized:Bool=await withCheckedContinuation{c in center.getNotificationSettings{settings in c.resume(returning:settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)}}
+        guard authorized else{return Set(notices.map(\.id))}
+        let delivered:Set<String>=await withCheckedContinuation{c in center.getDeliveredNotifications{values in c.resume(returning:Set(values.map{$0.request.identifier}))}}
+        let pending:Set<String>=await withCheckedContinuation{c in center.getPendingNotificationRequests{values in c.resume(returning:Set(values.map(\.identifier)))}}
         var acknowledged=Set<String>()
         for notice in notices where !notice.delivered && notice.accountID==context.accountID{
             if !delivered.contains(notice.id) && !pending.contains(notice.id){

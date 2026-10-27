@@ -1,5 +1,16 @@
 import Foundation
 
+public struct CarrySchedule:Codable,Equatable,Sendable{
+    public var interval:Int64
+    public var offset:Int64
+    public var longRate:Amount
+    public var shortRate:Amount
+    public var kind:String
+    public init(interval:Int64=28800,offset:Int64=0,longRate:Amount,shortRate:Amount,kind:String="funding"){
+        self.interval=interval;self.offset=offset;self.longRate=longRate;self.shortRate=shortRate;self.kind=kind
+    }
+}
+
 public struct PriceAdjustment: Codable, Sendable {
     public var instrumentID: String
     public var time: Int64
@@ -37,6 +48,7 @@ public struct CarryEvent: Codable, Identifiable, Sendable {
     public var amount: Amount
     public var kind: String
     public var source: String
+    public var calculationModel:String?
 }
 public struct LifecycleState: Codable, Sendable {
     public var settlements: [SettlementEvent] = []

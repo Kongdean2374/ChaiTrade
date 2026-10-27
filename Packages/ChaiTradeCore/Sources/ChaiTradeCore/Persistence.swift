@@ -98,7 +98,7 @@ public final class AccountRepository: @unchecked Sendable {
         return try encoder.encode(object)
     }
     public static func validate(_ state: AccountState, mode: Mode) throws {
-        guard state.schema == 1, state.mode == mode, state.accountID == mode.accountID,
+        guard (1...2).contains(state.schema), state.mode == mode, state.accountID == mode.accountID,
               state.orders.values.allSatisfy({ $0.accountID == mode.accountID }),
               state.fills.allSatisfy({ $0.accountID == mode.accountID }),
               state.ledger.allSatisfy({ $0.accountID == mode.accountID }) else { throw TradeError.wrongAccount }
@@ -109,6 +109,12 @@ public final class AccountRepository: @unchecked Sendable {
               state.instruments.allSatisfy({i in
                   !i.id.isEmpty && i.rules.tick > .zero && i.rules.quantityStep > .zero && i.rules.multiplier > .zero && i.rules.maintenance >= .zero && i.rules.maxLeverage>=1 && (i.rules.expiry == nil || i.rules.expiry!>=0) && TimeZone(identifier:i.rules.timeZone) != nil && i.rules.fees.maker >= .zero && i.rules.fees.taker >= .zero && i.rules.fees.minimum >= .zero && i.rules.fees.fixed >= .zero && i.rules.fees.sellTax >= .zero
               }) else{throw TradeError.corrupt("商品目錄或規則結構不合法，保留原始帳戶")}
+        for i in state.instruments{
+            if let schedule=i.rules.carrySchedule{
+                guard state.schema>=2,i.asset.derivative,(5...604800).contains(schedule.interval),schedule.interval%5==0,schedule.offset>=0,schedule.offset<schedule.interval,schedule.offset%5==0,schedule.longRate.magnitude <= .one,schedule.shortRate.magnitude <= .one,["funding","interest"].contains(schedule.kind) else{throw TradeError.corrupt("持有費排程不合法")}
+            }
+            if let minute=i.rules.dailySettlementMinute{guard state.schema>=2,i.asset == .future,(0..<1440).contains(minute) else{throw TradeError.corrupt("每日結算排程不合法")}}
+        }
         let instrumentIDs=Set(state.instruments.map(\.id))
         guard state.chartPreferences?.allSatisfy({id,p in instrumentIDs.contains(id) && (2...100).contains(p.period) && [60,300,900,1800,3600,14400,86400,604800,2592000].contains(p.interval) && ["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"].contains(p.indicator)}) ?? true else{throw TradeError.corrupt("圖表偏好不合法")}
         guard state.inbox?.allSatisfy({$0.accountID==state.accountID && $0.id=="\(state.accountID).\($0.event.id)"}) ?? true else{throw TradeError.wrongAccount}

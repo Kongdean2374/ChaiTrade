@@ -9,3 +9,9 @@ Authoritative time steps are 5 seconds; candles aggregate the same observed even
 1/2/5/10/60/100× change simulated elapsed time; matching still processes every event. Catch-up checkpoints at most 300 seconds per transaction, records the corresponding wall anchor, yields progress and can pause. B is frozen while A is active.
 
 Remaining acceptance includes optimized year/month history generation, richer news/participant/market-impact models, detailed event scenarios, official session variants and measured device performance. The existing model is an implemented deterministic world, not a claim that every section-15 behavior has already been accepted.
+
+## Scheduled lifecycle (offline-sim-2)
+
+New B accounts use state schema 2 and versioned custom rules. Perpetuals have fixed UTC eight-hour side rates; FX has custom weekday daily carry. Positive side rates debit cash and negative rates credit it. Only held positions accrue. Isolated fees use available funds first, then their own margin; risk processing follows in the same event transaction. These are owned simulation policies, not exchange fee feeds. Existing saved worlds retain their rules until explicitly changed while flat.
+
+Daily futures settlement follows the rule's IANA timezone. A nonexistent DST local time uses the next valid time; an ambiguous time uses its first occurrence. Final expiry closes positions at the last authoritative synthetic mark, releases orders and keeps any debt. Stable event IDs and clock/ledger checkpoints prevent repeat charging. A does not run this synthetic scheduler.

@@ -1,5 +1,16 @@
 import Foundation
 
+@propertyWrapper public struct CanonicalStringSet:Codable,Sendable{
+    public var wrappedValue:Set<String>
+    public init(wrappedValue:Set<String>){self.wrappedValue=wrappedValue}
+    public init(from decoder:Decoder)throws{
+        let values=try decoder.singleValueContainer().decode([String].self)
+        wrappedValue=Set(values)
+        guard values.count==wrappedValue.count else{throw TradeError.corrupt("集合包含重複識別")}
+    }
+    public func encode(to encoder:Encoder)throws{var c=encoder.singleValueContainer();try c.encode(wrappedValue.sorted())}
+}
+
 public enum Mode: String, Codable, CaseIterable, Sendable {
     case online, offline
     public var accountID: String { self == .online ? "account-online" : "account-offline" }
@@ -49,6 +60,8 @@ public struct RulePack: Codable, Sendable, Equatable {
     public var holidays: [String] = []
     public var expiry: Int64? = nil
     public var settlementBusinessDays: Int? = nil
+    public var carrySchedule:CarrySchedule?
+    public var dailySettlementMinute:Int?
     public init(tick: Amount, quantityStep: Amount) {
         self.tick = tick; self.quantityStep = quantityStep
         maintenance = try! Amount("0.005")
@@ -314,11 +327,11 @@ public struct AccountState: Codable, Sendable {
     public var ledger: [LedgerEntry] = []
     public var events: [AuditEvent] = []
     public var history: HistoryWindow?
-    public var appliedEvents: Set<String> = []
+    @CanonicalStringSet public var appliedEvents: Set<String> = []
     public var quotes: [String: Quote] = [:]
     public var consumed: [String: [Level]] = [:]
     public var instruments: [Instrument]
-    public var watchlist: Set<String> = []
+    @CanonicalStringSet public var watchlist: Set<String> = []
     public var journals: [JournalEntry] = []
     public var alerts: [PriceAlert] = []
     public var drawings: [Drawing] = []
