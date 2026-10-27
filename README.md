@@ -23,7 +23,7 @@
 
 ## 開發
 
-以 Xcode 16.4 開啟提交的 `ChaiTrade.xcodeproj`，選擇共享 Scheme `ChaiTrade`。原生 UI 為 SwiftUI，交易圖表使用隨 App 封裝的 Lightweight Charts 5.0.8。
+以 Xcode 26.2 開啟提交的 `ChaiTrade.xcodeproj`，選擇共享 Scheme `ChaiTrade`。原生 UI 為 SwiftUI，交易圖表使用隨 App 封裝的 Lightweight Charts 5.0.8。
 
 ```sh
 bash scripts/preflight.sh

@@ -2,8 +2,9 @@ import XCTest
 
 @MainActor final class InteractionTests:IsolatedUITestCase {
     func testRapidJournalSavePersistsExactlyOneEntry()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-contention","--uitest-slow-save"]);defer{capture("final")};try ready(app);try journal(app)
-        let text=app.textViews["journalText"];text.tap();text.typeText("Rapid journal unique draft")
+        let app=launchClean(fixture:true,flags:["--uitest-contention","--uitest-slow-save"]);defer{finish()};try ready(app);try journal(app)
+        let note="CT_JOURNAL_CASE_2374_NOTE"
+        let text=app.textViews["journalText"];try enterVerified(note,into:text)
         let save=app.buttons["saveJournal"];try reveal(save,in:app);rapid(save,count:5)
         try waitUntil("Journal did not enter an in-flight save"){
             let snapshot:[String:Any]=(try? self.state(app)) ?? [:]
@@ -15,17 +16,20 @@ import XCTest
         try waitUntil("Journal save did not finish",timeout:12){let s=try? self.state(app);return (s?["operations"] as? Int)==0 && (s?["journals"] as? [[String:String]])?.count==1}
         let s=try state(app),entries=s["journals"] as? [[String:String]] ?? []
         try check(entries.count==1,"Rapid save duplicated journal: \(entries.count)")
-        try check(entries.first?["text"]=="Rapid journal unique draft","Journal text changed")
+        try check(entries.first?["text"]==note,"Journal text changed")
         app.buttons["完成"].tap();app.terminate();app.launch()
         try check(app.tabBars.buttons["資產"].waitForExistence(timeout:30),"Relaunch failed")
         try check((try state(app)["journals"] as? [[String:String]])==entries,"Journal not persisted exactly once")
-        try journal(app);let next=app.textViews["journalText"];next.tap();next.typeText("Rapid journal unique draft")
+        try journal(app);let next=app.textViews["journalText"];try enterVerified(note,into:next)
         let second=app.buttons["saveJournal"];try reveal(second,in:app);second.tap()
         try waitUntil("A genuinely new journal draft was incorrectly deduplicated",timeout:12){(try? self.state(app)["journals"] as? [[String:String]])?.count==2}
+        let repeated=try state(app)["journals"] as? [[String:String]] ?? []
+        try check(repeated.count==2 && repeated.allSatisfy{$0["text"]==note},"A new draft lost visible text")
+        try check(Set(repeated.compactMap{$0["id"]}).count==2,"New drafts shared an id")
         try check(!app.alerts["操作未完成"].exists,"Journal produced an unexpected error")
     }
     func testRapidOrderConfirmationAndCancelDebitExactlyOnce()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-slow-submit"]);defer{capture("final")};try ready(app)
+        let app=launchClean(fixture:true,flags:["--uitest-slow-submit"]);defer{finish()};try ready(app)
         let initial=try XCTUnwrap((try state(app)["cash"] as? [String:String])?["TWD"])
         try marketOrder(app);let submit=app.buttons["submitOrder"];try reveal(submit,in:app);rapid(submit)
         try check(app.buttons["確認送出"].waitForExistence(timeout:5),"Confirmation missing");app.buttons["取消"].tap()
@@ -56,7 +60,7 @@ import XCTest
         try check(number((try state(app)["cash"] as? [String:String])?["TWD"] ?? "NaN")==expected,"Relaunch changed cash")
     }
     func testRapidTabsReselectAndFavoritesPersist()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-contention"]);defer{capture("final")};try ready(app)
+        let app=launchClean(fixture:true,flags:["--uitest-contention"]);defer{finish()};try ready(app)
         app.tabBars.buttons["交易"].tap();let watch=app.buttons["toggleWatch"];try check(watch.waitForExistence(timeout:5),"Favorite control missing")
         let before=(try state(app)["mutationStarts"] as? Int) ?? 0
         let point=watch.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
@@ -75,13 +79,13 @@ import XCTest
         try check((try state(app)["watchlist"] as? [String])==expected,"Favorite not durable")
     }
     func testBackNavigationSheetCancelSwipeAndKeyboard()throws{
-        let app=launchClean(fixture:true);defer{capture("final")};try ready(app)
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
         app.tabBars.buttons["資產"].tap();let tools=app.buttons["帳務、交割與市場事件"];try reveal(tools,in:app);tools.tap()
         app.buttons["估值匯率與來源"].tap();try check(app.navigationBars["估值匯率"].waitForExistence(timeout:5),"Nested navigation missing")
         app.navigationBars.buttons.element(boundBy:0).tap()
         app.coordinate(withNormalizedOffset:CGVector(dx:0.01,dy:0.5)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.85,dy:0.5)))
         try check(app.navigationBars["資產"].waitForExistence(timeout:5),"Interactive back failed")
-        try journal(app);let editor=app.textViews["journalText"];editor.tap();editor.typeText("Unsaved cancelled draft")
+        try journal(app);let editor=app.textViews["journalText"];try enterVerified("CT_UNSAVED_DRAFT_2374",into:editor)
         try check(app.keyboards.firstMatch.exists,"Keyboard did not open")
         let save=app.buttons["保存日誌"];try reveal(save,in:app);try check(save.isHittable,"Keyboard blocks journal save")
         app.buttons["完成"].tap();try check((try state(app)["journals"] as? [[String:String]])?.isEmpty==true,"Closing journal saved an unconfirmed draft")
@@ -94,7 +98,7 @@ import XCTest
         try check((try state(app)["journals"] as? [[String:String]])?.isEmpty==true,"Cancelled journal mutated account")
     }
     func testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-controlled-catchup"]);defer{capture("final")};try ready(app);try marketOrder(app)
+        let app=launchClean(fixture:true,flags:["--uitest-controlled-catchup"]);defer{finish()};try ready(app);try marketOrder(app)
         let submit=app.buttons["submitOrder"];try reveal(submit,in:app)
         let begin=app.buttons["uiTestBeginCatchup"];try check(begin.exists,"Controlled catchup button missing");begin.tap()
         try waitUntil("Actual catchup never started"){(try? self.state(app)["catchup"] as? Bool)==true}

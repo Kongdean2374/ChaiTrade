@@ -6,7 +6,7 @@ python3 scripts/security_scan.py
 if [[ "$(uname -s)" == Darwin ]]; then
   xcodebuild -version
   swift --version
-  test "$(xcodebuild -version | head -1)" = 'Xcode 16.4'
+  test "$(xcodebuild -version | head -1)" = 'Xcode 26.2'
   xcrun --sdk iphoneos --show-sdk-version
   xcodebuild -list -project ChaiTrade.xcodeproj
 fi

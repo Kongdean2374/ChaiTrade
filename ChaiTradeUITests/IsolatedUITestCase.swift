@@ -53,8 +53,23 @@ import XCTest
     func rapid(_ element:XCUIElement,count:Int=4){element.tap(withNumberOfTaps:count,numberOfTouches:1)}
     func waitUntil(_ message:String,timeout:TimeInterval=8,_ predicate:@escaping ()->Bool)throws{
         let deadline=Date().addingTimeInterval(timeout)
-        while Date()<deadline{if predicate(){return};Thread.sleep(forTimeInterval:0.15)}
+        while Date()<deadline{if predicate(){return};RunLoop.current.run(until:Date().addingTimeInterval(0.15))}
         try check(false,message)
+    }
+    func enterVerified(_ text:String,into element:XCUIElement)throws{
+        element.tap()
+        try check((element.value as? String ?? "").isEmpty,"Text editor did not start empty")
+        var expected=""
+        for character in text{
+            element.typeText(String(character));expected.append(character)
+            try check(element.value as? String==expected,"Keyboard input differs before any save")
+        }
+    }
+    func finish(){
+        capture("final")
+        guard let app=testedApp else{return}
+        RunLoop.current.run(until:Date().addingTimeInterval(0.15))
+        if app.state != .notRunning{app.terminate()}
     }
     func number(_ value:String)->NSDecimalNumber{NSDecimalNumber(string:value,locale:Locale(identifier:"en_US_POSIX"))}
 }

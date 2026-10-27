@@ -1,3 +1,11 @@
+# Current toolchain: Xcode 26.2 / iOS 26.2
+
+CI now pins the installed stable Xcode 26.2 and iPhone 17 Pro / iOS 26.2 simulator. The previous iOS 18.5 two-round run retained repeated XCTest animation-notification stalls, runner restarts and termination errors; it is not declared passed. All cases, repetitions, animations and numerical acceptance gates remain enabled. A newer runtime result does not validate the older runtime. iPhoneOS and Simulator builds retain the project minimum iOS 18.0.
+
+The official runner software snapshot is [macos-15-arm64/20260907.0337](https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md). It lists Xcode 26.2, iOS 26.2 and iPhone 17 Pro. Full new results remain pending in TEST_REPORT.md.
+
+The earlier simulator-only deployment override is removed for the new SDK/runtime. The original workaround and its evidence are retained below as historical context.
+
 # Xcode 16.4 / iOS 18.5 simulator workaround
 
 The captured launch crash was DYLD / Library missing for `/usr/lib/swift/libswiftWebKit.dylib`, before onboarding code executed. This matches [WebKit bug 293831](https://bugs.webkit.org/show_bug.cgi?id=293831) and the [Apple Frameworks Engineer's accepted answer](https://developer.apple.com/forums/thread/785964).

@@ -2,7 +2,7 @@ import XCTest
 
 @MainActor final class SmokeTests: IsolatedUITestCase {
     func testOfflineMarketOrderUsesLocalEngine() throws {
-        let app=launchClean();defer{capture("final")}
+        let app=launchClean();defer{finish()}
         let start=app.buttons["startTrading"]
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
@@ -22,7 +22,7 @@ import XCTest
         let shot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());shot.name="Offline local fill and position";shot.lifetime = .keepAlways;add(shot)
     }
     func testOfflineOnboardingAndNavigation() throws {
-        let app=launchClean();defer{capture("final")}
+        let app=launchClean();defer{finish()}
         let launchShot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());launchShot.name="Launch screen evidence";launchShot.lifetime = .keepAlways;add(launchShot)
         print("APP_LAUNCH_STATE",app.state.rawValue)
         XCTAssertTrue(app.wait(for:.runningForeground,timeout:15),"App terminated during startup")
@@ -46,7 +46,7 @@ import XCTest
         XCTAssertTrue(app.tabBars.buttons["總覽"].waitForExistence(timeout:30))
     }
     func testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition() throws {
-        let app=launchClean();defer{capture("final")}
+        let app=launchClean();defer{finish()}
         let start=app.buttons["startTrading"]
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
@@ -81,7 +81,7 @@ import XCTest
     }
 
     func testChartScreenshotCanBeAttachedToLocalJournal()throws{
-        let app=launchClean();defer{capture("final")}
+        let app=launchClean();defer{finish()}
         let start=app.buttons["startTrading"]
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30));app.tabBars.buttons["交易"].tap()
@@ -99,7 +99,7 @@ import XCTest
         if attachment.value as? String != "1"{attachment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()}
         XCTAssertEqual(attachment.value as? String,"1")
         XCTAssertTrue(app.images["journalChartPreview"].waitForExistence(timeout:5))
-        let text=app.textViews["journalText"];text.tap();text.typeText("Synthetic UI chart journal")
+        let text=app.textViews["journalText"];try enterVerified("CT_CHART_JOURNAL_2374",into:text)
         let save=app.buttons["保存日誌"]
         for _ in 0..<5 where !save.isHittable{app.swipeUp()}
         XCTAssertTrue(save.isHittable);save.tap()
@@ -108,6 +108,7 @@ import XCTest
         XCTAssertTrue(exportImage.waitForExistence(timeout:10),app.debugDescription)
         XCTAssertFalse(app.alerts["操作未完成"].exists)
         XCTAssertTrue(app.images["savedJournalChart"].exists)
+        XCTAssertEqual((try state(app)["journals"] as? [[String:String]])?.first?["text"],"CT_CHART_JOURNAL_2374")
         app.buttons["完成"].tap()
     }
 

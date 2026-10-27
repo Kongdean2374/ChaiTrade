@@ -1,0 +1,115 @@
+{
+  "commit": "6f583313e7287122502e1e881d8823521c5a4547",
+  "runID": 40500836018,
+  "conclusion": "failure; complete two-round acceptance not established",
+  "evidenceArtifactID": 12735000260,
+  "archiveSHA256": "d83c81b7f6ec2d34744878ca7c1bbe9374262719523c5669fbc09bc1489a1212",
+  "requestedExecutions": 18,
+  "caseResults": {
+    "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": [
+      {
+        "result": "passed",
+        "seconds": 125.181
+      },
+      {
+        "result": "failed",
+        "seconds": 61.833
+      }
+    ],
+    "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": [
+      {
+        "result": "failed",
+        "seconds": 40.862
+      },
+      {
+        "result": "passed",
+        "seconds": 75.674
+      }
+    ],
+    "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": [
+      {
+        "result": "passed",
+        "seconds": 111.358
+      },
+      {
+        "result": "passed",
+        "seconds": 46.026
+      }
+    ],
+    "InteractionTests.testRapidTabsReselectAndFavoritesPersist": [
+      {
+        "result": "passed",
+        "seconds": 37.108
+      },
+      {
+        "result": "passed",
+        "seconds": 37.296
+      }
+    ],
+    "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": [
+      {
+        "result": "passed",
+        "seconds": 44.055
+      },
+      {
+        "result": "passed",
+        "seconds": 39.924
+      }
+    ],
+    "SmokeTests.testOfflineMarketOrderUsesLocalEngine": [
+      {
+        "result": "passed",
+        "seconds": 33.493
+      },
+      {
+        "result": "passed",
+        "seconds": 32.867
+      }
+    ],
+    "SmokeTests.testOfflineOnboardingAndNavigation": [
+      {
+        "result": "passed",
+        "seconds": 30.682
+      },
+      {
+        "result": "passed",
+        "seconds": 51.742
+      }
+    ],
+    "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": [
+      {
+        "result": "failed",
+        "seconds": 49.942
+      },
+      {
+        "result": "failed",
+        "seconds": 117.933
+      }
+    ]
+  },
+  "uniqueSessionDirectories": 16,
+  "frameworkFailures": [
+    "Repeated App animations complete notification not received after 60 seconds",
+    "Test runner restarts after unexpected exit or timeout",
+    "Failed to terminate application before next isolated launch"
+  ],
+  "inputEvidence": {
+    "session": "52957C48-EEEB-4C0F-BB28-49E87CEDD67D",
+    "savedText": "Rapid journaque d uni",
+    "expectedText": "Rapid journal unique draft",
+    "scope": "Must verify input before save; not accepted as a passing content assertion"
+  },
+  "newEnvironment": {
+    "xcode": "26.2",
+    "simulator": "iPhone 17 Pro / iOS 26.2",
+    "source": "https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md",
+    "status": "pending full two-round rerun; no old result relabeled as passed"
+  },
+  "retainedGates": {
+    "UIExecutions": 18,
+    "xcodeMaximumTestExecutionAllowanceSeconds": 120,
+    "catchupCompletionSeconds": 35,
+    "animationsEnabled": true,
+    "T45": "unchanged"
+  }
+}
