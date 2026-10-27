@@ -3,16 +3,17 @@
   "toolchain": "Swift 6.1.3 Linux; Apple verification is tracked separately",
   "sourceSHA256": {
     "Packages/ChaiTradeCore/Package.swift": "4dd335d61169bfa39af43afd55fe7be49cd5900916ce40d2390a60207ff1b645",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Amount.swift": "e4b0959c8956684cad868d06dab9a8ba728cc87ff360d5d83e848bf0266a3fbb",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Amount.swift": "110a2c8ec773f7871a00f687e4f17f6c4e658adae72a0698bd36050699e0abb9",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Analytics.swift": "1a0c31cb0cc449610414a4aa831e1a32b0896c69115b70d1d4892dfd71b864c8",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Backup.swift": "fac0b79eb37d71566a22d990f9d1802a20efd423821507dab700ee7589d0a5d1",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Backup.swift": "2c9cfe039e7082425e1e9508e97f935df378045fd1426ac60d3f585dd157ca61",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Lifecycle.swift": "c1691b5a652719a989beacd7042838443916ae3ad8427ba53d08fef8a6102629",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketData.swift": "f0fc3adf0e1057b232769634b30ec1a3d715d49d26890ef12bc3a2185d158731",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketData.swift": "99e913973650e5f93ab73ec24c054770b33b9f2ba097a9d6a1ee3798dd1f26df",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketStream.swift": "3cc2a2f150dda7aae31a762ebfb489d9e20b6362d651c1c85976a06fdd74ff01",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Models.swift": "07d589c079bd1a6a24e812e05e4d13a030c724bd690861c5993b0b34dd381eb9",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Persistence.swift": "9028085723e5d5fb0aa1784cb5c5835d115dcb290c44c3550c6d5e9474344b66",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Simulation.swift": "f1699af3dfb9949c816ae3a0e64814d31c3f7a10469a082cba52c4abc03d214b",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "dcb7a28565a1be2d2606dfa9ab911835fa9f911b03ebe32c5212729ace464373",
-    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "6b00cee91649c908c85b02a9b52684e6911dcc3c57d85484c26264f063b60f02"
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "11c9615b7f3c54b2b9f589eb3876baf0eb40a95663352ef56c66d4d543597bb5",
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/LiveTests.swift": "45e88767940cac60383d03e8e9ee145c60502dc142df3999334d9ebcec1d7f30"
   }
 }

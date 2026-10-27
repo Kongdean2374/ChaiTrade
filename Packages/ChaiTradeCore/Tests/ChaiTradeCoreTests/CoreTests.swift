@@ -447,3 +447,13 @@ func allProviderQuoteSchemas(provider: ProviderID) async throws {
     else{#expect(q.bids.count==1);#expect(q.asks.count==1)}
     if provider == .binance{#expect(q.last == (try a("101")));#expect(q.mark == (try a("100")))}
 }
+
+@Test func arithmeticCannotCreateAnUnrestorableDecimalOrZeroLotRatio() throws {
+    let intermediate=try a("0.000000000001")*a("0.1")
+    #expect(try JSONDecoder().decode(Amount.self,from:JSONEncoder().encode(intermediate)) == intermediate)
+    #expect(throws:TradeError.self){try a("0.000000000001")/Amount.max}
+    #expect(try !a("0.01").isMultiple(of:Amount.max))
+    #expect(try Amount.max.isMultiple(of:a("0.000000000001")))
+    let value=try a("0.00000001")*a("0.0001")
+    #expect(try JSONDecoder().decode(Amount.self,from:JSONEncoder().encode(value)) == value)
+}

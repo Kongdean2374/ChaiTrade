@@ -106,9 +106,12 @@ struct ProviderSettings: View {
     func test() async{do{guard let i=model.state?.instruments.first(where:{$0.provider==id})else{result="請先載入來源商品目錄，並核對確切合約代碼";return};let quote=try await model.provider(id).quote(i,now:Int64(Date().timeIntervalSince1970));result="成功讀取 \(i.symbol) · \(quote.last) · \(quote.quality.rawValue) · \(quote.grade.rawValue)"}catch{result=error.localizedDescription}}
 }
 struct LicenseView: View {
+    @Environment(\.openURL) private var openURL
+    @State private var confirmExternal=false
     var license: String { guard let url=Bundle.main.url(forResource:"LightweightCharts-LICENSE",withExtension:nil,subdirectory:"Licenses") else{return "授權資源遺失"};return (try? String(contentsOf:url,encoding:.utf8)) ?? "授權檔無法讀取" }
     var body: some View{ScrollView{VStack(alignment:.leading,spacing:16){Text("Lightweight Charts™\nCopyright © TradingView, Inc.\nhttps://www.tradingview.com/").font(.headline);Text("圖表資源以 Apache License 2.0 授權，完整條款隨 App 打包。")
+        Button("TradingView（官方出處）"){confirmExternal=true}
         Text(license).font(.caption)
         Text("SQLite：Public Domain。Apple 系統框架依 Apple 平台條款提供。ChaiTrade 自有程式碼採 MIT。").font(.footnote)
-    }.padding()}}
+    }.padding()}.confirmationDialog("將開啟外部官方網站，離開本機離線操作環境",isPresented:$confirmExternal,titleVisibility:.visible){Button("開啟 TradingView"){openURL(URL(string:"https://www.tradingview.com/")!)}}}
 }

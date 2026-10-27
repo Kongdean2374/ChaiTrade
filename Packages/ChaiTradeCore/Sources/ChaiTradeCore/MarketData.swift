@@ -76,7 +76,7 @@ public struct ReadOnlyTransport: MarketTransport {
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         let (data, response): (Data, URLResponse)
         do { (data, response) = try await session.data(for: request) }
-        catch { throw TradeError.unavailable("裝置離線、TLS 或行情連線失敗；停止新成交，可重試") }
+        catch { let failure=error as NSError;throw TradeError.unavailable("裝置離線、TLS 或行情連線失敗（\(failure.domain) \(failure.code)）；停止新成交，可重試") }
         guard let http = response as? HTTPURLResponse else { throw TradeError.unavailable("來源回應格式不合法") }
         switch http.statusCode {
         case 200..<300: guard data.count <= 8_000_000 else { throw TradeError.unavailable("行情回應過大") }; return data

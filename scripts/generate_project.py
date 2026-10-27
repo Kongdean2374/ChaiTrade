@@ -30,7 +30,7 @@ for name,items in [('sources',[ref('build:'+str(f.relative_to(R))) for f in file
 add('resource-phase',f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({ref("resources-build")},{ref("licenses-build")},{ref("assets-build")}); runOnlyForDeploymentPostprocessing = 0;')
 add('frameworks',f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({ref("core-build")}); runOnlyForDeploymentPostprocessing = 0;')
 add('ui-frameworks','isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
-common={'SDKROOT':'iphoneos','IPHONEOS_DEPLOYMENT_TARGET':'18.0','SWIFT_VERSION':'6.0','SWIFT_STRICT_CONCURRENCY':'complete','CLANG_ENABLE_MODULES':'YES','CLANG_ENABLE_OBJC_ARC':'YES','TARGETED_DEVICE_FAMILY':'1','DEVELOPMENT_TEAM':'','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks @loader_path/Frameworks','ENABLE_DEBUG_DYLIB':'NO'}
+common={'SDKROOT':'iphoneos','IPHONEOS_DEPLOYMENT_TARGET':'18.0','SWIFT_VERSION':'6.0','SWIFT_STRICT_CONCURRENCY':'complete','CLANG_ENABLE_MODULES':'YES','CLANG_ENABLE_OBJC_ARC':'YES','TARGETED_DEVICE_FAMILY':'1','DEVELOPMENT_TEAM':'','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks @loader_path/Frameworks','ENABLE_DEBUG_DYLIB':'NO','ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES':'YES'}
 for scope in ['project','app','ui']:
  for config in ['Debug','Release']:
   s=dict(common)

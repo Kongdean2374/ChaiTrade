@@ -18,11 +18,20 @@ public struct Amount: Codable, Hashable, Comparable, Sendable, CustomStringConve
     public static let max = Amount(unchecked: Decimal(string: "1000000000000000")!)
     private init(unchecked value: Decimal) { decimal = value }
     public init(_ text: String) throws {
-        guard text.range(of: #"^-?(0|[1-9][0-9]*)(\.[0-9]{1,12})?$"#, options: .regularExpression) != nil,
+        try self.init(text,maximumScale:12)
+    }
+    private init(_ text: String,maximumScale: Int) throws {
+        let pattern="^-?(0|[1-9][0-9]*)(\\.[0-9]{1,\(maximumScale)})?$"
+        guard text.range(of:pattern,options:.regularExpression) != nil,
               let d = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")),
               !d.isNaN, d <= Self.max.decimal, d >= -Self.max.decimal else {
             throw TradeError.invalid("數值格式、精度或範圍不合法（最多 12 位小數／10¹⁵）")
         }
+        var canonical=text
+        if canonical.contains("."){while canonical.last=="0"{canonical.removeLast()};if canonical.last=="."{canonical.removeLast()}}
+        if canonical=="-0"{canonical="0"}
+        var value=d
+        guard NSDecimalString(&value,Locale(identifier:"en_US_POSIX"))==canonical else{throw TradeError.invalid("數值超出 Decimal 可精確表示範圍")}
         decimal = d
     }
     public init(_ integer: Int) throws { try self.init(String(integer)) }
@@ -50,6 +59,7 @@ public struct Amount: Codable, Hashable, Comparable, Sendable, CustomStringConve
         let error = NSDecimalDivide(&out, &l, &r, .plain)
         guard error == .noError || error == .lossOfPrecision, !out.isNaN, abs(out) <= Self.max.decimal else { throw TradeError.invalid("除法溢位") }
         var rounded = Decimal(); NSDecimalRound(&rounded, &out, 12, .plain)
+        guard out==0 || rounded != 0 else{throw TradeError.invalid("除法結果小於支援精度，拒絕將非零值默認為零")}
         return Self(unchecked: rounded)
     }
     public func rounded(_ scale: Int, _ mode: Decimal.RoundingMode = .plain) -> Self {
@@ -58,10 +68,14 @@ public struct Amount: Codable, Hashable, Comparable, Sendable, CustomStringConve
     }
     public func isMultiple(of step: Self) throws -> Bool {
         guard step > .zero else { return false }
-        let ratio = try self / step
-        return ratio == ratio.rounded(0)
+        var value=decimal,divisor=step.decimal,ratio=Decimal(),whole=Decimal()
+        let error=NSDecimalDivide(&ratio,&value,&divisor,.plain)
+        guard error == .noError || error == .lossOfPrecision,!ratio.isNaN else{throw TradeError.invalid("級距驗證溢位")}
+        NSDecimalRound(&whole,&ratio,0,.plain)
+        return ratio==whole
     }
-    public init(from decoder: Decoder) throws { try self.init(decoder.singleValueContainer().decode(String.self)) }
+    // Raw intermediate precision is retained in persistent strings; user input remains limited to 12 decimals.
+    public init(from decoder: Decoder) throws { try self.init(decoder.singleValueContainer().decode(String.self),maximumScale:128) }
     public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(description) }
 }
 

@@ -68,7 +68,9 @@ struct ChartView: UIViewRepresentable {
         func webView(_ webView: WKWebView,didFinish navigation: WKNavigation!) {ready=true;render(webView)}
         func render(_ web: WKWebView) {
             guard ready else{return}
-            web.callAsyncJavaScript("window.render(data)",arguments:["data":payload],in:nil,in:.page){_ in}
+            web.callAsyncJavaScript("window.render(data)",arguments:["data":payload],in:nil,in:.page){[weak self] result in
+                if case .failure(let error)=result{let code=(error as NSError).code;Task{@MainActor in self?.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"}}
+            }
         }
         func webView(_ webView: WKWebView,decidePolicyFor navigationAction: WKNavigationAction,decisionHandler: @escaping (WKNavigationActionPolicy)->Void) {
             guard let url=navigationAction.request.url,url.isFileURL,url.standardizedFileURL.path.hasPrefix(Bundle.main.bundleURL.standardizedFileURL.path+"/") else {decisionHandler(.cancel);return}

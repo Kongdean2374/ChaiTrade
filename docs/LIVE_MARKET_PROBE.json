@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-10-27T04:10:30.532826+00:00",
+  "simulation": "all orders remain local",
+  "sources": [
+    {
+      "name": "Coinbase Exchange",
+      "status": "passed",
+      "http": 200,
+      "fields": [
+        "ask",
+        "bid",
+        "volume",
+        "trade_id",
+        "price",
+        "size",
+        "time",
+        "rfq_volume"
+      ],
+      "marketValuesRetained": false
+    },
+    {
+      "name": "Binance public futures",
+      "status": "external-condition-blocked",
+      "reason": "HTTP Error 451: Unknown"
+    }
+  ]
+}

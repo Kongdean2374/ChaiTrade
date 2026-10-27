@@ -31,7 +31,9 @@ public enum BackupService {
     public static func exportBoth(_ accounts: [AccountState],password: String?,time: Int64) throws -> Data {
         guard accounts.count==2,Set(accounts.map(\.mode)).count==2 else{throw TradeError.invalid("完整備份須包含獨立的 A、B 帳戶")}
         let payloads=try accounts.sorted{$0.mode.rawValue<$1.mode.rawValue}.map{try export($0,password:password,time:time)}
-        return try AccountRepository.encode(AccountBackupBundle(createdAt:time,accounts:payloads,checksums:payloads.map(digest)))
+        let data=try AccountRepository.encode(AccountBackupBundle(createdAt:time,accounts:payloads,checksums:payloads.map(digest)))
+        guard data.count<=100_000_000 else{throw TradeError.invalid("雙帳戶備份超過目前安全容量，未匯出；請勿因此重設帳戶")}
+        return data
     }
     public static func importAccount(_ data: Data,expectedMode: Mode,password: String?) throws -> AccountState {
         guard data.count<=100_000_000 else{throw TradeError.corrupt("備份超過安全大小限制")}
@@ -107,6 +109,7 @@ public enum BackupService {
         // Provider data/cache and credentials are never exported. Offline state is the owned synthetic world.
         if state.mode == .online { clean.quotes = [:]; clean.consumed = [:] }
         let payload = try AccountRepository.encode(clean)
+        guard payload.count<=32_000_000 else{throw TradeError.invalid("帳戶超過目前 32 MB 備份容量，未產生不可還原的檔案；請保留原帳戶，不要重設或重裝")}
         var envelope = BackupEnvelope(mode:state.mode,createdAt:time,algorithm:"none",iterations:0,salt:Data(),nonce:Data(),tag:Data(),payload:payload,checksum:digest(payload))
         if let password, !password.isEmpty {
             envelope.algorithm = "AES-256-GCM/PBKDF2-HMAC-SHA256"; envelope.iterations = 600_000
