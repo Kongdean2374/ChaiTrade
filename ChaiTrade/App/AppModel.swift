@@ -246,7 +246,12 @@ struct ChartAmendment: Identifiable {
                 // Simulation, ledger and corresponding wall anchor commit in the same transaction.
                 await refresh();await Task.yield()
             }
-            if progress != nil && cursor+5>target { catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間";try await engine.recordNotice("catchupComplete",message:"離線市場補算完成；非背景即時推播",time:cursor,context:context);await refresh() }
+            if progress != nil && cursor+5>target {
+                catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間"
+                try await engine.recordNotice("catchupComplete",message:"離線市場補算完成；非背景即時推播",time:cursor,context:context)
+                await refresh()
+                if foreground{await loadChart()}
+            }
         } catch { self.error=error.localizedDescription }
     }
     func stopCatchup() { progress=nil }

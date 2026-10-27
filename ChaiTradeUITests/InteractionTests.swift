@@ -5,7 +5,10 @@ import XCTest
         let app=launchClean(fixture:true,flags:["--uitest-contention","--uitest-slow-save"]);defer{capture("final")};try ready(app);try journal(app)
         let text=app.textViews["journalText"];text.tap();text.typeText("Rapid journal unique draft")
         let save=app.buttons["saveJournal"];try reveal(save,in:app);rapid(save,count:5)
-        try waitUntil("Journal did not enter an in-flight save"){(try? self.state(app)["operations"] as? Int ?? 0)>0}
+        try waitUntil("Journal did not enter an in-flight save"){
+            let snapshot:[String:Any]=(try? self.state(app)) ?? [:]
+            return (snapshot["operations"] as? Int ?? 0)>0
+        }
         try check(!app.buttons["完成"].isEnabled,"Save allowed closing before commit")
         app.navigationBars["交易日誌"].swipeDown()
         try check(app.navigationBars["交易日誌"].exists,"Swipe dismissed an in-flight journal save")
@@ -103,10 +106,15 @@ import XCTest
         let paused=try state(app);try check(paused["pendingCatchup"] as? Bool==true,"Pause discarded target")
         try check((paused["orders"] as? [String])?.isEmpty==true,"Catchup allowed order mutation")
         rapid(app.buttons["從檢查點繼續處理"])
-        try waitUntil("Catchup did not finish from checkpoint",timeout:35){(try? self.state(app)["pendingCatchup"] as? Bool)==false}
+        try waitUntil("Catchup did not finish from checkpoint",timeout:35){
+            let s:[String:Any]=(try? self.state(app)) ?? [:]
+            return s["pendingCatchup"] as? Bool==false && s["catchup"] as? Bool==false && s["chartLoading"] as? Bool==false
+        }
         let complete=try state(app);try check((complete["orders"] as? [String])?.isEmpty==true,"Catchup replay created orders")
         try check((complete["fills"] as? [[String:String]])?.isEmpty==true,"Catchup replay created fills")
         try check(complete["catchupNotices"] as? Int==1,"Concurrent resume completed catchup more than once")
-        try check((complete["time"] as? Int64 ?? 0)>(paused["time"] as? Int64 ?? 0),"Catchup did not advance")
+        let finalTime=complete["time"] as? Int64 ?? 0,chartTime=complete["chartTime"] as? Int64 ?? 0
+        try check(finalTime>(paused["time"] as? Int64 ?? 0),"Catchup did not advance")
+        try check(chartTime>=finalTime-60 && chartTime<=finalTime,"Catchup left a stale chart in paused mode")
     }
 }

@@ -265,5 +265,15 @@
       "platform": "Debian GNU/Linux 12 (bookworm)",
       "samplesPerP95": 30
     }
+  },
+  "interactionCompileAttempt": {
+    "commit": "292ba4f552ee07b51a2f90f7814aa330d5e6524a",
+    "runID": 40493670109,
+    "core": "passed",
+    "T45": "passed",
+    "deviceBuild": "passed",
+    "ui": "not executed; test source type inference failure at InteractionTests.swift:8",
+    "evidenceArtifactID": 12730597113,
+    "ipaPublished": false
   }
 }

@@ -47,3 +47,5 @@ Fugle／Alpaca／Twelve Data 缺少合法憑證／方案；Binance 地區回應 
 互動專項新增五項對抗性案例及逐案例獨立資料，首次 Apple 執行尚未完成；詳見 INTERACTION_VALIDATION.md。既有四項正常流程證據不涵蓋本輪新增驗證。
 
 互動基準 run 40488978661 已完成：9 個獨立案例中 3 個失敗，證據先行保留；確認日誌五筆（四筆空白）及補算面板被整體停用，自選另有手勢送達數假設問題。修正後本地 70 項完整 Release 通過、零跳過；Apple 九案例各兩次重跑尚未完成。詳見 INTERACTION_VALIDATION.md 與 INTERACTION_BASELINE.json。
+
+修正版 run 40493670109 的核心、T45 與裝置版建置通過，但 UI 測試程式在 InteractionTests.swift:8 發生 optional／比較式型別推斷錯誤，未執行案例。證據 artifact 12730597113 保留；改成明確的 [String:Any] 與 Int 後重跑，沒有修改 >0 條件或其他門檻。補算案例另增加完成後圖表時間與最後模擬分鐘一致的驗證。
