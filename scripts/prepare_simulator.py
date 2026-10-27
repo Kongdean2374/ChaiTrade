@@ -1,14 +1,36 @@
-import json,subprocess,sys,os
-listing=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json']))
-devices=listing['devices'].get('com.apple.CoreSimulator.SimRuntime.iOS-26-2',[])
+import json,os,pathlib,subprocess,sys,time,uuid
+
+RUNTIME='com.apple.CoreSimulator.SimRuntime.iOS-26-2'
 name=os.environ.get('CHAI_SIMULATOR_NAME','iPhone 17 Pro')
 if name not in ['iPhone 17 Pro','iPhone SE (3rd generation)']:raise SystemExit('Unsupported acceptance simulator name')
-device=next((d for d in devices if d['name']==name),None)
-if not device and name=='iPhone SE (3rd generation)':
- udid=subprocess.check_output(['xcrun','simctl','create',name,'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation','com.apple.CoreSimulator.SimRuntime.iOS-26-2'],text=True).strip()
- device={'udid':udid,'state':'Shutdown'}
-if not device:raise SystemExit('Required '+name+' / iOS 26.2 simulator is unavailable')
-udid=device['udid']
-if device['state']!='Booted':subprocess.run(['xcrun','simctl','boot',udid],check=True,timeout=60,stdout=sys.stderr,stderr=sys.stderr)
-subprocess.run(['xcrun','simctl','bootstatus',udid,'-b'],check=True,timeout=180,stdout=sys.stderr,stderr=sys.stderr)
-print(udid)
+output=pathlib.Path('build/logs');output.mkdir(parents=True,exist_ok=True)
+listing=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json']))
+devices=listing['devices'].get(RUNTIME,[])
+types=json.loads(subprocess.check_output(['xcrun','simctl','list','devicetypes','--json']))['devicetypes']
+device_type=next((t['identifier'] for t in types if t['name']==name),None)
+if not device_type:raise SystemExit('Required '+name+' device type is unavailable')
+def fresh():
+ udid=subprocess.check_output(['xcrun','simctl','create','ChaiTrade acceptance '+str(uuid.uuid4()),device_type,RUNTIME],text=True).strip()
+ return {'udid':udid,'state':'Shutdown'}
+device=next((d for d in devices if d['name']==name),None) or fresh()
+records=[]
+for attempt in range(2):
+ started=time.monotonic();udid=device['udid']
+ try:
+  if device['state']!='Booted':subprocess.run(['xcrun','simctl','boot',udid],check=True,timeout=60,stdout=sys.stderr,stderr=sys.stderr)
+  subprocess.run(['xcrun','simctl','bootstatus',udid,'-b'],check=True,timeout=180,stdout=sys.stderr,stderr=sys.stderr)
+  records.append({'attempt':attempt+1,'udid':udid,'device':name,'hostBootSeconds':time.monotonic()-started,'ready':True})
+  (output/'simulator-preparation.json').write_text(json.dumps(records,indent=2))
+  print(udid);break
+ except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as error:
+  records.append({'attempt':attempt+1,'udid':udid,'device':name,'hostBootSeconds':time.monotonic()-started,'ready':False,'error':type(error).__name__,'note':'Host simulator boot only; not iPhone app cold-start acceptance.'})
+  (output/'simulator-preparation.json').write_text(json.dumps(records,indent=2))
+  try:
+   diagnostic=subprocess.run(['xcrun','simctl','list','devices','--json'],capture_output=True,text=True,timeout=15)
+   (output/f'simulator-boot-failure-{attempt+1}.json').write_text(diagnostic.stdout)
+  except (OSError,subprocess.TimeoutExpired):pass
+  if attempt==1:raise
+  print('Simulator host failed; evidence retained. Retrying once with a new identical device; same 180-second host boot limit.',file=sys.stderr)
+  try:subprocess.run(['xcrun','simctl','shutdown',udid],timeout=15,stdout=sys.stderr,stderr=sys.stderr)
+  except (OSError,subprocess.TimeoutExpired):pass
+  device=fresh()
