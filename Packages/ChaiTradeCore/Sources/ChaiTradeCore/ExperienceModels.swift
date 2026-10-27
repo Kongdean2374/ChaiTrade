@@ -108,7 +108,7 @@ public extension RulePack {
 }
 
 public extension Instrument{
-    var usesTaiwanBoards:Bool{isTaiwanEquity && identity?.legacy != true && [.taiwanStock,.etf].contains(asset)}
+    var usesTaiwanBoards:Bool{isTaiwanEquity && (identity?.catalogVersion ?? 0)>=1 && identity?.legacy != true && [.taiwanStock,.etf].contains(asset)}
     func board(for request:OrderRequest)->TradingBoard?{guard usesTaiwanBoards else{return nil};return request.board ?? (request.quantity.decimal < Decimal(identity?.boardLot ?? 1000) ? .oddLot:.regular)}
     func quoteKey(board:TradingBoard?)->String{board == .oddLot ? id+"::oddLot":id}
     func boardIsOpen(_ board:TradingBoard?,at time:Int64)->Bool{

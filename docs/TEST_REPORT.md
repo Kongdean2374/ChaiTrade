@@ -55,3 +55,15 @@ iPhoneOS Release 原生編譯通過；獨立下載產物核對 ZIP／SHA-256／b
 **尚未完成：** 舊 iOS18.x 的完整兩輪互動相容性、簽署後 iPhone17Pro 操作、正常 B 冷啟動 ≤2 秒、畫面送單回饋 p95 ≤150 毫秒、流暢度、記憶體、耗電、鎖屏通知及完整無障礙。模擬器與儲存層量測不取代實機。
 
 Fugle／Alpaca／TwelveData 缺合法憑證／方案，Binance 受地區 HTTP451 限制。整份計劃書的市場規則、合約風險、B 市場模型、商品中心、績效及通知剩餘功能仍見 [REMAINING_WORK.md](REMAINING_WORK.md)；[TEST_MATRIX.md](TEST_MATRIX.md) 的部分通過與未執行項目繼續保留。
+
+
+## 2026-10-27 產品補完開發驗證（尚未結案）
+
+- 本機完整Release：100項通過，CHAI_LIVE=1及CHAI_STRESS=1，零跳過。實際HTTP驗證BTC／ETH持續摘要、買賣盤、時間戳、K線、斷線標記恢復、本機冪等委託、Fed RSS及官方Nasdaq Trader商品身份。記錄 `.reports/product-full-release-sixth.log`。
+- 原T45：100,000 fills、100,001 equity points、30個p95樣本，寫入p95=51.769125ms，分頁p95=2.749259ms，熱載入48.667644ms、完整CSV134.458919ms。未調整150ms或其他原門檻。Linux儲存結果不視作iPhone 2秒冷啟動或UI回饋通過。
+- 核心新案例涵蓋參與者補單週期／跨更新流動性用量、重送委託資金與成交總量不重複、使用者衝擊價格／量能／因果ID、剪枝後歸檔重播及重啟圖表一致、摘要行情不略過持倉與委託風險、官方股票／ETF／交易所身份與分頁、B禁止目錄網路服務。
+- Apple run40559942622（3ea56e1）：native及core/T45通過；新產品UI三例通過、三例失敗。通過的實際路徑包括全新B股票下單1000股、委託持倉與日誌，以及全新A多商品公開行情。原互動20次執行19次通過、1次鍵盤操作後下單頁滑下關閉失敗，整組維持失敗。artifact12763092336 SHA256=6c066872b5450e4ea35cd9fa83e65a74b62058daf6e9ced6633834de306f53d4，修正後須重跑全部。
+- 三例UI失敗已保留完整xcresult、截圖、無障礙樹及獨立SQLite。artifact12762820764 SHA256=f127115bb836dc2c5ac9eaaba567c630c84647dde95da1056173ca69f293a716。實際檢視發現：橫向圖表確實顯示且旋轉，但容器識別符傳給子元素；加密案例切Tab後鍵盤仍顯示、新聞入口未到達；重啟案例SQLite仍保有ETH搜尋，但畫面留在股票。修正和重測尚不能先寫成通過。
+- 新增深淺模式、accessibility3大字體、中文搜尋、鍵盤、取消無副作用、底部safe area，並安排iPhone17Pro與SE第三代實際模擬器矩陣；尚未執行，不能列通過。
+
+目前不宣告完整產品或原計劃驗收完成。完整未完成及外部條件見REMAINING_WORK.md；最後IPA與commit/CI將在完成可處理缺口後重新產出。

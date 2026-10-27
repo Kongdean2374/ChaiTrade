@@ -104,6 +104,9 @@ public struct Instrument: Codable, Identifiable, Equatable, Sendable {
 public enum DataQuality: String, Codable, Sendable { case realtime, delayed, historical, stale, unavailable }
 public enum ExecutionGrade: String, Codable, Sendable { case E0, E1, E2, E3 }
 public struct Level: Codable, Equatable, Sendable {
+    public var liquidityID:String?
+    public var liquidityExpiresAt:Int64?
+    public var participant:String?
     public var price: Amount
     public var quantity: Amount
     public init(_ price: Amount, _ quantity: Amount) { self.price = price; self.quantity = quantity }
@@ -232,6 +235,8 @@ public struct Fill: Codable, Identifiable, Sendable {
     public var notional:Amount?
     public var positionKey:String?
     public var timelineSequence:Int64?
+    public var simulationImpact:SimulationImpact?
+    public var generatedEventIDs:[String]?
     public var ruleVersion: String
     public var realized: Amount
 }
@@ -350,6 +355,7 @@ public struct AccountState: Codable, Sendable {
     public var fills: [Fill] = []
     public var ledger: [LedgerEntry] = []
     public var financialFlows:[FinancialFlow]?
+    public var participantUsage:[String:ParticipantUsage]?
     public var events: [AuditEvent] = []
     public var history: HistoryWindow?
     @CanonicalStringSet public var appliedEvents: Set<String> = []

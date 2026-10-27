@@ -25,7 +25,7 @@ public final class AccountRepository: @unchecked Sendable {
             try exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;")
             let version = try scalar("PRAGMA user_version") ?? "0"
             guard Int(version) ?? 99 <= 5 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
-            try exec("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS account_state (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, account_id TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS fills_time ON fills(time); CREATE INDEX IF NOT EXISTS fills_order ON fills(order_id); CREATE INDEX IF NOT EXISTS fills_instrument_time ON fills(account_id,time); CREATE TABLE IF NOT EXISTS equity (ordinal INTEGER PRIMARY KEY,account_id TEXT NOT NULL,metrics TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS financial_flows (id TEXT PRIMARY KEY,account_id TEXT NOT NULL,time INTEGER NOT NULL,sequence INTEGER NOT NULL,payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS financial_flows_time ON financial_flows(time,sequence); CREATE TABLE IF NOT EXISTS report_state (id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_checkpoints (time INTEGER PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fill_report (id TEXT PRIMARY KEY REFERENCES fills(id), cells TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, time INTEGER NOT NULL, instrument TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS orders_time ON orders(time); CREATE INDEX IF NOT EXISTS orders_time_id ON orders(time DESC,id DESC); CREATE INDEX IF NOT EXISTS fills_instrument ON fills(json_extract(payload,'$.instrumentID')); CREATE TABLE IF NOT EXISTS ledger (ordinal INTEGER PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL); COMMIT;")
+            try exec("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS account_state (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, account_id TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS fills_time ON fills(time); CREATE INDEX IF NOT EXISTS fills_order ON fills(order_id); CREATE INDEX IF NOT EXISTS fills_instrument_time ON fills(account_id,time); CREATE TABLE IF NOT EXISTS equity (ordinal INTEGER PRIMARY KEY,account_id TEXT NOT NULL,metrics TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS financial_flows (id TEXT PRIMARY KEY,account_id TEXT NOT NULL,time INTEGER NOT NULL,sequence INTEGER NOT NULL,payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS financial_flows_time ON financial_flows(time,sequence); CREATE TABLE IF NOT EXISTS report_state (id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_checkpoints (time INTEGER PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fill_report (id TEXT PRIMARY KEY REFERENCES fills(id), cells TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, time INTEGER NOT NULL, instrument TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS orders_time ON orders(time); CREATE INDEX IF NOT EXISTS orders_time_id ON orders(time DESC,id DESC); CREATE INDEX IF NOT EXISTS fills_instrument ON fills(json_extract(payload,'$.instrumentID')); CREATE INDEX IF NOT EXISTS fills_simulation_history ON fills(json_extract(payload,'$.instrumentID'),time); CREATE TABLE IF NOT EXISTS ledger (ordinal INTEGER PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL); COMMIT;")
             if Int(version) ?? 0 < 5 {
                 if let json=try scalar("SELECT payload FROM account_state LIMIT 1"){
                     var old=try JSONDecoder().decode(AccountState.self,from:Data(json.utf8)),full=old
@@ -128,7 +128,13 @@ public final class AccountRepository: @unchecked Sendable {
               state.fills.allSatisfy({ $0.accountID == mode.accountID }),
               state.ledger.allSatisfy({ $0.accountID == mode.accountID }) else { throw TradeError.wrongAccount }
         if mode == .offline {
-            guard let simulation=state.simulation,["factor-wave-1","factor-wave-2"].contains(simulation.algorithm),simulation.time>=0,simulation.time<=32_503_680_000,simulation.time%Simulation.step==0,simulation.changes.allSatisfy({$0.time>=0 && $0.time<=simulation.time+Simulation.step && $0.time%Simulation.step==0 && $0.volatility.isFinite && (0.1...5).contains($0.volatility) && $0.liquidity.isFinite && (0.1...10).contains($0.liquidity) && ["多頭","空頭","盤整","恐慌","復甦"].contains($0.scenario)}),zip(simulation.changes,simulation.changes.dropFirst()).allSatisfy({$0.0.time<=$0.1.time}),state.instruments.allSatisfy({$0.id.hasPrefix("SIM:") && $0.initialPrice > .zero}) else{throw TradeError.corrupt("離線市場版本、時鐘或商品邊界不合法")}
+            if let simulation=state.simulation,simulation.algorithm=="factor-wave-3"{
+                guard ["factor-wave-1","factor-wave-2"].contains(simulation.baseAlgorithm ?? ""),let enabled=simulation.participantsFrom,enabled>=0,enabled<=32_503_680_000,enabled%Simulation.step==0 else{throw TradeError.corrupt("離線參與者版本或生效時間不合法")}
+                let known=Set(state.instruments.map(\.id)),groups=simulation.impactGroups ?? []
+                guard Set(groups.map(\.groupID)).count==groups.count,groups.allSatisfy({known.contains($0.instrumentID) && $0.volumeTime>=enabled && $0.volumeTime<=simulation.time && $0.volumeTime%Simulation.step==0 && $0.startsAt==$0.volumeTime+Simulation.step && $0.endsAt==$0.startsAt+300 && $0.volume >= .zero && $0.amplitude.magnitude <= Amount.max}) else{throw TradeError.corrupt("交易衝擊時間線或商品身份不合法")}
+                guard (state.participantUsage ?? [:]).values.allSatisfy({$0.quantity >= .zero && $0.expiresAt>simulation.time && $0.expiresAt<=simulation.time+60}) else{throw TradeError.corrupt("模擬流動性池用量或期限不合法")}
+            }
+            guard let simulation=state.simulation,["factor-wave-1","factor-wave-2","factor-wave-3"].contains(simulation.algorithm),simulation.time>=0,simulation.time<=32_503_680_000,simulation.time%Simulation.step==0,simulation.changes.allSatisfy({$0.time>=0 && $0.time<=simulation.time+Simulation.step && $0.time%Simulation.step==0 && $0.volatility.isFinite && (0.1...5).contains($0.volatility) && $0.liquidity.isFinite && (0.1...10).contains($0.liquidity) && ["多頭","空頭","盤整","恐慌","復甦"].contains($0.scenario)}),zip(simulation.changes,simulation.changes.dropFirst()).allSatisfy({$0.0.time<=$0.1.time}),state.instruments.allSatisfy({$0.id.hasPrefix("SIM:") && $0.initialPrice > .zero}) else{throw TradeError.corrupt("離線市場版本、時鐘或商品邊界不合法")}
         }else{guard state.simulation == nil,!state.instruments.contains(where:{$0.id.hasPrefix("SIM:")}) else{throw TradeError.wrongAccount}}
         guard !state.instruments.isEmpty,Set(state.instruments.map(\.id)).count==state.instruments.count,
               state.instruments.allSatisfy({i in
@@ -197,6 +203,11 @@ public final class AccountRepository: @unchecked Sendable {
     private static let window = 100
     private static func compact(_ state: AccountState) throws -> AccountState {
         var s=state,h=s.history ?? HistoryWindow()
+        if s.simulation != nil{
+            let time=s.simulation!.time,expired=(s.simulation!.impactGroups ?? []).filter{$0.endsAt+65<time}
+            if let last=expired.map(\.endsAt).max(){s.simulation!.impactArchiveCutoff=max(s.simulation!.impactArchiveCutoff ?? 0,last)}
+            s.simulation!.impactGroups=s.simulation!.impactGroups?.filter{$0.endsAt+65>=time}
+        }
         let fillDrop=max(0,s.fills.count-window),eventDrop=max(0,s.events.count-window)
         var totals=h.totals ?? [:]
         let currencies=Dictionary(uniqueKeysWithValues:s.instruments.map{($0.id,$0.currency)})
@@ -302,7 +313,13 @@ public final class AccountRepository: @unchecked Sendable {
         s.ledger=try readRows(LedgerEntry.self,sql:"SELECT payload FROM ledger ORDER BY ordinal")
         s.equity=try readRows(EquityPoint.self,sql:"SELECT payload FROM equity ORDER BY ordinal")
         s.financialFlows=try readRows(FinancialFlow.self,sql:"SELECT payload FROM financial_flows ORDER BY rowid")
+        if s.simulation != nil{let impacts=try SimulationParticipants.grouped(s.fills.compactMap(\.simulationImpact));if !impacts.isEmpty || s.simulation!.impactGroups != nil{s.simulation!.impactGroups=impacts};s.simulation!.impactArchiveCutoff=nil}
         s.history=nil;try Self.validate(s,mode:mode);try exec("COMMIT");committed=true;return s
+    }
+    public func simulationImpacts(instrumentID:String,from:Int64,through:Int64)throws->[SimulationImpact]{
+        lock.lock();defer{lock.unlock()}
+        let fills=try readRows(Fill.self,sql:"SELECT payload FROM fills WHERE json_extract(payload,'$.instrumentID')=? AND time>=? AND time<=? ORDER BY time,id",values:[instrumentID,String(from),String(through)])
+        return try SimulationParticipants.grouped(fills.compactMap(\.simulationImpact))
     }
     public func order(id:String)throws->Order?{
         lock.lock();defer{lock.unlock()}

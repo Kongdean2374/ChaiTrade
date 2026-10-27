@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ChaiTradeCore
 
 private enum QuoteResult:Sendable {
@@ -45,6 +46,7 @@ extension AppModel {
 
     func switchMarket(_ target:MarketDomain){
         guard target != market else{return}
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)
         market=target;visibleOwners=[:]
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel()
         let saved=browsing[target]?.selectedID
@@ -63,7 +65,7 @@ extension AppModel {
         restartStream();Task{if let context{await quoteScheduler.cancel(context:context)};await requestSelectedBoard();await quoteScheduler.retry([instrument.id]);await ensureQuoteService();await loadChart()}
     }
     func visible(_ id:String,owner:String,present:Bool){
-        if present{visibleOwners[owner,default:[]].insert(id)}else{visibleOwners[owner]?.remove(id)}
+        if present{guard state?.instruments.first(where:{$0.id==id})?.market==market else{return};visibleOwners[owner,default:[]].insert(id)}else{visibleOwners[owner]?.remove(id)}
         Task{await ensureQuoteService()}
     }
     func removeVisibleOwner(_ owner:String){visibleOwners.removeValue(forKey:owner);Task{await ensureQuoteService()}}
@@ -105,20 +107,20 @@ extension AppModel {
     }
     func summary(for instrument:Instrument)->QuoteSummary?{state?.mode == .offline ? simulatedSummaries[instrument.id] ?? state?.quotes[instrument.id]?.summary:state?.quotes[instrument.id]?.summary}
     func updateSimulatedSummaries()async{
-        guard let state,let sim=state.simulation,let captured=context else{return}
+        guard let state,let sim=state.simulation,let captured=context,let engine else{return}
         let minute=sim.time/60,ids=requiredQuoteIDs
         let needed=state.instruments.filter{ids.contains($0.id) && (summaryMinute != minute || simulatedSummaries[$0.id]==nil)}
         guard !needed.isEmpty else{return}
         summaryTask?.cancel();summaryMinute=minute
         summaryTask=Task{
-            let values=await Task.detached(priority:.utility){()->[String:QuoteSummary] in var values:[String:QuoteSummary]=[:];for i in needed{if Task.isCancelled{break};values[i.id]=try? Simulation.summary(i,state:sim)};return values}.value
+            let values=await Task.detached(priority:.utility){()->[String:QuoteSummary] in var values:[String:QuoteSummary]=[:];for i in needed{if Task.isCancelled{break};if let history=try? await engine.simulationSnapshot(instrumentID:i.id,from:max(0,sim.time-20*86400),context:captured){values[i.id]=try? Simulation.summary(i,state:history)}};return values}.value
             guard self.context==captured,!Task.isCancelled else{return}
             for (id,value) in values{simulatedSummaries[id]=value}
         }
     }
     func ensureQuoteService()async{
         guard let context else{return}
-        if context.mode == .offline{await updateSimulatedSummaries();return}
+        if context.mode == .offline{if let engine{do{try await engine.setSimulationDemand(selectedID.isEmpty ? []:[selectedID],context:context);guard self.context==context else{return};state=await engine.snapshot()}catch{self.notice=error.localizedDescription}};await updateSimulatedSummaries();return}
         await quoteScheduler.demand(context:context,visible:visibleQuoteIDs,selected:selectedID,protected:protectedQuoteIDs)
         guard foreground,quoteServiceTask==nil else{return}
         let generation=UUID();quoteServiceGeneration=generation

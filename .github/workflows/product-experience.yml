@@ -89,3 +89,30 @@ jobs:
             build/logs/
             build/ProductUITests.xcresult
           retention-days: 7
+
+  product-visual:
+    needs: native
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        device: ["iPhone 17 Pro", "iPhone SE (3rd generation)"]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      CHAI_SIMULATOR_NAME: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Actual light dark large text keyboard and small screen verification
+        run: bash scripts/test_product_visual.sh
+      - name: Preserve visual evidence and independent databases
+        if: always()
+        run: python3 scripts/collect_diagnostics.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: product-visual-${{ strategy.job-index }}
+          path: |
+            build/logs/
+            build/ProductVisualTests.xcresult
+          retention-days: 7

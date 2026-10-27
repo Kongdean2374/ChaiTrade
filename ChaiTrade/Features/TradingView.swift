@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ChaiTradeCore
 
 private struct OrderDraft:Identifiable{
@@ -33,7 +34,7 @@ struct TradingView:View{
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
             .sheet(isPresented:$connections){NavigationStack{ConnectionsView()}}
-            .fullScreenCover(isPresented:$fullscreen){VStack(spacing:0){HStack{Text(model.selected?.name ?? "").font(.headline);Spacer();Button("完成"){fullscreen=false}}.padding();ChartView(indicator:indicator,period:period,line:line)}.background(Color(.systemBackground)).accessibilityIdentifier("fullscreenChart")}
+            .fullScreenCover(isPresented:$fullscreen){VStack(spacing:0){HStack{Text(model.selected?.name ?? "").font(.headline);Spacer();Button("完成"){fullscreen=false}.accessibilityIdentifier("closeFullscreenChart")}.padding();ChartView(indicator:indicator,period:period,line:line).accessibilityIdentifier("fullscreenChartWeb")}.background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreenChart")}
             .task(id:model.selectedID){if let p=model.state?.chartPreferences?[model.selectedID]{indicator=p.indicator;period=p.period;line=p.line;model.interval=p.interval};await model.loadChart();await model.loadNews()}
             .onChange(of:indicator){_,_ in saveChart()}.onChange(of:period){_,_ in saveChart()}.onChange(of:line){_,_ in saveChart()}
     }
@@ -66,7 +67,7 @@ struct TradingView:View{
     @ViewBuilder private var bookSection:some View{
         if let q=model.quote,q.valid,[ExecutionGrade.E1,.E2].contains(q.grade),!q.bids.isEmpty,!q.asks.isEmpty{
             let subtitle=model.state?.mode == .offline ? "本機模擬對手盤；數量依商品單位":"來源提供的買賣盤；本機成交會消耗可用流動性"
-            MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:subtitle);HStack(alignment:.top,spacing:18){BookSide(title:"買盤",levels:q.bids,color:.green);BookSide(title:"賣盤",levels:q.asks,color:.red)}}
+            MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:subtitle);HStack(alignment:.top,spacing:18){BookSide(title:"買盤",levels:(try? SimulationParticipants.displayLevels(q.bids,usage:model.state?.participantUsage)) ?? [],color:.green);BookSide(title:"賣盤",levels:(try? SimulationParticipants.displayLevels(q.asks,usage:model.state?.participantUsage)) ?? [],color:.red)}}
         }else if model.state?.mode == .online{Text("目前沒有可供撮合的可靠買賣盤。可查看既有部位、委託與歷史，也可撤銷本機委託。").font(.footnote).foregroundStyle(.secondary)}
     }
     @ViewBuilder private func holdingSection(_ i:Instrument)->some View{
@@ -185,9 +186,10 @@ struct OrderForm:View{
         advancedSection
         summarySection
         submitSection
-    }.disabled(sending).scrollDismissesKeyboard(.interactively).interactiveDismissDisabled(sending).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{
+    }.disabled(sending).scrollDismissesKeyboard(.immediately).interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
+        ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
     }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"}}
         .onChange(of:unit){_,_ in if board == .oddLot{kind = .limit;tif = .DAY;postOnly=false;protection="無";model.changeBoard(.oddLot)}else if instrument.usesTaiwanBoards{model.changeBoard(.regular)}}
         .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text(confirmationText)}
@@ -210,6 +212,7 @@ struct OrderForm:View{
             if !instrument.asset.derivative{LabeledContent("可賣數量（\(instrument.quantityUnit)）",value:MarketText.number(model.state?.positions[instrument.id]?.quantity ?? .zero))}
             if instrument.asset.derivative{LabeledContent("可平數量（\(instrument.quantityUnit)）",value:MarketText.number(selectedPosition?.quantity.magnitude ?? .zero))}
             LabeledContent(instrument.currency+"可用",value:availableMoney)
+            if (try? model.state.map{try TradingEngine.available($0,currency:instrument.currency)}) == .zero{NavigationLink("設定這個幣別的虛擬資金"){CashView(initialCurrency:instrument.currency)}}
         }
     }
     @ViewBuilder private var contractRiskSection:some View{
@@ -276,8 +279,36 @@ struct OrderForm:View{
     }
 }
 
-struct InstrumentDetails: View {
-    @EnvironmentObject var model: AppModel
+struct InstrumentDetails:View{
+    @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
-    var body: some View { Form{if let i=model.selected{LabeledContent("商品 ID",value:i.id);LabeledContent("類別",value:i.asset.label);LabeledContent("報價幣別",value:i.currency);LabeledContent("交易時區",value:i.rules.timeZone);LabeledContent("合約乘數",value:i.rules.multiplier.description);LabeledContent("規則版本",value:i.rules.version);Text(i.rules.source);Text(i.rules.verifiedAt == nil ? "規則尚未完成官方現行制度核驗，不宣稱符合所有交易所制度。":"規則已記錄核驗時間").foregroundStyle(.orange);NavigationLink("自訂規則／費率／交割"){RuleEditor()};if let q=model.quote{Text(q.coverage);LabeledContent("標記價",value:q.mark?.description ?? "未提供")}}}.navigationTitle("商品規格").toolbar{Button("完成"){dismiss()}} }
+    @State private var confirmUpgrade=false
+    @State private var upgrading=false
+    var body:some View{Form{
+        if let instrument=model.selected{
+            Section("商品身份"){
+                LabeledContent("商品ID",value:instrument.id);LabeledContent("類別",value:instrument.asset.label)
+                LabeledContent("交易所",value:instrument.identity?.exchange ?? "自訂商品")
+                LabeledContent("報價幣別",value:instrument.currency);LabeledContent("交易時區",value:instrument.rules.timeZone)
+                LabeledContent("合約乘數",value:instrument.rules.multiplier.description)
+            }
+            Section("交易規則"){
+                LabeledContent("規則版本",value:instrument.rules.version);Text(instrument.rules.source)
+                Text(instrument.rules.verifiedAt == nil ? "規則尚未完成所有官方現行制度核驗，請查看模擬規則與限制。":"規則已記錄核驗時間").foregroundStyle(.orange)
+                if instrument.identity?.catalogVersion==0{
+                    Text("此商品保留舊版交易單位與委託規格，尚未套用新的股／張分盤。原有部位與委託不會因更新而改寫。").font(.footnote)
+                    Button(upgrading ? "升級中…":"核對並升級此商品規則"){confirmUpgrade=true}.disabled(upgrading || model.interactionBlocked)
+                }
+                NavigationLink("自訂規則／費率／交割"){RuleEditor()}
+            }
+            if let quote=model.quote{Section("行情限制"){Text(quote.coverage);LabeledContent("標記價",value:quote.mark?.description ?? "未提供")}}
+        }
+    }.navigationTitle("商品規格").toolbar{Button("完成"){dismiss()}}
+        .confirmationDialog("升級此商品的內建交易規則？",isPresented:$confirmUpgrade,titleVisibility:.visible){
+            Button("核對身份並升級"){
+                guard !upgrading,let id=model.selected?.id,let context=model.context,let engine=model.engine else{return};upgrading=true
+                Task{defer{upgrading=false};if await model.run({try await engine.adoptCatalogRules(instrumentID:id,context:context)}){model.selectedBoard = .oddLot;await model.fetchQuotes()}}
+            };Button("取消",role:.cancel){}
+        }message:{Text("必須沒有持倉與未結委託才可升級；不會替你清倉、取消委託或清除歷史。")}
+    }
 }

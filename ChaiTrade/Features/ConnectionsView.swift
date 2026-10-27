@@ -44,7 +44,7 @@ struct ProviderSettings:View{
             Section("3 · 測試與更新"){
                 Button(testing ? "測試中…":"測試此來源行情"){Task{await test()}}.disabled(testing)
                 if id != .alpaca{Button(model.catalogLoading ? "更新商品中…":"更新此來源商品目錄"){Task{await model.refreshCatalog(id)}}.disabled(model.catalogLoading)}
-                else{NavigationLink("加入其他美股代碼"){USStockDiscoveryView()}}
+                else{NavigationLink("搜尋官方美股／ETF目錄"){USStockDiscoveryView()}}
                 if !result.isEmpty{Text(result).font(.subheadline).accessibilityIdentifier("connectionResult")}
                 if let issue=model.catalogIssue{Text(issue).font(.caption)}
                 Text("這個測試只證明當次讀取結果。持續更新、斷線恢復與歷史K線仍以實際操作和驗收結果為準。").font(.caption).foregroundStyle(.secondary)
@@ -67,22 +67,33 @@ struct ProviderSettings:View{
 }
 struct USStockDiscoveryView:View{
     @EnvironmentObject var model:AppModel
-    @State private var symbol=""
+    @State private var query=""
+    @State private var page:DirectoryPage?
     @State private var message=""
     @State private var loading=false
-    var body:some View{Form{
-        Text("依確切代碼取得IEX商品的實際快照，再加入目錄。無資料、同名或不支援商品不會任意合併。").font(.footnote)
-        TextField("美股代碼，例如 NVDA",text:$symbol).textInputAutocapitalization(.characters).autocorrectionDisabled()
-        Button(loading ? "查詢中…":"查詢並加入"){Task{await add()}}.disabled(loading || symbol.isEmpty)
-        if !message.isEmpty{Text(message).font(.subheadline)}
-    }.navigationTitle("探索美股")}
-    private func add()async{
-        guard let engine=model.engine,let context=model.context,context.mode == .online else{return};loading=true;defer{loading=false}
-        do{let code=symbol.uppercased().trimmingCharacters(in:.whitespacesAndNewlines);guard code.range(of:"^[A-Z][A-Z.]{0,9}$",options:.regularExpression) != nil else{throw TradeError.invalid("請輸入正確美股代碼")}
-            var rule=try RulePack(tick:Amount("0.01"),quantityStep:.one);rule.weekdaysOnly=true;rule.timeZone="America/New_York";rule.openMinute=570;rule.closeMinute=960;rule.source="IEX報價；自訂模擬費率，非交易所完整制度";rule.settlementBusinessDays=1
-            let instrument=Instrument(id:"alpaca:"+code,symbol:code,name:code+"（待核對官方名稱）",asset:.usStock,currency:"USD",rules:rule,initialPrice:.one,provider:.alpaca)
-            let quote=try await model.provider(.alpaca).quote(instrument,now:model.now,includeSummary:true)
-            guard model.context==context else{return};try await engine.importOnlineInstruments([instrument],context:context);try await engine.ingest(quote,now:model.now,context:context);await model.refresh();message="已加入 "+code+"；名稱、交易所與商品類型仍須核對，請勿當作完整商品資料。"
-        }catch{message=error.localizedDescription}
+    var body:some View{List{
+        Section{
+            Text("搜尋Nasdaq Trader公開商品身份，涵蓋NASDAQ與其他上市交易所的股票、ETF。目錄不代表已取得IEX即時行情權限。").font(.footnote)
+            TextField("代碼或英文名稱",text:$query).textInputAutocapitalization(.never).autocorrectionDisabled()
+            Button(loading ? "搜尋中…":"搜尋官方目錄"){Task{await search(offset:0)}}.disabled(loading)
+            if !message.isEmpty{Text(message).font(.subheadline)}
+        }
+        if let page{
+            Section("符合 \(page.total) 個商品"){
+                ForEach(page.instruments){instrument in
+                    Button{Task{await add(instrument)}}label:{VStack(alignment:.leading,spacing:5){Text(instrument.symbol+" · "+instrument.name);Text((instrument.identity?.exchange ?? "")+" · "+instrument.asset.label+" · USD").font(.caption).foregroundStyle(.secondary)}}.disabled(loading)
+                }
+                HStack{if page.offset>0{Button("上一頁"){Task{await search(offset:max(0,page.offset-40))}}};Spacer();if page.offset+page.instruments.count<page.total{Button("下一頁"){Task{await search(offset:page.offset+40)}}}}.disabled(loading)
+            }
+            Section("身份資料來源"){Text("Nasdaq Trader · "+page.updatedAt).font(.caption);Text("只在挑選時加入本機目錄；行情、精度及可成交狀態另行驗證，不合併同名跨交易所商品。").font(.caption)}
+        }
+    }.navigationTitle("探索美股與ETF")}
+    private func search(offset:Int)async{
+        guard model.context?.mode == .online,!loading,let context=model.context else{return};loading=true;defer{loading=false}
+        do{let directory=try USStockDirectory(mode:.online,transport:ReadOnlyTransport(mode:.online)),result=try await directory.search(query.trimmingCharacters(in:.whitespacesAndNewlines),offset:offset);guard model.context==context else{return};page=result;message=result.total==0 ? "官方目錄找不到符合的股票或ETF。":"點選商品加入行情列表。"}catch{message=error.localizedDescription}
+    }
+    private func add(_ instrument:Instrument)async{
+        guard !loading,let engine=model.engine,let context=model.context,context.mode == .online else{return};loading=true;defer{loading=false}
+        do{try await engine.importOnlineInstruments([instrument],context:context);guard model.context==context else{return};await model.refresh();message="已加入 "+instrument.symbol+" · "+instrument.name+"。行情將依來源權限載入。"}catch{message=error.localizedDescription}
     }
 }

@@ -101,3 +101,18 @@ private struct ContractRig{
     try await rig.engine.ingest(below,now:1005,context:ctx)
     #expect(await rig.engine.snapshot().positions[rig.instrument.id]?.quantity == .zero)
 }
+
+@Test func marginWithdrawalRequiresFreshRiskIncludingCollateralFactorAndCloseFee()async throws{
+    let rig=try ContractRig(tiers:true)
+    try await rig.engine.ingest(rig.quote(),now:1000,context:rig.context)
+    var request=try rig.request(side:.buy,positionSide:nil,quantity:5,leverage:10);request.marginMode = .isolated
+    _=try await rig.engine.submit(request,time:1000,context:rig.context)
+    let before=await rig.engine.snapshot(),position=try #require(before.positions[rig.instrument.id])
+    // 500 notional, maintenance25 + closing fee0.5: removing25 from50 must fail.
+    await #expect(throws:TradeError.self){try await rig.engine.adjustMargin(instrumentID:rig.instrument.id,amount:Amount("-25"),time:1000,context:rig.context)}
+    #expect(await rig.engine.snapshot().positions[rig.instrument.id]?.margin==position.margin)
+    await #expect(throws:TradeError.self){try await rig.engine.adjustMargin(instrumentID:rig.instrument.id,amount:Amount("-1"),time:1100,context:rig.context)}
+    try await rig.engine.adjustMargin(instrumentID:rig.instrument.id,amount:Amount("10"),time:1100,context:rig.context)
+    #expect(try await rig.engine.snapshot().positions[rig.instrument.id]?.margin==position.margin+Amount("10"))
+    #expect(await rig.engine.snapshot().cash==before.cash)
+}

@@ -8,7 +8,7 @@ struct ChaiTradeApp: App {
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
-            RootView().onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)){_ in model.clearChartCaches()}.environmentObject(model)
+            RootView().modifier(UITestVisualEnvironment()).onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)){_ in model.clearChartCaches()}.environmentObject(model)
                 .preferredColorScheme(model.settings.theme == "system" ? nil : model.settings.theme == "light" ? .light : .dark)
                 .tint(.orange)
                 .task { await model.boot() }

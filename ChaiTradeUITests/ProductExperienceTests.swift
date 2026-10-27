@@ -1,8 +1,9 @@
 import XCTest
 
 @MainActor final class ProductExperienceTests:IsolatedUITestCase{
-    private func onboard(_ app:XCUIApplication,online:Bool=false)throws{
+    private func onboard(_ app:XCUIApplication,online:Bool=false,currency:String="TWD")throws{
         let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Fresh onboarding missing")
+        if currency != "TWD"{let picker=app.buttons["baseCurrency"];try reveal(picker,in:app);picker.tap();app.buttons[currency].tap()}
         if online{let choice=app.buttons["A 真實行情"];if !choice.exists{app.swipeDown()};choice.tap()}
         try reveal(start,in:app);start.tap();try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Fresh account failed")
         let s=try state(app)
@@ -46,11 +47,18 @@ import XCTest
         try check(app.buttons["market-SIM:Binance_USDⓈ-M:BTCUSDT"].waitForExistence(timeout:5),"Contract entrance missing")
         try check(!app.buttons["market-SIM:Coinbase_Exchange:BTC-USD"].exists,"Spot and contract default lists were mixed")
         capture("AFTER B crypto contracts")
-        app.tabBars.buttons["總覽"].tap();let news=app.buttons["全部"].firstMatch;try reveal(news,in:app);news.tap()
+        app.tabBars.buttons["總覽"].tap();let news=app.buttons["openMarketNews"];try reveal(news,in:app);news.tap()
         try check(app.navigationBars["新聞"].waitForExistence(timeout:5),"Market news cannot be opened")
         let items=try state(app)["news"] as? [[String:String]] ?? []
         try check(!items.isEmpty && items.allSatisfy{$0["origin"]=="simulated" && $0["label"]=="模擬情境，非真實新聞"},"Offline news lacks explicit simulation labels")
         capture("AFTER B crypto simulated news")
+        let first=try XCTUnwrap(items.first?["id"]),story=app.buttons["news-"+first]
+        try reveal(story,in:app);story.tap()
+        try check(app.navigationBars["新聞詳情"].waitForExistence(timeout:5),"Simulation news detail cannot be opened")
+        try check(app.staticTexts["模擬情境，非真實新聞"].firstMatch.exists,"News detail loses simulation warning")
+        capture("AFTER B crypto simulated news detail and causal factors")
+        app.navigationBars.buttons.element(boundBy:0).tap()
+        try check(app.navigationBars["新聞"].exists,"News back navigation lost the market feed")
     }
     func testRapidMarketSwitchKeepsQueriesFavoritesAndMoneyAcrossRestart()throws{
         let app=launchClean();defer{finish()};try onboard(app)
@@ -69,7 +77,9 @@ import XCTest
         XCUIDevice.shared.press(.home);app.activate();app.terminate();app.launch()
         try check(app.tabBars.buttons["行情"].waitForExistence(timeout:30),"Relaunch failed")
         app.tabBars.buttons["行情"].tap();try check(app.textFields["marketSearch"].value as? String=="2330","Stock search did not survive restart")
-        app.buttons["marketCrypto"].tap();try check(app.textFields["marketSearch"].value as? String=="ETH","Crypto search did not survive restart")
+        app.buttons["marketCrypto"].tap()
+        try waitUntil("Crypto market did not activate after restart",timeout:5){(try? self.state(app)["market"] as? String)=="crypto"}
+        try check(app.textFields["marketSearch"].value as? String=="ETH","Crypto search did not survive restart")
         try check((try state(app)["cash"] as? [String:String])==original,"Relaunch changed browsing account cash")
         capture("AFTER per-market browsing restored")
     }
@@ -108,11 +118,36 @@ import XCTest
         let selected=try state(app)["selected"] as? String
         let fullscreen=app.buttons["openFullscreenChart"];try reveal(fullscreen,in:app);fullscreen.tap();XCUIDevice.shared.orientation = .landscapeLeft
         defer{XCUIDevice.shared.orientation = .portrait}
-        try check(app.otherElements["fullscreenChart"].waitForExistence(timeout:10),"Landscape chart did not open")
+        try check(app.webViews["fullscreenChartWeb"].firstMatch.waitForExistence(timeout:10),"Landscape chart did not open")
         try check(app.frame.width>app.frame.height,"Chart did not actually rotate")
         capture("AFTER landscape chart")
-        app.buttons["完成"].tap();XCUIDevice.shared.orientation = .portrait
+        try check(app.buttons["closeFullscreenChart"].isHittable,"Landscape close button is outside the safe area")
+        app.buttons["closeFullscreenChart"].tap();XCUIDevice.shared.orientation = .portrait
         try check((try state(app))["selected"] as? String==selected,"Returning from landscape changed product")
         try check(app.tabBars.buttons["交易"].isHittable,"Chart left an overlay over navigation")
     }
+    func testCryptoSpotBuySellJourneyHasExactLocalAccounting()throws{
+        let app=launchClean();defer{finish()};try onboard(app,currency:"USD")
+        app.buttons["marketCrypto"].tap();let product=app.buttons["market-SIM:Coinbase_Exchange:BTC-USD"].firstMatch;try reveal(product,in:app);product.tap()
+        try waitUntil("Crypto chart has no actual local candles",timeout:10){(try? self.state(app)["chartTime"] as? Int64 ?? 0)>0}
+        capture("AFTER B USD crypto chart before trade")
+        for action in ["openOrder","openSellOrder"]{
+            app.tabBars.buttons["交易"].tap();let entry=app.buttons[action];try reveal(entry,in:app);entry.tap()
+            app.buttons["orderKind"].tap();app.buttons["市價"].tap()
+            let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap();app.buttons["確認送出"].tap()
+            try waitUntil("Crypto receipt did not reach orders",timeout:10){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+            capture("AFTER B crypto "+(action=="openOrder" ? "buy":"sell")+" order receipt")
+        }
+        let s=try state(app),fills=try XCTUnwrap(s["fills"] as? [[String:String]])
+        try check((s["orders"] as? [String])?.count==2,"Crypto two intents created incorrect order count")
+        try check(fills.count==2 && fills.allSatisfy{$0["quantity"]=="0.001"},"Crypto buy/sell quantity was duplicated or changed")
+        try check((s["positions"] as? [String:String])?["SIM:Coinbase_Exchange:BTC-USD"]=="0","Crypto spot roundtrip left a position")
+        let cash=try XCTUnwrap((s["cash"] as? [String:String])?["USD"]).replacingOccurrences(of:",",with:"")
+        let entries=try XCTUnwrap(s["fillCash"] as? [[String:String]])
+        var expected=Decimal(1000000)
+        for entry in entries{expected+=try XCTUnwrap(entry["amount"].flatMap{Decimal(string:$0,locale:Locale(identifier:"en_US_POSIX"))})}
+        try check(Decimal(string:cash,locale:Locale(identifier:"en_US_POSIX"))==expected,"Crypto account cash does not equal exact posted fill cash")
+        app.tabBars.buttons["資產"].tap();capture("AFTER B crypto assets after roundtrip")
+    }
+
 }

@@ -6,13 +6,18 @@ public struct Valuation: Sendable {
     public var missing: [String]
     public var tradingPnL: Amount?
 }
+public enum FXRateKind:String,Codable,Sendable{case reference,userDefined,simulated}
 public struct FXRate: Codable, Sendable {
     public var currency: String
     public var base: String
     public var rate: Amount
     public var time: Int64
     public var source: String
-    public init(currency: String, base: String, rate: Amount, time: Int64, source: String) { self.currency = currency; self.base = base; self.rate = rate; self.time = time; self.source = source }
+    public var maximumAge:Int64?
+    public var kind:FXRateKind?
+    public init(currency:String,base:String,rate:Amount,time:Int64,source:String,maximumAge:Int64=86400,kind:FXRateKind = .reference){self.currency=currency;self.base=base;self.rate=rate;self.time=time;self.source=source;self.maximumAge=maximumAge;self.kind=kind}
+    public func usable(at now:Int64)->Bool{rate > .zero && !source.isEmpty && time<=now+5 && now-time<=(maximumAge ?? 86400)}
+
 }
 public struct ChartEquityPoint:Identifiable,Sendable{
     public var id:Int
@@ -37,12 +42,13 @@ public enum Analytics {
         for fill in s.fills{guard let currency=currencies[fill.instrumentID] else{throw TradeError.corrupt("未知商品成交")};var total=totals[currency] ?? FillTotals();try total.include(fill);totals[currency]=total}
         return totals
     }
-    public static func valuation(_ state: AccountState, rates: [FXRate] = []) throws -> Valuation {
+    public static func valuation(_ state:AccountState,rates:[FXRate]=[],now:Int64?=nil)throws->Valuation{
+        let asOf=now ?? state.simulation?.time ?? max(state.equity.last?.time ?? 0,state.quotes.values.map(\.receivedAt).max() ?? 0,state.events.last?.time ?? 0)
         var total = Amount.zero, flows = Amount.zero, missing: [String] = []
         func convert(_ value: Amount, currency: String) throws -> Amount? {
             if value == .zero { return .zero }
             if currency == state.baseCurrency { return value }
-            guard let rate = (rates + (state.lifecycle?.rates ?? [])).first(where: { $0.currency == currency && $0.base == state.baseCurrency && $0.rate > .zero }) else { missing.append("缺少 \(currency)/\(state.baseCurrency) 匯率"); return nil }
+            guard let rate = (rates + (state.lifecycle?.rates ?? [])).first(where: { $0.currency == currency && $0.base == state.baseCurrency && $0.usable(at:asOf) }) else { missing.append("缺少有效的 \(currency)/\(state.baseCurrency) 匯率（尚未設定、過期或時間不符）；請更新估值匯率"); return nil }
             return try value * rate.rate
         }
         for (currency,cash) in state.cash { if let converted = try convert(cash,currency:currency) { total = try total + converted } }
@@ -53,8 +59,8 @@ public enum Analytics {
         for p in state.positions.values where p.quantity != .zero {
             guard let instrument = state.instruments.first(where: { $0.id == p.instrumentKey }), let q = state.quotes[p.instrumentKey] else { missing.append("缺少 \(p.id) 估值價格"); continue }
             let price = instrument.asset.derivative ? q.mark : q.last
-            guard let price else { missing.append("缺少 \(p.id) 標記價"); continue }
-            if q.quality != .realtime { missing.append("\(p.id) 使用最後已知價格（非即時）") }
+            guard let price,price > .zero else { missing.append("缺少 \(p.id) 標記價"); continue }
+            if !q.valid || q.quality != .realtime || q.time>asOf+5 || asOf-q.time>q.maximumAge { missing.append("\(p.id) 使用最後已知價格；需更新行情後才能完整估值") }
             let value = instrument.asset.derivative ? try (price - p.average) * p.quantity * instrument.rules.multiplier : try price * p.quantity
             if let converted = try convert(value, currency:instrument.currency) { total = try total + converted }
         }

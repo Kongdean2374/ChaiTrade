@@ -7,6 +7,7 @@ public actor TradingEngine {
     private let wallClock:(@Sendable ()->Int64)?
     private var maintenance:UUID?
     private var retired=false
+    private var simulationDemand:Set<String>?
     public init(context: AccountContext, repository: AccountRepository, initial: AccountState,wallClock:(@Sendable ()->Int64)?=nil) throws {
         guard context.mode == repository.mode else { throw TradeError.wrongAccount }
         try AccountRepository.validate(initial, mode: context.mode)
@@ -14,9 +15,12 @@ public actor TradingEngine {
     }
     public func prepareProductExperience(context:AccountContext)throws{
         try check(context)
-        guard state.productPreferences?.catalogMigrated != true else{return}
+        guard state.productPreferences?.catalogMigrated != true || (state.mode == .offline && state.simulation?.participantsFrom == nil) else{return}
         try transaction{s in
-            s=try InstrumentCatalog.migrate(s)
+            if s.productPreferences?.catalogMigrated != true{s=try InstrumentCatalog.migrate(s)}
+            if s.mode == .offline,s.simulation?.participantsFrom == nil{
+                s.simulation!.baseAlgorithm=s.simulation!.algorithm;s.simulation!.algorithm="factor-wave-3";s.simulation!.participantsFrom=s.simulation!.time+Simulation.step
+            }
             if s.mode == .offline,s.simulation?.newsUniverse == nil{
                 let universe=s.instruments.filter{$0.identity?.legacy != true}.map(NewsInstrument.init)
                 s.simulation!.newsUniverse=universe;s.simulation!.newsWorldID=BackupService.digest(try AccountRepository.encode(universe))
@@ -44,7 +48,12 @@ public actor TradingEngine {
             s.watchlist.formUnion(group.instrumentIDs)
         }
     }
-    public func removeWatchGroup(id:String,context:AccountContext)throws{try check(context);try transaction{$0.productPreferences?.groups.removeAll{$0.id==id}}}
+    public func removeWatchGroup(id:String,context:AccountContext)throws{
+        try check(context);try transaction{s in
+            s.productPreferences?.groups.removeAll{$0.id==id}
+            for market in MarketDomain.allCases{if s.productPreferences?.markets[market.rawValue]?.groupID==id{s.productPreferences!.markets[market.rawValue]!.groupID=nil}}
+        }
+    }
     public func snapshot() -> AccountState { state }
     public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
         try check(context);return try repository.fillPage(limit:limit,before:before)
@@ -90,7 +99,7 @@ public actor TradingEngine {
         var s = AccountState(mode: mode, baseCurrency: baseCurrency, instruments: try mode == .offline ? Simulation.catalog() : Providers.catalog())
         if mode == .offline{
             s.schema=2
-            s.simulation!.algorithm="factor-wave-2"
+            s.simulation!.algorithm="factor-wave-3";s.simulation!.baseAlgorithm="factor-wave-2";s.simulation!.participantsFrom=s.simulation!.time
             s.simulation!.newsUniverse=s.instruments.map(NewsInstrument.init)
             s.simulation!.newsWorldID=BackupService.digest(try AccountRepository.encode(s.simulation!.newsUniverse!))
             s.simulation!.newsFrom=s.simulation!.time-366*86400;s.simulation!.newsAccountingFrom=s.simulation!.time+Simulation.step
@@ -119,10 +128,10 @@ public actor TradingEngine {
         s.netFlows[currency] = try (s.netFlows[currency] ?? .zero) + amount
         s.post(event: eventID, currency: currency, debit: "cash", credit: "external-capital", amount: amount, time: time)
         s.appliedEvents.insert(eventID); s.audit("cashFlow", "虛擬資金調整 \(currency) \(amount)", time: time, id: eventID)
-        let value = try Analytics.valuation(s)
+        let value = try Analytics.valuation(s,now:time)
         let baseFlow: Amount
         if currency == s.baseCurrency{baseFlow=amount}
-        else if let rate=s.lifecycle?.rates.first(where:{$0.currency==currency && $0.base==s.baseCurrency}){baseFlow=try amount*rate.rate}
+        else if let rate=s.lifecycle?.rates.first(where:{$0.currency==currency && $0.base==s.baseCurrency && $0.usable(at:time)}){baseFlow=try amount*rate.rate}
         else{baseFlow = .zero}
         s.equity.append(EquityPoint(time:time,value:value.complete ? value.total:nil,flow:baseFlow))
     }
@@ -360,7 +369,10 @@ public actor TradingEngine {
             let key = "\(q.storageKey)|\(o.request.side.rawValue)"
             let stamp = "\(key)|\(q.source)|\(q.sequence)"
             var levels: [Level]
-            if let saved = s.consumed[stamp] { levels = saved }
+            let participantBook=s.mode == .offline && (o.request.side == .buy ? q.asks:q.bids).contains{$0.liquidityID != nil}
+            if participantBook{
+                levels=try (o.request.side == .buy ? q.asks:q.bids).map{level in var value=level;value.quantity=max(.zero,try value.quantity-(s.participantUsage?[level.liquidityID!]?.quantity ?? .zero));return value}
+            }else if let saved = s.consumed[stamp] { levels = saved }
             else {
                 for k in s.consumed.keys.filter({ $0.hasPrefix(key + "|") }) { s.consumed.removeValue(forKey: k) }
                 levels = o.request.side == .buy ? q.asks : q.bids
@@ -391,7 +403,11 @@ public actor TradingEngine {
                 // Funds and fees are checked again at execution; a gap cannot consume unbounded cash.
                 let before = s
                 do {
-                    try execute(&s, order: &o, quantity: quantity, price: levels[n].price, instrument: i, quote: q, now: now)
+                    try execute(&s, order: &o, quantity: quantity, price: levels[n].price, instrument: i, quote: q, now: now,liquidity:levels[n])
+                    if let pool=levels[n].liquidityID,let expires=levels[n].liquidityExpiresAt{
+                        if s.participantUsage==nil{s.participantUsage=[:]}
+                        s.participantUsage![pool]=ParticipantUsage(quantity:try (s.participantUsage![pool]?.quantity ?? .zero)+quantity,expiresAt:expires)
+                    }
                     levels[n].quantity = try levels[n].quantity - quantity
                 } catch TradeError.insufficient(let reason) { s = before; o.suspension = reason; break }
             }
@@ -399,7 +415,7 @@ public actor TradingEngine {
             else if o.filled > .zero { o.status = .partiallyFilled }
             if [.IOC,.FOK].contains(o.request.timeInForce) && o.status.open { o.status = .cancelled; o.reserved = .zero }
             if !limited && !o.request.kind.conditional && o.status.open { o.status = .cancelled; o.reserved = .zero }
-            s.orders[id] = o; s.consumed[stamp] = levels
+            s.orders[id] = o;if !participantBook{s.consumed[stamp] = levels}
             if o.filled > startingFilled {
                 // Group cancellation is atomic with fills. The first fill wins.
                 if let group = o.request.groupID {
@@ -421,7 +437,7 @@ public actor TradingEngine {
             if a.above ? q.last >= a.price : q.last <= a.price { s.alerts[idx].firedAt = now; s.audit("priceAlert", "\(i.symbol) 到價 \(a.price)", time: now, id: "alert-\(a.id)") }
         }
     }
-    private static func execute(_ s: inout AccountState, order o: inout Order, quantity: Amount, price: Amount, instrument i: Instrument, quote q: Quote, now: Int64) throws {
+    private static func execute(_ s: inout AccountState, order o: inout Order, quantity: Amount, price: Amount, instrument i: Instrument, quote q: Quote, now: Int64,liquidity:Level?=nil) throws {
         let notional = try quantity * price * i.rules.multiplier
         let totalNotional = try o.cumulativeNotional + notional
         let cumulativeFee = try i.rules.fees.cumulative(notional: totalNotional, maker: o.request.postOnly)
@@ -475,6 +491,12 @@ public actor TradingEngine {
         let fillID = "fill-\(o.id)-\(s.sequence + 1)"
         var fill = Fill(id: fillID, accountID: s.accountID, orderID: o.id, instrumentID: i.id, side: o.request.side, quantity: quantity, price: price, fee: fee, tax: tax, time: now, quoteTime: q.time, source: q.source, grade: q.grade, estimatedExecution: q.grade == .E3, liquidityEventID: "\(q.source)-\(q.board?.rawValue ?? "default")-\(q.sequence)", ruleVersion: o.ruleVersion, realized: realized)
         fill.causalEventIDs=q.causalEventIDs;fill.multiplier=i.rules.multiplier;fill.notional=notional;fill.positionKey=positionKey;fill.timelineSequence=s.sequence+1
+        if let pool=liquidity?.liquidityID,let sim=s.simulation,let enabled=sim.participantsFrom,now>=enabled{
+            fill.liquidityEventID=pool;fill.modelVersion=SimulationParticipants.model+"-impact-1"
+            let impact=try SimulationParticipants.impact(instrument:i,quantity:quantity,side:o.request.side,quote:q,time:now)
+            fill.simulationImpact=impact;fill.generatedEventIDs=[impact.groupID]
+            s.simulation!.impactGroups=try SimulationParticipants.grouped((s.simulation!.impactGroups ?? [])+[impact])
+        }
         s.fills.append(fill)
         if delayedSettlement {
             if s.lifecycle == nil { s.lifecycle = LifecycleState() }
@@ -551,11 +573,16 @@ public actor TradingEngine {
                 if sim.time%60==0{try Self.applySimulationNews(&s,at:sim.time)}
                 try Self.settleDue(&s,now:sim.time)
                 try Self.scheduledOfflineLifecycle(&s,previous:sim.time-Simulation.step,now:sim.time)
+                s.participantUsage=s.participantUsage?.filter{$0.value.expiresAt>sim.time}
+                let expired=(s.simulation!.impactGroups ?? []).filter{$0.endsAt+65<sim.time}
+                if let last=expired.map(\.endsAt).max(){s.simulation!.impactArchiveCutoff=max(s.simulation!.impactArchiveCutoff ?? 0,last)}
+                s.simulation!.impactGroups=s.simulation!.impactGroups?.filter{$0.endsAt+65>=sim.time}
                 let currentSimulation=s.simulation!
                 for i in s.instruments.sorted(by: { $0.id < $1.id }) where i.rules.isOpen(at: sim.time) && !i.halted {
-                    let q = try Simulation.quote(i, state: currentSimulation); s.quotes[i.id] = q
+                    let fullBook=(self.simulationDemand.map{$0.contains(i.id)} ?? true) || s.heldPositions(i.id).contains{$0.quantity != .zero} || s.orders.values.contains{$0.status.open && $0.request.instrumentID==i.id}
+                    let q = try Simulation.quote(i, state: currentSimulation,includeBook:fullBook); s.quotes[i.id] = q
                     try Self.match(&s, quote: q, now: sim.time); try Self.risk(&s, quote: q, now: sim.time)
-                    if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:currentSimulation,board:.oddLot);s.quotes[odd.storageKey]=odd;try Self.match(&s,quote:odd,now:sim.time)}
+                    if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:currentSimulation,board:.oddLot,includeBook:fullBook);s.quotes[odd.storageKey]=odd;try Self.match(&s,quote:odd,now:sim.time)}
                 }
                 if sim.time % 60 == 0 || s.sequence>financialSequence { try Self.recordEquity(&s,time:sim.time) }
             }
@@ -593,10 +620,38 @@ public actor TradingEngine {
             }
         }
     }
-    public func initializeQuotes(context: AccountContext) throws {
+    public func initializeQuotes(fullBookIDs:Set<String>?=nil,context: AccountContext) throws {
         try check(context)
         guard let sim = state.simulation else { return }
-        try transaction { s in for i in s.instruments { s.quotes[i.id] = try Simulation.quote(i, state: sim);if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:sim,board:.oddLot);s.quotes[odd.storageKey]=odd} } }
+        simulationDemand=fullBookIDs
+        var histories:[String:SimulationState]=[:]
+        for i in state.instruments{histories[i.id]=try simulationSnapshot(instrumentID:i.id,from:max(0,sim.time-10*366*86400),context:context)}
+        try transaction { s in for i in s.instruments { let history=histories[i.id]!,fullBook=(fullBookIDs.map{$0.contains(i.id)} ?? true) || s.heldPositions(i.id).contains{$0.quantity != .zero} || s.orders.values.contains{$0.status.open && $0.request.instrumentID==i.id};s.quotes[i.id] = try Simulation.quote(i, state: history,includeBook:fullBook);if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:history,board:.oddLot,includeBook:fullBook);s.quotes[odd.storageKey]=odd} } }
+    }
+    public func setSimulationDemand(_ ids:Set<String>,context:AccountContext)throws{
+        try check(context);guard state.mode == .offline else{throw TradeError.wrongAccount}
+        guard simulationDemand != ids else{return};simulationDemand=ids
+        var quotes:[Quote]=[]
+        for i in state.instruments where ids.contains(i.id){
+            let history=try simulationSnapshot(instrumentID:i.id,from:max(0,state.simulation!.time-10*366*86400),context:context)
+            quotes.append(try Simulation.quote(i,state:history))
+            if i.usesTaiwanBoards{quotes.append(try Simulation.quote(i,state:history,board:.oddLot))}
+        }
+        try transaction{s in for quote in quotes{s.quotes[quote.storageKey]=quote}}
+    }
+    public func simulationSnapshot(instrumentID:String,from:Int64,context:AccountContext)throws->SimulationState{
+        try check(context)
+        guard var simulation=state.simulation,state.instruments.contains(where:{$0.id==instrumentID}) else{throw TradeError.invalid("沒有此離線商品")}
+        if let cutoff=simulation.impactArchiveCutoff,from<cutoff{
+            simulation.impactGroups=try repository.simulationImpacts(instrumentID:instrumentID,from:max(0,from-305),through:simulation.time)
+            simulation.impactArchiveCutoff=max(0,from)
+        }
+        return simulation
+    }
+    public func simulationCandles(instrumentID:String,interval:Int64,count:Int,before:Int64?=nil,context:AccountContext)async throws->[Candle]{
+        let instrument=try Self.instrument(state,instrumentID)
+        let simulation=try simulationSnapshot(instrumentID:instrumentID,from:max(0,(before ?? state.simulation?.time ?? 0)-10*366*86400),context:context)
+        return try await Task.detached(priority:.userInitiated){try Simulation.candles(instrument,state:simulation,interval:interval,count:count,before:before)}.value
     }
     public func setPositionMode(_ mode:PositionMode,context:AccountContext)throws{
         try check(context)
@@ -650,7 +705,7 @@ public actor TradingEngine {
     }
     public func saveWallClock(_ time: Int64, context: AccountContext) throws { try check(context); try transaction { $0.lastWallTime = time } }
     private static func recordEquity(_ s: inout AccountState,time: Int64) throws {
-        let v=try Analytics.valuation(s)
+        let v=try Analytics.valuation(s,now:time)
         let value=v.complete ? v.total:nil
         if s.equity.last?.time==time,s.equity.last?.value==value{return}
         s.equity.append(EquityPoint(time:time,value:v.complete ? v.total:nil,flow:.zero))
@@ -669,6 +724,17 @@ public actor TradingEngine {
     public func processDueEvents(time: Int64,context: AccountContext) throws {
         try check(context);try transaction { s in try Self.settleDue(&s,now:time) }
     }
+    public func adoptCatalogRules(instrumentID:String,context:AccountContext)throws{
+        try check(context)
+        guard let replacement=try InstrumentCatalog.builtIn(mode:state.mode).first(where:{$0.id==instrumentID}) else{throw TradeError.invalid("此舊版自訂身份沒有可安全對應的內建規則")}
+        try transaction{s in
+            guard let index=s.instruments.firstIndex(where:{$0.id==instrumentID}),s.heldPositions(instrumentID).isEmpty,!s.orders.values.contains(where:{$0.request.instrumentID==instrumentID && $0.status.open}) else{throw TradeError.invalid("升級前須無持倉及未結委託；不會自動清倉、取消或搬移歷史")}
+            s.instruments[index].rules=replacement.rules;s.instruments[index].identity=replacement.identity;s.instruments[index].requiresRuleConfirmation=replacement.requiresRuleConfirmation
+            s.quotes.removeValue(forKey:instrumentID);s.quotes.removeValue(forKey:instrumentID+"::oddLot")
+            s.consumed=s.consumed.filter{!$0.key.hasPrefix(instrumentID+"|") && !$0.key.hasPrefix(instrumentID+"::oddLot|")}
+            s.audit("catalogRulesAdopted","核對原商品身份後升級交易規則；原帳務及成交保留",time:s.simulation?.time ?? Int64(Date().timeIntervalSince1970))
+        }
+    }
     public func updateRules(instrumentID: String,rules: RulePack,context: AccountContext) throws {
         try check(context)
         guard rules.tick > .zero,rules.quantityStep > .zero,rules.multiplier > .zero,rules.fees.taker >= .zero,rules.fees.taker < .one,rules.maxLeverage >= 1,rules.maintenance >= .zero,
@@ -686,7 +752,7 @@ public actor TradingEngine {
     }
     public func setFX(_ rate: FXRate,context: AccountContext) throws {
         try check(context)
-        guard rate.rate > .zero,rate.base == state.baseCurrency,!rate.source.isEmpty else { throw TradeError.invalid("匯率方向或來源不合法") }
+        guard rate.rate > .zero,rate.base == state.baseCurrency,rate.currency != rate.base,rate.currency.range(of:"^[A-Z]{3,8}$",options:.regularExpression) != nil,rate.time>=0,rate.source.utf8.count<=512,!rate.source.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,(60...604800).contains(rate.maximumAge ?? 86400),state.mode != .online || rate.kind != .simulated else { throw TradeError.invalid("匯率方向或來源不合法") }
         try transaction { s in if s.lifecycle == nil {s.lifecycle=LifecycleState()};s.lifecycle!.rates.removeAll{$0.currency==rate.currency && $0.base==rate.base};s.lifecycle!.rates.append(rate) }
     }
     public func adjustMargin(instrumentID: String,amount: Amount,time: Int64,positionSide:PositionSide?=nil,context: AccountContext) throws {
@@ -694,12 +760,16 @@ public actor TradingEngine {
         try transaction { s in
             let i=try Self.instrument(s,instrumentID)
             let key=s.positionKey(instrument:i,side:positionSide)
-            guard i.asset.derivative,var p=s.positions[key],p.quantity != .zero,p.marginMode == .isolated,let mark=s.quotes[instrumentID]?.mark else {throw TradeError.invalid("需有有效標記價與逐倉合約部位")}
+            guard i.asset.derivative,var p=s.positions[key],p.quantity != .zero,p.marginMode == .isolated else {throw TradeError.invalid("需有有效標記價與逐倉合約部位")}
             guard try amount <= Self.available(s,currency:i.currency) else {throw TradeError.insufficient("可用資金不足")}
             let changed=try p.margin+amount
-            let maintenance=try i.rules.maintenanceMargin(notional:mark*p.quantity.magnitude*i.rules.multiplier)
-            guard changed > .zero,try changed+(mark-p.average)*p.quantity*i.rules.multiplier > maintenance else {throw TradeError.invalid("移除後低於維持保證金")}
-            p.margin=changed;s.positions[key]=p;s.audit("marginAdjustment","\(instrumentID) 保證金調整 \(amount)",time:time)
+            guard changed > .zero else{throw TradeError.invalid("保證金須大於零")}
+            p.margin=changed;s.positions[key]=p
+            if amount < .zero{
+                let risk=try ContractRisk.evaluate(s,positionKey:key,now:self.wallClock?() ?? time)
+                guard risk.equity>risk.maintenanceAndClosingFee else{throw TradeError.invalid("移除後不足以支付維持保證金與預估平倉費用")}
+            }
+            s.audit("marginAdjustment","\(instrumentID) 保證金調整 \(amount)",time:time)
         }
     }
     private static func postCarry(_ s:inout AccountState,instrument i:Instrument,rate:Amount,mark:Amount,amount:Amount,time:Int64,eventID:String,kind:String,source:String,model:String,positionKey:String?=nil)throws{

@@ -123,27 +123,33 @@ struct PortfolioView:View{
     }
 }
 struct CashView: View {
+    var initialCurrency:String?=nil
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     @State private var currency="TWD"
     @State private var amount=""
     @State private var action="入金"
+    @State private var operationID=UUID().uuidString
+    @State private var saving=false
     @State private var destination="USD"
     @State private var rate=""
     @State private var confirm=false
     var body: some View {
         Form {
             Text("這是虛擬資金調整。加錢不算獲利；減資不得動用凍結資金。換匯採明示的自訂模擬匯率，不宣稱真實銀行成交。").font(.footnote)
-            Picker("操作",selection:$action){Text("入金").tag("入金");Text("減資").tag("減資");Text("換匯").tag("換匯")}
+            Picker("操作",selection:$action){Text("增加虛擬資金").tag("入金");Text("減少虛擬資金").tag("減資");Text("模擬換匯").tag("換匯")}
             TextField("幣別代碼",text:$currency).textInputAutocapitalization(.characters)
             TextField("金額",text:$amount).keyboardType(.decimalPad)
             if action == "換匯"{TextField("目標幣別",text:$destination).textInputAutocapitalization(.characters);TextField("每 1 來源幣可換多少目標幣",text:$rate).keyboardType(.decimalPad)}
             Button("確認虛擬資金操作"){confirm=true}
-        }.navigationTitle("資金操作").toolbar{Button("完成"){dismiss()}}
-            .confirmationDialog("確認調整目前帳戶的虛擬資金？",isPresented:$confirm,titleVisibility:.visible){Button("確認"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{
-                let input=try Amount(amount);guard input > .zero else{throw TradeError.invalid("金額必須大於零")}
-                if action == "換匯"{try await engine.exchange(from:currency,to:destination,amount:input,rate:Amount(rate),time:model.now,context:context)}else{try await engine.cashFlow(currency:currency,amount:action == "減資" ? input.negated:input,time:model.now,context:context)}
-            };if model.error == nil{dismiss()}}}}
+        }.disabled(saving).interactiveDismissDisabled(saving).navigationTitle("模擬資金操作").toolbar{Button("完成"){dismiss()}.disabled(saving)}.onAppear{currency=initialCurrency ?? model.state?.baseCurrency ?? "TWD"}
+            .confirmationDialog("確認調整目前帳戶的虛擬資金？",isPresented:$confirm,titleVisibility:.visible){Button("確認"){
+                guard !saving,let engine=model.engine,let context=model.context else{return};saving=true
+                Task{defer{saving=false};let success=await model.run{
+                    let input=try Amount(amount);guard input > .zero else{throw TradeError.invalid("金額必須大於零")}
+                    if action == "換匯"{try await engine.exchange(from:currency,to:destination,amount:input,rate:Amount(rate),time:model.now,eventID:operationID,context:context)}else{try await engine.cashFlow(currency:currency,amount:action == "減資" ? input.negated:input,time:model.now,eventID:operationID,context:context)}
+                };if success,model.context==context{dismiss()}}
+            } }
     }
 }
 struct JournalView: View {

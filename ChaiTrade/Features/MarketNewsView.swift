@@ -30,7 +30,7 @@ struct MarketNewsView:View{
         if model.newsLoading{ProgressView("載入新聞…")}
         if let issue=model.newsIssue{Text(issue).font(.caption).foregroundStyle(.orange)}
         if model.filteredNews.isEmpty && !model.newsLoading{ContentUnavailableView("目前沒有符合的新聞",systemImage:"newspaper",description:Text(model.currentBrowsing.newsFavoritesOnly ? "可關閉自選篩選查看此市場的其他新聞。":"可稍後重試，或前往行情連線查看來源權限。"))}
-        ForEach(model.filteredNews){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain)}
+        ForEach(model.filteredNews){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain).accessibilityIdentifier("news-"+story.id)}
         Text("已到新聞列表底部").font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity).accessibilityIdentifier("newsBottom")
     }.padding(18)}.background(Color(.systemGroupedBackground)).navigationTitle("新聞").toolbar{Button("重新整理"){Task{await model.loadNews(force:true)}}}.task{await model.loadNews()}}
 }

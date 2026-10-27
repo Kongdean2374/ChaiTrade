@@ -48,6 +48,7 @@ public enum NetworkPolicy {
             return path == "/products" || path == "/time" || path.range(of: #"^/products/[A-Z0-9-]+/(ticker|book|candles|trades|stats)$"#, options: .regularExpression) != nil
         case "api.fugle.tw":
             return path.range(of: #"^/marketdata/v1\.0/(stock|futopt)/(intraday/(quote|candles|trades|volumes)|historical/candles)/[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil || path.range(of:#"^/marketdata/v1\.0/(stock|futopt)/intraday/tickers$"#,options:.regularExpression) != nil
+        case "www.nasdaqtrader.com":return ["/dynamic/SymDir/nasdaqlisted.txt","/dynamic/SymDir/otherlisted.txt"].contains(path)
         case "www.federalreserve.gov":return ["/feeds/press_all.xml","/feeds/press_monetary.xml"].contains(path)
         case "data.alpaca.markets":
             return path == "/v1beta1/news" || path.range(of: #"^/v2/stocks/[A-Z.]+/(snapshot|bars|quotes/latest|trades/latest)$"#, options: .regularExpression) != nil
@@ -195,7 +196,7 @@ public struct MarketDataProvider: Sendable {
         case .fugle:json=try await fetch(path:"/marketdata/v1.0/stock/intraday/tickers",query:["type":"EQUITY","exchange":"TWSE","market":"TSE"]);rows=json["data"].array
         case .fugleFutures:json=try await fetch(path:"/marketdata/v1.0/futopt/intraday/tickers",query:["type":"FUTURE","exchange":"TAIFEX"]);rows=json["data"].array
         case .twelveData:json=try await fetch(path:"/forex_pairs",requiresCredentials:false);rows=json["data"].array
-        case .alpaca:throw TradeError.unavailable("Alpaca 資產目錄屬於另一個 API 邊界；請以美股代碼手動加入，行情仍只讀取 data.alpaca.markets")
+        case .alpaca:throw TradeError.unavailable("Alpaca 資產目錄屬於另一個 API 邊界；請從公開 Nasdaq Trader 商品搜尋挑選，行情仍只讀取 data.alpaca.markets")
         }
         var result:[Instrument]=[]
         for row in rows.prefix(2000) {

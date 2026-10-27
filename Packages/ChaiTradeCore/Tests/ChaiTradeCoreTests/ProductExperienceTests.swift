@@ -226,3 +226,29 @@ func simulationCorporateNewsPostsOnceAcrossCheckpointRestartAndSharesItsID(kind:
     #expect(after.cash==before.cash);#expect(after.lifecycle?.actions.filter{$0.id==story.id}.count==1)
     #expect(after.ledger.filter{$0.eventID==story.id}.count==before.ledger.filter{$0.eventID==story.id}.count)
 }
+
+@Test func legacyOnlineUnitsNeverChangeUntilExplicitFlatUpgrade()async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),context=AccountContext(mode:.online)
+    var initial=try TradingEngine.initial(mode:.online,capital:Amount("100000"),time:1000)
+    var old=try #require(initial.instruments.first{$0.symbol=="2330"})
+    old.identity=nil;old.rules=RulePack(tick:try Amount("0.01"),quantityStep:.one);old.rules.version="legacy-owned-rule"
+    initial.instruments=[old];initial.productPreferences=nil
+    let repository=try AccountRepository(root:root,mode:.online),engine=try TradingEngine(context:context,repository:repository,initial:initial)
+    let quote=Quote(instrumentID:old.id,source:"synthetic-legacy-account",time:1000,sequence:1,last:try Amount("100"),bids:[Level(try Amount("99"),try Amount("10000"))],asks:[Level(try Amount("100"),try Amount("10000"))])
+    try await engine.ingest(quote,now:1000,context:context)
+    let request=OrderRequest(instrumentID:old.id,side:.buy,kind:.limit,quantity:.one,price:try Amount("99"))
+    _=try await engine.submit(request,time:1000,context:context)
+    try await engine.prepareProductExperience(context:context)
+    let migrated=await engine.snapshot(),identity=try #require(migrated.instruments.first{$0.id==old.id})
+    #expect(identity.rules==old.rules);#expect(identity.identity?.catalogVersion==0);#expect(!identity.usesTaiwanBoards)
+    #expect(migrated.orders[request.requestID]?.request.quantity == .one)
+    await #expect(throws:TradeError.self){try await engine.adoptCatalogRules(instrumentID:old.id,context:context)}
+    try await engine.cancel(id:request.requestID,time:1001,context:context)
+    let before=await engine.snapshot()
+    try await engine.adoptCatalogRules(instrumentID:old.id,context:context)
+    let upgraded=await engine.snapshot(),product=try #require(upgraded.instruments.first{$0.id==old.id})
+    #expect(product.usesTaiwanBoards);#expect(product.identity?.catalogVersion==1)
+    #expect(try product.rules.tick(at:Amount("1000"))==Amount("5"))
+    #expect(upgraded.cash==before.cash);#expect(upgraded.orders[request.requestID]?.status == .cancelled)
+    #expect(upgraded.quotes[old.id]==nil);#expect(upgraded.fills.map(\.id)==before.fills.map(\.id))
+}

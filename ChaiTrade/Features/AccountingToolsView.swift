@@ -31,10 +31,10 @@ struct FXEditor: View {
     @State private var source="使用者自訂模擬匯率"
     var body: some View {
         Form{
-            Text("1 單位來源幣換算為多少 \(model.state?.baseCurrency ?? "TWD")。USDT、USDC 與 USD 分開設定，不固定視為 1:1。人工匯率不宣稱為即時行情。").font(.footnote)
+            Text("1 單位來源幣換算為多少 \(model.state?.baseCurrency ?? "TWD")。USDT、USDC 與 USD 分開設定，不固定視為 1:1。人工匯率不宣稱為即時行情，預設24小時後須重新確認；過期不參與總資產換算。").font(.footnote)
             TextField("來源幣別",text:$currency).textInputAutocapitalization(.characters);TextField("換算匯率",text:$rate).keyboardType(.decimalPad);TextField("來源說明",text:$source)
-            Button("保存估值匯率"){Task{guard let engine=model.engine,let context=model.context,let base=model.state?.baseCurrency else{return};await model.run{try await engine.setFX(FXRate(currency:currency,base:base,rate:Amount(rate),time:model.now,source:source),context:context)}}}
-            ForEach(model.state?.lifecycle?.rates ?? [],id:\.currency){r in Text("\(r.currency)/\(r.base) @ \(r.rate)\n\(r.source) · \(Date(timeIntervalSince1970:TimeInterval(r.time)).formatted())").font(.caption)}
+            Button("保存估值匯率"){Task{guard let engine=model.engine,let context=model.context,let base=model.state?.baseCurrency else{return};await model.run{try await engine.setFX(FXRate(currency:currency,base:base,rate:Amount(rate),time:model.now,source:source,kind:context.mode == .offline ? .simulated:.userDefined),context:context)}}}
+            ForEach(model.state?.lifecycle?.rates ?? [],id:\.currency){r in Text("\(r.currency)/\(r.base) @ \(r.rate)\n\(r.source) · \(Date(timeIntervalSince1970:TimeInterval(r.time)).formatted())\n"+(r.usable(at:model.now) ? "有效（人工／參考匯率，非保證成交匯率）":"已過期或時間不符，請更新")).font(.caption)}
         }.navigationTitle("估值匯率")
     }
 }

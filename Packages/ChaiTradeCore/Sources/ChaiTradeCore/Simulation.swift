@@ -19,6 +19,10 @@ public struct SimulationState: Codable, Sendable {
     public var liquidity = 1.0
     public var changes: [SimulationChange] = []
     public var priceAdjustments: [PriceAdjustment]?
+    public var baseAlgorithm:String?
+    public var participantsFrom:Int64?
+    public var impactGroups:[SimulationImpact]?
+    public var impactArchiveCutoff:Int64?
     public var newsFrom:Int64?
     public var newsAccountingFrom:Int64?
     public var newsWorldID:String?
@@ -54,7 +58,8 @@ public enum Simulation {
         return a + (b - a) * fraction
     }
     private static func priceValue(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Double {
-        guard ["factor-wave-1","factor-wave-2"].contains(state.algorithm) else { throw TradeError.unavailable("模擬演算法版本不相容，保留檢查點") }
+        guard ["factor-wave-1","factor-wave-2","factor-wave-3"].contains(state.algorithm) else { throw TradeError.unavailable("模擬演算法版本不相容，保留檢查點") }
+        if let cutoff=state.impactArchiveCutoff,time<cutoff{throw SimulationHistoryError.needsArchivedImpacts}
         if let halt=SimulationNews.active(instrument,at:time,state:state).first(where:{$0.kind=="halt"}){return try priceValue(instrument,at:halt.publishedAt-step,state:state)}
         let stream = hash(instrument.id), category = hash(instrument.asset.rawValue)
         let regime = Int(random(seed: state.seed, stream: 11, index: time / 86400) * 5)
@@ -70,7 +75,7 @@ public enum Simulation {
         let elapsed = Double(time - (control?.time ?? time))
         let trend = scenario == "多頭" ? min(0.15, elapsed / 86400 * 0.03) : scenario == "空頭" ? max(-0.15, -elapsed / 86400 * 0.03) : scenario == "恐慌" ? -0.12 * min(1, elapsed / 3600) : 0
         let adjustment = (state.priceAdjustments ?? []).filter { $0.instrumentID == instrument.id && $0.time <= time }.reduce(1.0) { $0 * $1.factor.displayDouble }
-        let news=SimulationNews.priceImpact(instrument,at:time,state:state)
+        let news=SimulationNews.priceImpact(instrument,at:time,state:state)+SimulationParticipants.priceImpact(instrument,at:time,state:state)
         let raw = instrument.initialPrice.displayDouble * adjustment * exp(common + sector + slow + fast * amplitudes[regime] * vol + trend + news)
         let tick = instrument.rules.priceTicks?.first(where:{$0.below == nil || raw < $0.below!.displayDouble})?.tick.displayDouble ?? instrument.rules.tick.displayDouble
         guard raw.isFinite, tick > 0 else { throw TradeError.invalid("模擬價格超出範圍") }
@@ -79,7 +84,7 @@ public enum Simulation {
     public static func price(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Amount {
         try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),priceValue(instrument,at:time,state:state)))
     }
-    public static func quote(_ instrument: Instrument, state: SimulationState,board:TradingBoard?=nil) throws -> Quote {
+    public static func quote(_ instrument: Instrument, state: SimulationState,board:TradingBoard?=nil,includeBook:Bool=true) throws -> Quote {
         let time = state.time
         let priceTime=instrument.rules.isOpen(at:time) ? time:(try previousTradingTime(before:time,rules:instrument.rules) ?? time)
         let price = try price(instrument, at: priceTime, state: state)
@@ -91,6 +96,7 @@ public enum Simulation {
         let liquidity = state.changes.last(where: { $0.time <= time })?.liquidity ?? 1
         let count = max(1, Int(Double(instrument.liquidity) * liquidity * shortage))
         var bids: [Level] = [], asks: [Level] = []
+        if includeBook {
         for level in 1...8 {
             let delta = try spread * Amount(level)
             var size = try instrument.rules.quantityStep * Amount(max(1, count / level))
@@ -99,24 +105,30 @@ public enum Simulation {
             bids.append(Level(try instrument.rules.roundedPrice(max(tick,try price-delta),.down),size))
             asks.append(Level(try instrument.rules.roundedPrice(price+delta,.up),size))
         }
+        if let from=state.participantsFrom,time>=from{
+            bids=try SimulationParticipants.levels(instrument,state:state,board:board,side:.buy,price:price,spread:spread,count:count)
+            asks=try SimulationParticipants.levels(instrument,state:state,board:board,side:.sell,price:price,spread:spread,count:count)
+        }
+        }
         var q = Quote(instrumentID: instrument.id, source: "B 決定性離線市場", time: time, sequence: time / step, last: price, bids: bids, asks: asks)
+        if !includeBook{q.grade = .E0;q.coverage="本機模擬行情摘要；開啟商品即載入完整模擬買賣盤"}
         q.board=instrument.usesTaiwanBoards ? (board ?? .regular):nil
         if instrument.asset.derivative { q.mark = price }
         if instrument.asset == .perpetual,let schedule=instrument.rules.carrySchedule{q.fundingRate=schedule.longRate;q.nextFundingTime=((time-schedule.offset)/schedule.interval+1)*schedule.interval+schedule.offset}
-        q.causalEventIDs=Array(Set(active.map(\.id)+(state.priceAdjustments ?? []).filter{$0.instrumentID==instrument.id && $0.time<=time}.compactMap(\.eventID))).sorted()
+        q.causalEventIDs=Array(Set(active.map(\.id)+(state.impactGroups ?? []).filter{$0.instrumentID==instrument.id && $0.startsAt<=time && time<$0.endsAt}.map(\.groupID)+(state.priceAdjustments ?? []).filter{$0.instrumentID==instrument.id && $0.time<=time}.compactMap(\.eventID))).sorted()
         if active.contains(where:{$0.kind=="halt"}){q.bids=[];q.asks=[];q.valid=false;q.coverage="模擬暫停交易情境，委託保留"}
         let referenceTime=time-86400
-        let reference=try self.price(instrument,at:referenceTime,state:state)
+        let reference=try? self.price(instrument,at:referenceTime,state:state)
         q.summary=QuoteSummary(reference:reference,window:instrument.asset == .crypto || instrument.asset == .perpetual ? "模擬24小時":"模擬前一日",marketStatus:instrument.rules.isOpen(at:time) ? "模擬交易中":"模擬休市")
         return q
     }
     public static func stepVolume(_ instrument:Instrument,at time:Int64,state:SimulationState)->Double{
-        guard state.algorithm == "factor-wave-2" || state.newsFrom != nil else{return Double(instrument.liquidity)}
+        guard (state.baseAlgorithm ?? state.algorithm) != "factor-wave-1" || (state.newsFrom.map{time >= $0} ?? false) else{return Double(instrument.liquidity)+SimulationParticipants.ownVolume(instrument,at:time,state:state)}
         let active=SimulationNews.active(instrument,at:time,state:state)
         if active.contains(where:{$0.kind=="halt"}){return 0}
         let control=state.changes.last(where:{$0.time<=time})?.liquidity ?? 1
         let factor=active.map{$0.volumeMultiplier ?? 1}.max() ?? 1
-        return Double(max(1,instrument.liquidity/20))*instrument.rules.quantityStep.displayDouble*control*factor
+        return Double(max(1,instrument.liquidity/20))*instrument.rules.quantityStep.displayDouble*control*factor+SimulationParticipants.ownVolume(instrument,at:time,state:state)
     }
     public static func summary(_ instrument:Instrument,state:SimulationState)throws->QuoteSummary{
         let end=state.time,continuous=[AssetClass.crypto,.perpetual,.forex].contains(instrument.asset)
@@ -135,6 +147,7 @@ public enum Simulation {
             }
             date=calendar.date(byAdding:.day,value:1,to:date)!
         }
+        for impact in state.impactGroups ?? [] where impact.instrumentID==instrument.id{for time in [impact.volumeTime,impact.volumeTime+step] where time>from && time<=end{boundaries.insert(time)}}
         let sorted=boundaries.sorted();var volume=0.0
         for (left,right) in zip(sorted,sorted.dropFirst()) where instrument.rules.isOpen(at:left){volume+=Double(max(0,(right-left)/step))*stepVolume(instrument,at:left,state:state)}
         return QuoteSummary(reference:try price(instrument,at:previous,state:state),volume:try Amount(String(format:"%.10f",locale:Locale(identifier:"en_US_POSIX"),volume)),window:continuous ? "模擬24小時":"模擬當日",marketStatus:instrument.rules.isOpen(at:end) ? "模擬交易中":"模擬休市")
@@ -166,6 +179,11 @@ public enum Simulation {
                 if let expiry=instrument.rules.expiry,t>=expiry{break}
                 let minuteEnd=min((t/60+1)*60-step,final)
                 if continuous || instrument.rules.isOpen(at:t){
+                    let personal=(state.impactGroups ?? []).contains{$0.instrumentID==instrument.id && $0.volumeTime<=minuteEnd && $0.endsAt>=t}
+                    if personal{
+                        for point in stride(from:t,through:minuteEnd,by:Int(step)){let value=try priceValue(instrument,at:point,state:state);if first==nil{first=value};last=value;high=max(high,value);low=min(low,value);volume+=stepVolume(instrument,at:point,state:state)}
+                        t=minuteEnd+step;continue
+                    }
                     var points:Set<Int64>=[t,minuteEnd]
                     for change in state.changes{
                         for boundary in [change.time,change.time+3600,change.time+5*86400] where boundary>=t && boundary<=minuteEnd{points.insert(boundary);if boundary-step>=t{points.insert(boundary-step)}}

@@ -120,11 +120,17 @@ struct ChartAmendment: Identifiable {
         root=base.appendingPathComponent("ChaiTrade",isDirectory:true)
         #endif
         do { settings=try AppSettings.load(root:root) } catch { self.error="設定檔無法讀取，保留原資料：\(error.localizedDescription)" }
+        #if DEBUG
+        if UITestSupport.session != nil{
+            if ProcessInfo.processInfo.arguments.contains("--uitest-light"){settings.theme="light"}
+            if ProcessInfo.processInfo.arguments.contains("--uitest-dark"){settings.theme="dark"}
+        }
+        #endif
     }
     var now: Int64 { state?.simulation?.time ?? Int64(Date().timeIntervalSince1970) }
     var selected: Instrument? { state?.instruments.first { $0.id == selectedID } }
     var quote: Quote? {guard let selected else{return nil};return state?.quotes[selected.quoteKey(board:selected.usesTaiwanBoards ? selectedBoard:nil)]}
-    var valuation: Valuation? { state.flatMap { try? Analytics.valuation($0) } }
+    var valuation: Valuation? { state.flatMap { try? Analytics.valuation($0,now:now) } }
     func money(_ value: Amount?) -> String { settings.hideBalances ? "••••••" : value?.description ?? "未提供" }
     var interactionBlocked:Bool { progress != nil || catchupTarget != nil || maintainingAccount || clockWarning != nil }
     @discardableResult func run(_ operation: () async throws -> Void) async ->Bool {
@@ -145,7 +151,8 @@ struct ChartAmendment: Identifiable {
             let ctx=AccountContext(mode:target),root=self.root
             let (existing,service)=try await Task.detached{let repo=try AccountRepository(root:root,mode:target);guard let existing=try repo.load() else{throw TradeError.corrupt("帳戶不存在，請使用備份恢復；不會重建空帳戶覆蓋資料")};let service=try TradingEngine(context:ctx,repository:repo,initial:existing,wallClock:{Int64(Date().timeIntervalSince1970)});return (existing,service)}.value
             try await service.prepareProductExperience(context:ctx)
-            try await service.initializeQuotes(context:ctx)
+            let initialBooks=Set((existing.productPreferences?.markets.values.compactMap(\.selectedID) ?? [])+(existing.instruments.first.map{[$0.id]} ?? []))
+            try await service.initializeQuotes(fullBookIDs:initialBooks,context:ctx)
             if switched || existing.lastWallTime == nil{try await service.saveWallClock(Int64(Date().timeIntervalSince1970),context:ctx)}
             engine=service;context=ctx;state=await service.snapshot()
             if let s=state,s.mode == .offline {
@@ -339,7 +346,7 @@ struct ChartAmendment: Identifiable {
         let interval=interval,count=chartCount,before=chartBefore,board=selectedBoard
         do {
             let values: [Candle]
-            if let sim=s.simulation { candleTask?.cancel();let task=Task.detached(priority:.userInitiated){try Simulation.candles(i,state:sim,interval:interval,count:count,before:before)};candleTask=task;values=try await task.value }
+            if s.simulation != nil,let engine { candleTask?.cancel();let task=Task{try await engine.simulationCandles(instrumentID:i.id,interval:interval,count:count,before:before,context:capturedContext)};candleTask=task;values=try await task.value }
             else if let id=i.provider {
                 let key="\(s.accountID)|\(i.id)|\(board.rawValue)|\(interval)|\(before ?? 0)",service=try provider(id),now=Int64(Date().timeIntervalSince1970)
                 var cached=chartCache[key] ?? []

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Charts
 import ChaiTradeCore
 
@@ -26,12 +27,12 @@ struct RootView: View {
                     }.padding(.horizontal).padding(.vertical,10).background(.bar)
                     MarketSwitcher()
                     TabView(selection:$model.tab) {
-                        NavigationStack { DashboardView() }.tabItem{Label("總覽",systemImage:"square.grid.2x2")}.tag(0)
-                        NavigationStack { MarketsView() }.tabItem{Label("行情",systemImage:"chart.bar.xaxis")}.tag(1)
+                        NavigationStack { DashboardView(domain:model.market).id(model.market) }.tabItem{Label("總覽",systemImage:"square.grid.2x2")}.tag(0)
+                        NavigationStack { MarketsView(domain:model.market).id(model.market) }.tabItem{Label("行情",systemImage:"chart.bar.xaxis")}.tag(1)
                         NavigationStack { TradingView() }.tabItem{Label("交易",systemImage:"arrow.left.arrow.right")}.tag(2)
                         NavigationStack { OrdersView() }.tabItem{Label("委託",systemImage:"list.bullet.rectangle")}.tag(3)
                         NavigationStack { PortfolioView() }.tabItem{Label("資產",systemImage:"wallet.bifold")}.tag(4)
-                    }.id(model.stateRevision)
+                    }.id(model.stateRevision).onChange(of:model.tab){_,_ in UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}
                 }
             }
         }
@@ -95,7 +96,7 @@ struct OnboardingView:View{
         Section("兩個帳戶各自的虛擬本金"){
             LabeledContent("A本金"){TextField("A初始虛擬本金",text:$online).keyboardType(.decimalPad).multilineTextAlignment(.trailing).accessibilityIdentifier("onlineCapital")}
             LabeledContent("B本金"){TextField("B初始虛擬本金",text:$offline).keyboardType(.decimalPad).multilineTextAlignment(.trailing).accessibilityIdentifier("offlineCapital")}
-            Picker("基準幣別",selection:$currency){Text("TWD").tag("TWD");Text("USD").tag("USD")}
+            Picker("基準幣別",selection:$currency){Text("TWD").tag("TWD");Text("USD").tag("USD")}.accessibilityIdentifier("baseCurrency")
             Text("A／B資金與歷史完全隔離。股票／加密則是帳戶內的瀏覽分類，不會另開帳戶。").font(.caption).foregroundStyle(.secondary)
         }
         Section{Text("A／B切換於完整關閉再啟動時生效。B重開會按設定補算離開期間；沒有常駐背景交易。來源及模型限制可隨時查看。").font(.caption).foregroundStyle(.secondary)}

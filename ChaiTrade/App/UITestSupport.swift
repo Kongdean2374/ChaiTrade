@@ -34,7 +34,18 @@ import ChaiTradeCore
 }
 #endif
 
+struct UITestVisualEnvironment:ViewModifier{
+    func body(content:Content)->some View{
+        #if DEBUG
+        if UITestSupport.session != nil,ProcessInfo.processInfo.arguments.contains("--uitest-large-type"){content.dynamicTypeSize(.accessibility3)}else{content}
+        #else
+        content
+        #endif
+    }
+}
 struct UITestProbe: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var model:AppModel
     var body:some View{
         #if DEBUG
@@ -49,6 +60,7 @@ struct UITestProbe: View {
         let s=model.state
         let fills=s?.fills ?? [],ids=Set(fills.map(\.id))
         let payload:[String:Any]=[
+            "visualType":String(describing:typeSize),"visualTheme":colorScheme == .dark ? "dark":"light",
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
             "mode":s?.mode.rawValue ?? "", "market":model.market.rawValue,"search":model.currentBrowsing.search,"category":model.currentBrowsing.category,"sort":model.currentBrowsing.sort.rawValue,
             "instruments":s?.instruments.map{["id":$0.id,"symbol":$0.symbol,"name":$0.name,"market":$0.market.rawValue]} ?? [],

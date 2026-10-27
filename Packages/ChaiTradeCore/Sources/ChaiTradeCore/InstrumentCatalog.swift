@@ -170,7 +170,7 @@ public enum InstrumentCatalog {
         guard state.productPreferences?.catalogMigrated != true else{return state}
         let additions=try builtIn(mode:state.mode),known=Set(state.instruments.map(\.id))
         for n in state.instruments.indices{
-            if let match=additions.first(where:{$0.id==state.instruments[n].id}){state.instruments[n].identity=match.identity}
+            if let match=additions.first(where:{$0.id==state.instruments[n].id}){state.instruments[n].identity=match.identity;if state.mode == .online{state.instruments[n].identity!.catalogVersion=0}}
             else if state.mode == .offline,state.instruments[n].identity == nil{
                 let old=state.instruments[n]
                 var identity=InstrumentIdentity(exchange:"歷史模擬",market:old.market,baseAsset:old.symbol,unit:old.quantityUnit,sector:"歷史商品")

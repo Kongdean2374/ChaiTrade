@@ -25,7 +25,7 @@ try:
 except (OSError,subprocess.CalledProcessError) as e:print('UI_TEST_SESSION_COLLECTION',type(e).__name__)
 
 # Make attachments readable without Xcode and retain an independent SQLite summary.
-for result,directory in [(pathlib.Path('build/UITests.xcresult'),'ui-attachments'),(pathlib.Path('build/UIOrderFocused.xcresult'),'ui-focused-attachments'),(pathlib.Path('build/ProductUITests.xcresult'),'product-ui-attachments')]:
+for result,directory in [(pathlib.Path('build/UITests.xcresult'),'ui-attachments'),(pathlib.Path('build/UIOrderFocused.xcresult'),'ui-focused-attachments'),(pathlib.Path('build/ProductUITests.xcresult'),'product-ui-attachments'),(pathlib.Path('build/ProductVisualTests.xcresult'),'product-visual-attachments')]:
  if result.exists():
   try:
    subprocess.run(['xcrun','xcresulttool','export','attachments','--path',str(result),'--output-path',str(out/directory)],check=True,timeout=90)
