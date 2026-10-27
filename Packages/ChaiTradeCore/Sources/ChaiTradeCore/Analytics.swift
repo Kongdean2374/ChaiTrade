@@ -20,11 +20,14 @@ public enum Analytics {
         func convert(_ value: Amount, currency: String) throws -> Amount? {
             if value == .zero { return .zero }
             if currency == state.baseCurrency { return value }
-            guard let rate = rates.first(where: { $0.currency == currency && $0.base == state.baseCurrency && $0.rate > .zero }) else { missing.append("缺少 \(currency)/\(state.baseCurrency) 匯率"); return nil }
+            guard let rate = (rates + (state.lifecycle?.rates ?? [])).first(where: { $0.currency == currency && $0.base == state.baseCurrency && $0.rate > .zero }) else { missing.append("缺少 \(currency)/\(state.baseCurrency) 匯率"); return nil }
             return try value * rate.rate
         }
         for (currency,cash) in state.cash { if let converted = try convert(cash,currency:currency) { total = try total + converted } }
         for (currency,flow) in state.netFlows { if let converted = try convert(flow,currency:currency) { flows = try flows + converted } }
+        for event in state.lifecycle?.settlements ?? [] where event.completedAt == nil {
+            if let converted=try convert(event.receivable-event.payable,currency:event.currency){total=try total+converted}
+        }
         for p in state.positions.values where p.quantity != .zero {
             guard let instrument = state.instruments.first(where: { $0.id == p.id }), let q = state.quotes[p.id] else { missing.append("缺少 \(p.id) 估值價格"); continue }
             let price = instrument.asset.derivative ? q.mark : q.last

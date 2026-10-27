@@ -59,6 +59,13 @@ public final class AccountRepository: @unchecked Sendable {
               state.ledger.allSatisfy({ $0.accountID == mode.accountID }) else { throw TradeError.wrongAccount }
         let groups = Dictionary(grouping: state.ledger, by: { "\($0.eventID)|\($0.currency)" })
         for entries in groups.values where try sum(entries.map(\.amount)) != .zero { throw TradeError.corrupt("帳本不平衡，拒絕載入或寫入") }
+        for currency in Set(state.cash.keys).union(state.ledger.map(\.currency)) {
+            let rebuilt=try sum(state.ledger.filter{$0.currency==currency && $0.account=="cash"}.map(\.amount))
+            guard rebuilt == (state.cash[currency] ?? .zero) else {throw TradeError.corrupt("現金投影與帳本不符，保留原始資料")}
+        }
+        for (id,o) in state.orders {
+            guard id==o.id,o.request.requestID==o.id,o.filled >= .zero,o.filled <= o.request.quantity,o.reserved >= .zero else {throw TradeError.corrupt("委託數量、識別或保留不符")}
+        }
         guard Set(state.fills.map(\.id)).count == state.fills.count, Set(state.events.map(\.id)).count == state.events.count else { throw TradeError.corrupt("重複事件或成交") }
     }
     public func save(_ state: AccountState, replacing: Bool = false) throws {

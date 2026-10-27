@@ -48,6 +48,7 @@ public struct RulePack: Codable, Sendable, Equatable {
     public var weekdaysOnly = false
     public var holidays: [String] = []
     public var expiry: Int64? = nil
+    public var settlementBusinessDays: Int? = nil
     public init(tick: Amount, quantityStep: Amount) {
         self.tick = tick; self.quantityStep = quantityStep
         maintenance = try! Amount("0.005")
@@ -285,6 +286,7 @@ public struct AccountState: Codable, Sendable {
     public var continueWhileAway = true
     public var lastWallTime: Int64?
     public var sequence: Int64 = 0
+    public var lifecycle: LifecycleState?
     public init(mode: Mode, baseCurrency: String, instruments: [Instrument]) {
         self.mode = mode; self.accountID = mode.accountID; self.baseCurrency = baseCurrency; self.instruments = instruments
         if mode == .offline { self.simulation = SimulationState() }

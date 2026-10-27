@@ -10,6 +10,7 @@ public struct SimulationState: Codable, Sendable {
     public var volatility = 1.0
     public var liquidity = 1.0
     public var changes: [SimulationChange] = []
+    public var priceAdjustments: [PriceAdjustment]?
     public init() {}
 }
 public struct SimulationChange: Codable, Sendable {
@@ -53,7 +54,8 @@ public enum Simulation {
         let scenario = control?.scenario ?? "盤整"
         let elapsed = Double(time - (control?.time ?? time))
         let trend = scenario == "多頭" ? min(0.15, elapsed / 86400 * 0.03) : scenario == "空頭" ? max(-0.15, -elapsed / 86400 * 0.03) : scenario == "恐慌" ? -0.12 * min(1, elapsed / 3600) : 0
-        let raw = instrument.initialPrice.displayDouble * exp(common + sector + slow + fast * amplitudes[regime] * vol + trend)
+        let adjustment = (state.priceAdjustments ?? []).filter { $0.instrumentID == instrument.id && $0.time <= time }.reduce(1.0) { $0 * $1.factor.displayDouble }
+        let raw = instrument.initialPrice.displayDouble * adjustment * exp(common + sector + slow + fast * amplitudes[regime] * vol + trend)
         let tick = instrument.rules.tick.displayDouble
         guard raw.isFinite, tick > 0 else { throw TradeError.invalid("模擬價格超出範圍") }
         return try Amount(String(format: "%.12f", locale: Locale(identifier: "en_US_POSIX"), max(tick, (raw / tick).rounded() * tick)))

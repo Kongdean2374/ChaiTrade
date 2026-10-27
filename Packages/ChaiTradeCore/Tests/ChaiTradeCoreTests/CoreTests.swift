@@ -251,3 +251,71 @@ private struct FixtureTransport: MarketTransport {
     #expect(q.last == (try a("100.12345678")));#expect(q.sequence == 123);#expect(q.bids.count == 1)
     let j=try JSONValue.parse(Data("{\"price\":0.123456789012}".utf8));#expect(try j["price"].amount() == a("0.123456789012"))
 }
+
+@Test func splitVectorDAndDividendIdempotency() async throws {
+    let r=try Rig();try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    _=try await r.engine.submit(r.buy(),time:1000,context:r.context)
+    let split=CorporateAction(id:"split",instrumentID:"TEST",kind:.split,time:1005,ratio:try a("2"),source:"合成測試")
+    try await r.engine.corporateAction(split,context:r.context)
+    try await r.engine.corporateAction(split,context:r.context)
+    var s=await r.engine.snapshot()
+    #expect(s.positions["TEST"]?.quantity == (try a("200")))
+    #expect(s.positions["TEST"]?.average == (try a("50")))
+    #expect(try s.positions["TEST"]!.quantity*s.positions["TEST"]!.average == a("10000"))
+    let dividend=CorporateAction(id:"div",instrumentID:"TEST",kind:.dividend,time:1010,cashPerUnit:try a("1"),paymentTime:1020,source:"合成測試")
+    try await r.engine.corporateAction(dividend,context:r.context)
+    #expect(await r.engine.snapshot().cash["TWD"] == (try a("90000")))
+    try await r.engine.processDueEvents(time:1020,context:r.context)
+    try await r.engine.processDueEvents(time:1020,context:r.context)
+    s=await r.engine.snapshot();#expect(s.cash["TWD"] == (try a("90200")))
+}
+@Test func businessDaySettlementAndNoDoubleAssets() async throws {
+    let r=try Rig();var rules=r.instrument.rules;rules.settlementBusinessDays=2
+    try await r.engine.updateRules(instrumentID:"TEST",rules:rules,context:r.context)
+    try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    _=try await r.engine.submit(r.buy(),time:1000,context:r.context)
+    var s=await r.engine.snapshot()
+    #expect(s.cash["TWD"] == (try a("100000")))
+    #expect(try TradingEngine.available(s,currency:"TWD") == a("90000"))
+    #expect(try Analytics.valuation(s).total == a("100000"))
+    try await r.engine.processDueEvents(time:1_000_000,context:r.context)
+    s=await r.engine.snapshot();#expect(s.cash["TWD"] == (try a("90000")))
+    #expect(try Analytics.valuation(s).total == a("100000"))
+    let f=ISO8601DateFormatter();let friday=Int64(f.date(from:"2026-10-23T14:00:00Z")!.timeIntervalSince1970)
+    rules.timeZone="America/New_York";rules.holidays=["2026-10-26"]
+    let due=try MarketCalendar.settlementDate(tradeTime:friday,businessDays:1,rules:rules)
+    #expect(f.string(from:Date(timeIntervalSince1970:TimeInterval(due))) == "2026-10-27T14:00:00Z")
+}
+@Test func fundingReplayAndMarginAdjustment() async throws {
+    let r=try Rig(derivative:true);try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    var order=try r.buy(quantity:"10");order.leverage=10
+    _=try await r.engine.submit(order,time:1000,context:r.context)
+    try await r.engine.adjustMargin(instrumentID:"TEST",amount:a("50"),time:1001,context:r.context)
+    #expect(await r.engine.snapshot().positions["TEST"]?.margin == (try a("150")))
+    for _ in 0..<2 {try await r.engine.applyCarry(instrumentID:"TEST",rate:a("0.001"),mark:a("100"),time:1005,eventID:"funding-1",kind:"funding",source:"模擬費率",context:r.context)}
+    let s=await r.engine.snapshot();#expect(s.cash["TWD"] == (try a("99999")));#expect(s.lifecycle?.carry.count == 1)
+    #expect(try AccountRepository.validate(s,mode:.online) == ())
+}
+@Test func bracketPartialExitRemainsProtected() async throws {
+    let r=try Rig();try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    var main=try r.buy(quantity:"10");main.bracketProfit=try a("110");main.bracketStop=try a("90")
+    _=try await r.engine.submit(main,time:1000,context:r.context)
+    try await r.engine.ingest(r.quote(price:"111",quantity:"4",time:1005),now:1005,context:r.context)
+    let s=await r.engine.snapshot(),children=s.orders.values.filter{$0.status.open && $0.request.parentID != nil}
+    #expect(s.positions["TEST"]?.quantity == (try a("6")))
+    #expect(children.count == 2);#expect(children.allSatisfy{$0.request.quantity == (try? a("6"))})
+}
+@Test func cashProjectionTamperingRejected() throws {
+    let r=try Rig();var s=try r.repo.load()!;s.cash["TWD"]=try a("999999")
+    #expect(throws:TradeError.self){try r.repo.save(s)}
+}
+@Test func corporateSplitDoesNotRewriteOfflineHistory() async throws {
+    let r=try Rig(mode:.offline);try await r.engine.initializeQuotes(context:r.context)
+    let old=await r.engine.snapshot(),sim=old.simulation!,before=try Simulation.price(r.instrument,at:sim.time-5,state:sim)
+    try await r.engine.corporateAction(CorporateAction(instrumentID:r.instrument.id,kind:.split,time:sim.time,ratio:a("2"),source:"模擬事件"),context:r.context)
+    let changed=await r.engine.snapshot().simulation!
+    #expect(try Simulation.price(r.instrument,at:sim.time-5,state:changed) == before)
+    let current=try Simulation.price(r.instrument,at:sim.time,state:changed)
+    let original=try Simulation.price(r.instrument,at:sim.time,state:sim)
+    #expect(abs(current.displayDouble*2-original.displayDouble) <= 0.02)
+}
