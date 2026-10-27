@@ -96,7 +96,7 @@ public struct MarketDataProvider: Sendable {
     private let credentials: ProviderCredentials
     private let transport: any MarketTransport
     public init(id: ProviderID, credentials: ProviderCredentials, transport: any MarketTransport) { self.id = id; self.credentials = credentials; self.transport = transport }
-    private func fetch(path: String, query: [String:String] = [:], requiresCredentials: Bool = true) async throws -> JSONValue {
+    func fetch(path: String, query: [String:String] = [:], requiresCredentials: Bool = true) async throws -> JSONValue {
         if requiresCredentials && id.needsKey && credentials.key.isEmpty { throw MarketDataFailure(.missingKey) }
         let host: String
         switch id { case .coinbase: host = "api.exchange.coinbase.com"; case .fugle,.fugleFutures: host = "api.fugle.tw"; case .alpaca: host = "data.alpaca.markets"; case .twelveData: host = "api.twelvedata.com"; case .binance: host = "fapi.binance.com" }
@@ -233,20 +233,28 @@ public struct MarketDataProvider: Sendable {
             var instrument=Instrument(id:"\(id.rawValue):\(symbol)",symbol:symbol,name:name,asset:asset,currency:currency,rules:rules,initialPrice:.zero,provider:id)
             instrument.identity=InstrumentIdentity(exchange:id == .coinbase ? "Coinbase Exchange":id == .fugle ? (row["exchange"].string ?? "TWSE"):id == .binance ? "Binance USDⓈ-M":id == .fugleFutures ? "TAIFEX":"參考匯率",market:[.crypto,.perpetual].contains(asset) ? .crypto:[.forex,.future].contains(asset) ? .other:.stocks,baseAsset:row["base_currency"].string ?? row["baseAsset"].string ?? symbol,unit:asset == .crypto || asset == .perpetual ? (row["base_currency"].string ?? row["baseAsset"].string ?? symbol):asset == .future ? "口":"股",boardLot:id == .fugle ? 1000:1)
             if id == .coinbase {if case .bool(true)=row["trading_disabled"]{instrument.halted=true};if let status=row["status"].string,status != "online"{instrument.halted=true}}
-            if asset == .future{instrument.requiresRuleConfirmation=true}
+            if asset == .future {
+                instrument.requiresRuleConfirmation=true
+                // Preserve the imported source symbol/ID. Only a full source settlement date
+                // disambiguates the one-digit contract year; never infer it from today's date.
+                if let date=row["settlementDate"].string ?? row["endDate"].string {
+                    instrument.sourceContractMonth=FugleContract.monthFromSourceDate(date,symbol:symbol)
+                }
+            }
             result.append(instrument)
         }
         guard !result.isEmpty else{throw TradeError.unavailable("來源未提供可用商品，請核對權限與資料格式")}
         return result
     }
-    private static func iso(_ time:Int64)->String{ISO8601DateFormatter().string(from:Date(timeIntervalSince1970:TimeInterval(time)))}
-    private static func candleTime(_ value:JSONValue,zone:String)throws->Int64{
+    static func iso(_ time:Int64)->String{ISO8601DateFormatter().string(from:Date(timeIntervalSince1970:TimeInterval(time)))}
+    static func candleTime(_ value:JSONValue,zone:String)throws->Int64{
         if let text=value.string,text.count==10{let f=DateFormatter();f.locale=Locale(identifier:"en_US_POSIX");f.timeZone=TimeZone(identifier:zone);f.dateFormat="yyyy-MM-dd";if let date=f.date(from:text){return Int64(date.timeIntervalSince1970)}}
         return try timestamp(value)
     }
     /// Bounded read-only paging, then upward aggregation. Never expands daily bars into minutes.
     public func history(_ instrument:Instrument,interval:Int64,count:Int=160,now:Int64,before:Int64?=nil,board:TradingBoard?=nil)async throws->[Candle]{
         guard count>0,count<=1000,interval>=60 else{throw TradeError.invalid("歷史範圍超過上限")}
+        if id == .fugle || id == .fugleFutures { return try await fugleHistory(instrument,interval:interval,count:count,now:now,before:before,board:board) }
         let native:Int64
         if interval>=86400{native=86400}
         else if id == .coinbase{native=[86400,21600,3600,900,300,60].first{interval % $0==0} ?? 60}
@@ -278,13 +286,7 @@ public struct MarketDataProvider: Sendable {
             j = try await fetch(path: "/products/\(symbol)/candles", query: ["granularity":String(interval),"start":Self.iso((before ?? now)-299*interval),"end":Self.iso(before ?? now)])
             return try j.array.map { row in Candle(time: row[0].integer ?? 0, open: try row[3].amount().displayDouble, high: try row[2].amount().displayDouble, low: try row[1].amount().displayDouble, close: try row[4].amount().displayDouble, volume: try row[5].amount().displayDouble, complete: (row[0].integer ?? 0) + interval <= now) }.sorted { $0.time < $1.time }
         case .fugle,.fugleFutures:
-            let family = id == .fugle ? "stock" : "futopt"
-            if interval>=86400{
-                j=try await fetch(path:"/marketdata/v1.0/\(family)/historical/candles/\(symbol)",query:["timeframe":"D","from":String(Self.iso((before ?? now)-299*86400).prefix(10)),"to":String(Self.iso(before ?? now).prefix(10))])
-            }else{
-                guard [60,300,900,1800,3600].contains(interval),before==nil else{throw TradeError.unavailable("此 Fugle 分鐘介面只提供當日日內資料；較早歷史需來源授權的歷史介面")}
-                j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/candles/\(symbol)", query: ["timeframe":String(interval/60)].merging(id == .fugle && board == .oddLot ? ["type":"oddlot"]:[:]){_,new in new})
-            }
+            return try await fugleCandlePage(instrument,interval:interval,now:now,before:before,board:board).candles
         case .alpaca:
             let tf = interval < 3600 ? "\(interval/60)Min" : interval < 86400 ? "\(interval/3600)Hour" : "1Day"
             j = try await fetch(path: "/v2/stocks/\(symbol)/bars", query: ["timeframe":tf,"feed":"iex","limit":"1000","sort":"desc","start":Self.iso((before ?? now)-2000*interval),"end":Self.iso(before ?? now)])
@@ -302,9 +304,7 @@ public struct MarketDataProvider: Sendable {
             j = try await fetch(path: "/fapi/v1/klines", query: ["symbol":symbol,"interval":tf,"limit":"300","endTime":String((before ?? now)*1000)])
             return try j.array.map { Candle(time: ($0[0].integer ?? 0)/1000, open: try $0[1].amount().displayDouble, high: try $0[2].amount().displayDouble, low: try $0[3].amount().displayDouble, close: try $0[4].amount().displayDouble, volume: try $0[5].amount().displayDouble) }
         }
-        // Fugle minute stock bars are lots; daily stock bars are shares. Never mix these during aggregation.
-        let factor:Amount = id == .fugle && interval<86400 && board != .oddLot && [.taiwanStock,.etf].contains(instrument.asset) && j["market"].string != "ESB" ? try Amount(1000):.one
-        return try j["data"].array.map { Candle(time: try Self.candleTime($0["date"],zone:instrument.rules.timeZone), open: try $0["open"].amount().displayDouble, high: try $0["high"].amount().displayDouble, low: try $0["low"].amount().displayDouble, close: try $0["close"].amount().displayDouble, volume: try ($0["volume"].amount()*factor).displayDouble) }.sorted { $0.time < $1.time }
+
     }
 }
 public enum Providers {

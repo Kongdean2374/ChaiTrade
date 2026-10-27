@@ -7,7 +7,8 @@ private struct UnitTransport:MarketTransport{
     func get(_ url:URL,headers:[String:String])async throws->Data{
         var result:[String:Any]
         if url.path.contains("candles"){
-            result=["market":"TSE","data":[["date":url.path.contains("historical") ? "2026-10-27":"2026-10-27T09:30:00+08:00","open":100,"high":101,"low":99,"close":100,"volume":7]]]
+            let query=Dictionary(uniqueKeysWithValues:(URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems ?? []).map{($0.name,$0.value ?? "")})
+            result=["symbol":"2330","timeframe":query["timeframe"] ?? "1","market":"TSE","data":[["date":query["timeframe"] == "D" ? "2026-10-27":"2026-10-27T09:30:00+08:00","open":100,"high":101,"low":99,"close":100,"volume":7]]]
         }else{
             result=["symbol":"2330","market":"TSE","lastPrice":100,"lastUpdated":Int64(1_793_064_600_000_000),"bids":[["price":99,"size":2]],"asks":[["price":100,"size":3]],"total":["tradeVolume":7,"tradeValue":700000],"previousClose":99]
             if flag=="halt"{result["tradingHalt"]=["isHalted":true]}

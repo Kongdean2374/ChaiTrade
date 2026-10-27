@@ -95,6 +95,7 @@ public struct Instrument: Codable, Identifiable, Equatable, Sendable {
     public var currency: String
     public var provider: ProviderID?
     public var sourceSymbol:String?
+    public var sourceContractMonth:String?
     public var identity:InstrumentIdentity?
     public var rules: RulePack
     public var initialPrice: Amount
