@@ -32,3 +32,38 @@ import Testing
     #expect(state.ledger.allSatisfy{$0.time==state.simulation?.time})
     #expect(state.events.allSatisfy{$0.time==state.simulation?.time})
 }
+
+@Test func incrementalEquityMetricsMatchEveryCanonicalPointAcrossRestartAndRollback()throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    var repo=try AccountRepository(root:root,mode:.online)
+    var state=try TradingEngine.initial(mode:.online,capital:Amount("100000"),time:1000)
+    for n in 1...1100{state.equity.append(EquityPoint(time:Int64(1000+n),value:try Amount(String(100000-n)),flow:.zero))}
+    var canonical=state.equity,expected=EquityMetrics()
+    for point in canonical{expected.consume(point)}
+    state=try repo.save(state)
+    let additions=[
+        EquityPoint(time:2101,value:try Amount("108900"),flow:try Amount("10000")),
+        EquityPoint(time:2102,value:nil,flow:.zero),
+        EquityPoint(time:2103,value:try Amount("105000"),flow:.zero),
+        EquityPoint(time:2104,value:.zero,flow:.zero),
+        EquityPoint(time:2105,value:try Amount("-10"),flow:.zero),
+        EquityPoint(time:2099,value:try Amount("120000"),flow:.zero)
+    ]
+    for point in additions{
+        // Reopen each time to exercise the on-disk checkpoint, not an in-memory result.
+        repo=try AccountRepository(root:root,mode:.online);state=try #require(try repo.load())
+        state.equity.append(point);canonical.append(point);expected.consume(point)
+        state=try repo.save(state)
+        let actual=try #require(try repo.equityPage(limit:1).first)
+        #expect(actual.point==point)
+        #expect(try AccountRepository.encode(actual.metrics)==AccountRepository.encode(expected))
+        #expect(try repo.fullSnapshot()?.equity==canonical)
+        var changed=state;changed.equity[0].value=try Amount("1")
+        #expect(throws:TradeError.self){try repo.save(changed)}
+        #expect(try AccountRepository.encode(repo.equityPage(limit:1).first!.metrics)==AccountRepository.encode(expected))
+    }
+    let full=try #require(try repo.fullSnapshot())
+    _=try repo.save(full,replacing:true)
+    #expect(try repo.fullSnapshot()?.equity==canonical)
+    #expect(try AccountRepository.encode(repo.equityPage(limit:1).first!.metrics)==AccountRepository.encode(expected))
+}

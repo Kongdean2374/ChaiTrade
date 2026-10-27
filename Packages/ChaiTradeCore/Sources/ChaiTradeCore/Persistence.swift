@@ -238,7 +238,13 @@ public final class AccountRepository: @unchecked Sendable {
                 guard state.equity.prefix(overlap).elementsEqual(expected) else{throw TradeError.corrupt("不可改寫已存在的估值事件")}
             }
             var metrics=state.history?.equityMetrics ?? EquityMetrics(),equityRows:[[String]]=[]
-            for (n,point) in state.equity.enumerated(){metrics.consume(point);let ordinal=offset+n+1;if ordinal>stored{equityRows.append([String(ordinal),state.accountID,try json(metrics),try json(point)])}}
+            if overlap>0{
+                // The unchanged prefix was validated above. Resume its canonical persisted
+                // metrics rather than recomputing all 1,000 hot points on every order.
+                guard let checkpoint=try readRows(EquityMetrics.self,sql:"SELECT metrics FROM equity WHERE ordinal=?",values:[String(offset+overlap)]).first else{throw TradeError.corrupt("估值統計檢查點遺失")}
+                metrics=checkpoint
+            }
+            for (n,point) in state.equity.enumerated().dropFirst(overlap){metrics.consume(point);let ordinal=offset+n+1;equityRows.append([String(ordinal),state.accountID,try json(metrics),try json(point)])}
             try batch("INSERT OR IGNORE INTO equity(ordinal,account_id,metrics,payload) VALUES(?,?,?,?)",rows:equityRows,immutableTable:"equity",key:"ordinal")
             guard Int(try scalar("SELECT count(*) FROM equity") ?? "-1")==offset+state.equity.count else{throw TradeError.corrupt("估值歷史來源已過期，已回滾")}
             try updatePerformance(state,replacing:replacing)
