@@ -46,11 +46,12 @@ struct MarketsView:View {
         ScrollView{
             LazyVStack(alignment:.leading,spacing:14){
                 VStack(alignment:.leading,spacing:12){
-                    HStack{Text(domain.label).font(.largeTitle.bold());Spacer();Button{catalog=true}label:{Label("商品目錄",systemImage:"books.vertical")}.accessibilityIdentifier("openCatalog")}
+                    if !searching{HStack{Text(domain.label).font(.largeTitle.bold());Spacer();Button{catalog=true}label:{Label("商品目錄",systemImage:"books.vertical")}.accessibilityIdentifier("openCatalog")}}
                     HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField("代碼或名稱，例如 BTC、ETH、2330",text:search).textInputAutocapitalization(.never).autocorrectionDisabled().focused($searching).submitLabel(.search).onSubmit{searching=false}.accessibilityIdentifier("marketSearch");if !search.wrappedValue.isEmpty{Button{searching=false;search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
                         .padding(12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12))
                     ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(categories,id:\.self){category in Button(category){searching=false;model.editBrowsing(domain){$0.category=category;$0.scrollID=nil};pageSize=40}.buttonStyle(.bordered).tint(preferences.category==category || (domain == .crypto && preferences.category == "全部" && category == "現貨") ? .orange:.gray)}}}
-                    HStack{
+                    if searching{HStack{Text("目前目錄：\(products.count)個符合項目").font(.caption).foregroundStyle(.secondary);Spacer();Button("取消搜尋鍵盤"){searching=false}.font(.caption)}}
+                    if !searching{HStack{
                         Toggle("自選",isOn:Binding(get:{preferences.favoritesOnly},set:{value in model.editBrowsing(domain){$0.favoritesOnly=value;$0.scrollID=nil}})).toggleStyle(.button).accessibilityIdentifier("marketFavorites")
                         Menu{ForEach(MarketSort.allCases,id:\.self){sort in Button(sort.label){model.editBrowsing(domain){$0.sort=sort;$0.scrollID=nil};pageSize=40}}}label:{Label(preferences.sort.label,systemImage:"arrow.up.arrow.down")}
                         Spacer();Button{groups=true}label:{Label("分組",systemImage:"folder")}
@@ -58,8 +59,9 @@ struct MarketsView:View {
                     if let groupID=preferences.groupID,let group=model.state?.productPreferences?.groups.first(where:{$0.id==groupID}){HStack{Text("分組："+group.name);Spacer();Button("清除"){model.editBrowsing(domain){$0.groupID=nil}}}.font(.caption)}
                     Text("範圍：目前商品目錄的 \(products.count) 個符合項目；排行只納入已取得對應統計的商品，並非完整市場。").font(.caption).foregroundStyle(.secondary)
                     if domain == .crypto{Text(preferences.category == "合約" ? "合約另有槓桿、保證金與強平風險。":"現貨以幣數買入／賣出；不包含合約。 ").font(.caption).foregroundStyle(.secondary)}
+                    }
                 }.id("marketTop")
-                if preferences.search.isEmpty && !preferences.favoritesOnly && preferences.sort == .familiar{recentProducts}
+                if !searching && preferences.search.isEmpty && !preferences.favoritesOnly && preferences.sort == .familiar{recentProducts}
                 if products.isEmpty{ContentUnavailableView("沒有符合的商品",systemImage:"magnifyingglass",description:Text("調整搜尋或分類，也可從商品目錄查看來源支援範圍。"));Button("清除篩選"){model.editBrowsing(domain){$0.search="";$0.favoritesOnly=false;$0.groupID=nil;$0.sort = .familiar;$0.category=domain == .crypto ? "現貨":"全部"}}}
                 ForEach(Array(products.prefix(pageSize))){instrument in
                     MarketProductRow(instrument:instrument,owner:"markets-"+domain.rawValue).padding(.horizontal,12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12)).id(instrument.id)

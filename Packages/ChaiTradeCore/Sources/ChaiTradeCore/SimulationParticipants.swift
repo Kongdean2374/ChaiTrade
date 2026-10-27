@@ -77,12 +77,18 @@ public enum SimulationParticipants{
         return values.values.sorted{($0.volumeTime,$0.groupID)<($1.volumeTime,$1.groupID)}
     }
     public static func priceImpact(_ instrument:Instrument,at time:Int64,state:SimulationState)->Double{
-        let value=(state.impactGroups ?? []).filter{$0.instrumentID==instrument.id && $0.startsAt<=time && time<$0.endsAt}.reduce(0.0){total,impact in
+        let value=window(state.impactGroups ?? [],from:time-305,through:time).filter{$0.instrumentID==instrument.id && $0.startsAt<=time && time<$0.endsAt}.reduce(0.0){total,impact in
             let age=Double(time-impact.startsAt),remaining=Double(impact.endsAt-time)
             let kernel=max(0,min(1,age/30,remaining/270))
             return total+impact.amplitude.displayDouble*kernel
         }
         return 0.03*tanh(value/0.03)
     }
-    public static func ownVolume(_ instrument:Instrument,at time:Int64,state:SimulationState)->Double{(state.impactGroups ?? []).filter{$0.instrumentID==instrument.id && $0.volumeTime==time}.reduce(0){$0+$1.volume.displayDouble}}
+    public static func ownVolume(_ instrument:Instrument,at time:Int64,state:SimulationState)->Double{window(state.impactGroups ?? [],from:time,through:time).filter{$0.instrumentID==instrument.id}.reduce(0){$0+$1.volume.displayDouble}}
+    static func window(_ impacts:[SimulationImpact],from:Int64,through:Int64)->ArraySlice<SimulationImpact>{
+        func lowerBound(_ value:Int64)->Int{var low=0,high=impacts.count;while low<high{let mid=(low+high)/2;if impacts[mid].volumeTime<value{low=mid+1}else{high=mid}};return low}
+        let start=lowerBound(from),end=through==Int64.max ? impacts.count:lowerBound(through+1)
+        return impacts[start..<max(start,end)]
+    }
+    static func overlaps(_ instrument:Instrument,state:SimulationState,from:Int64,through:Int64)->Bool{window(state.impactGroups ?? [],from:from-305,through:through).contains{$0.instrumentID==instrument.id && $0.endsAt>=from}}
 }

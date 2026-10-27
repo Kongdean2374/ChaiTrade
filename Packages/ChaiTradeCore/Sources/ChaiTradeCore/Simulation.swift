@@ -122,6 +122,22 @@ public enum Simulation {
         q.summary=QuoteSummary(reference:reference,window:instrument.asset == .crypto || instrument.asset == .perpetual ? "模擬24小時":"模擬前一日",marketStatus:instrument.rules.isOpen(at:time) ? "模擬交易中":"模擬休市")
         return q
     }
+    public static func quoteHistoryStart(_ instrument:Instrument,state:SimulationState)throws->Int64{
+        let priceTime=instrument.rules.isOpen(at:state.time) ? state.time:(try previousTradingTime(before:state.time,rules:instrument.rules) ?? state.time)
+        return try requiredPriceHistory(instrument,state:state,from:min(state.time-86400,priceTime-60))
+    }
+    public static func summaryHistoryStart(_ instrument:Instrument,state:SimulationState)throws->Int64{
+        let continuous=[AssetClass.crypto,.perpetual,.forex].contains(instrument.asset),day=CandleCalendar.start(state.time,interval:86400,zone:instrument.rules.timeZone)
+        return try requiredPriceHistory(instrument,state:state,from:continuous ? state.time-86400:(try previousTradingTime(before:day,rules:instrument.rules) ?? state.time-86400))
+    }
+    private static func requiredPriceHistory(_ instrument:Instrument,state:SimulationState,from:Int64)throws->Int64{
+        var earliest=from
+        // Halt prices freeze at the last pre-event step; overlapping published halts may chain.
+        while let halt=SimulationNews.active(instrument,at:earliest,state:state).first(where:{$0.kind=="halt"}){
+            try Task.checkCancellation();let previous=halt.publishedAt-step;guard previous<earliest else{break};earliest=previous
+        }
+        return max(0,earliest)
+    }
     public static func stepVolume(_ instrument:Instrument,at time:Int64,state:SimulationState)->Double{
         guard (state.baseAlgorithm ?? state.algorithm) != "factor-wave-1" || (state.newsFrom.map{time >= $0} ?? false) else{return Double(instrument.liquidity)+SimulationParticipants.ownVolume(instrument,at:time,state:state)}
         let active=SimulationNews.active(instrument,at:time,state:state)
@@ -180,7 +196,7 @@ public enum Simulation {
                 if let expiry=instrument.rules.expiry,t>=expiry{break}
                 let minuteEnd=min((t/60+1)*60-step,final)
                 if continuous || instrument.rules.isOpen(at:t){
-                    let personal=(state.impactGroups ?? []).contains{$0.instrumentID==instrument.id && $0.volumeTime<=minuteEnd && $0.endsAt>=t}
+                    let personal=SimulationParticipants.overlaps(instrument,state:state,from:t,through:minuteEnd)
                     if personal{
                         for point in stride(from:t,through:minuteEnd,by:Int(step)){let value=try priceValue(instrument,at:point,state:state);if first==nil{first=value};last=value;high=max(high,value);low=min(low,value);volume+=stepVolume(instrument,at:point,state:state)}
                         t=minuteEnd+step;continue

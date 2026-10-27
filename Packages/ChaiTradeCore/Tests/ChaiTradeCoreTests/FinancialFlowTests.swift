@@ -63,7 +63,7 @@ private struct FlowRig{
     #expect(report.economicNet?["USD"] == (try Amount("-11.5")))
     #expect(throws:TradeError.self){try BackupService.export(hot,password:nil,time:1300)}
     let backup=try BackupService.export(full,password:nil,time:1300),envelope=try JSONDecoder().decode(BackupEnvelope.self,from:backup)
-    #expect(envelope.version==2)
+    #expect(envelope.version==3)
     let restored=try BackupService.validate(backup,expectedMode:.online,password:nil)
     #expect(restored.financialFlows?.count==220 && restored.cash==full.cash)
     // Represent the shipped SQLite-v4 account: no normalized flow index, original immutable ledger and carry metadata retained.

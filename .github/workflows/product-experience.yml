@@ -90,6 +90,28 @@ jobs:
             build/ProductUITests.xcresult
           retention-days: 7
 
+  product-evidence:
+    needs: native
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Independent clean page evidence without trading mutations
+        run: bash scripts/test_product_evidence.sh
+      - name: Preserve evidence and independent databases
+        if: always()
+        run: python3 scripts/collect_diagnostics.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: product-page-evidence
+          path: |
+            build/logs/
+            build/ProductEvidenceTests.xcresult
+          retention-days: 7
+
   product-visual:
     needs: native
     runs-on: macos-15

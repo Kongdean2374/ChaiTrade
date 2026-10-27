@@ -10,7 +10,7 @@ import COpenSSL
 
 public struct BackupEnvelope: Codable, Sendable {
     public var format = "ChaiTrade 模擬交易備份"
-    public var version = 2
+    public var version = 3
     public var mode: Mode
     public var createdAt: Int64
     public var algorithm: String
@@ -142,7 +142,7 @@ public enum BackupService {
     public static func validate(_ data: Data, expectedMode: Mode, password: String?) throws -> AccountState {
         guard data.count <= 50_000_000 else { throw TradeError.corrupt("備份超過 50 MB 安全限制") }
         let e = try JSONDecoder().decode(BackupEnvelope.self,from:data)
-        guard e.format == "ChaiTrade 模擬交易備份", (1...2).contains(e.version), e.mode == expectedMode, e.payload.count <= 32_000_000 else { throw TradeError.corrupt("備份版本、模式或大小不符") }
+        guard e.format == "ChaiTrade 模擬交易備份", (1...3).contains(e.version), e.mode == expectedMode, e.payload.count <= 32_000_000 else { throw TradeError.corrupt("備份版本、模式或大小不符") }
         var payload = e.payload
         if e.algorithm != "none" {
             guard e.algorithm == "AES-256-GCM/PBKDF2-HMAC-SHA256",e.nonce.count == 12,e.tag.count == 16,let password else { throw TradeError.corrupt("請輸入密碼，或備份加密版本不相容") }
@@ -152,9 +152,10 @@ public enum BackupService {
         guard digest(payload) == e.checksum else { throw TradeError.corrupt("備份校驗碼不符，原資料不變") }
         if let compression=e.compression{guard compression=="zlib-1",let size=e.expandedSize else{throw TradeError.corrupt("備份壓縮格式不符")};payload=try expand(payload,size:size)}
         else{guard e.expandedSize==nil else{throw TradeError.corrupt("備份展開標頭不合法")}}
-        let state = try JSONDecoder().decode(AccountState.self,from:payload)
+        var state = try JSONDecoder().decode(AccountState.self,from:payload)
         guard state.history==nil else{throw TradeError.corrupt("備份不可缺少封存歷史")}
         try AccountRepository.validate(state,mode:expectedMode)
+        if state.capitalBasis==nil{state.capitalBasis=try CapitalBasis.reconstruct(state)}
         return state
     }
 }

@@ -45,6 +45,9 @@ extension AppModel {
     }
 
     func switchMarket(_ target:MarketDomain){
+        #if DEBUG
+        if UITestSupport.session != nil{uiTestMarketRequests.append(target.rawValue)}
+        #endif
         guard target != market else{return}
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)
         market=target;visibleOwners=[:]
@@ -57,6 +60,10 @@ extension AppModel {
         restartStream();Task{if let context{await quoteScheduler.cancel(context:context)};await ensureQuoteService();await requestSelectedBoard();if tab==2{await loadChart()}}
     }
     func selectProduct(_ instrument:Instrument){
+        #if DEBUG
+        if UITestSupport.session != nil{uiTestProductSelections.append(instrument.id)}
+        #endif
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)
         if market != instrument.market{switchMarket(instrument.market)}
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel()
         selectedID=instrument.id;chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartBefore=nil;chartCount=160;tab=2
@@ -118,7 +125,7 @@ extension AppModel {
         guard !needed.isEmpty else{return}
         summaryTask?.cancel();summaryMinute=minute
         summaryTask=Task{
-            let values=await Task.detached(priority:.utility){()->[String:QuoteSummary] in var values:[String:QuoteSummary]=[:];for i in needed{if Task.isCancelled{break};if let history=try? await engine.simulationSnapshot(instrumentID:i.id,from:max(0,sim.time-20*86400),context:captured){values[i.id]=try? Simulation.summary(i,state:history)}};return values}.value
+            let values=await Task.detached(priority:.utility){()->[String:QuoteSummary] in var values:[String:QuoteSummary]=[:];for i in needed{if Task.isCancelled{break};if let start=try? Simulation.summaryHistoryStart(i,state:sim),let history=try? await engine.simulationSnapshot(instrumentID:i.id,from:start,context:captured){values[i.id]=try? Simulation.summary(i,state:history)}};return values}.value
             guard self.context==captured,!Task.isCancelled else{return}
             for (id,value) in values{simulatedSummaries[id]=value}
         }

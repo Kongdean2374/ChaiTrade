@@ -12,7 +12,7 @@ import XCTest
     func capture(_ stage:String){
         guard let app=testedApp else{return}
         XCTContext.runActivity(named:stage+" · "+session){activity in
-            let shot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());shot.lifetime = .keepAlways;activity.add(shot)
+            let shot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());shot.name=stage;shot.lifetime = .keepAlways;activity.add(shot)
             let tree=XCTAttachment(string:app.debugDescription);tree.name="Accessibility hierarchy";tree.lifetime = .keepAlways;activity.add(tree)
             let probe=app.staticTexts["uiTestState"].firstMatch
             let state=XCTAttachment(string:probe.exists ? probe.label:"Probe unavailable; hierarchy and database retained");state.name="Synthetic account state";state.lifetime = .keepAlways;activity.add(state)

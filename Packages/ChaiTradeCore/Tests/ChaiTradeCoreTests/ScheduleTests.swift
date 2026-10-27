@@ -11,7 +11,7 @@ private struct ScheduleRig{
         else{rules.carrySchedule=CarrySchedule(interval:10,longRate:try Amount("0.01"),shortRate:try Amount("-0.01"))}
         instrument=Instrument(id:"SIM:SCHEDULE",symbol:"SCHEDULE",name:"合成排程測試",asset:future ? .future:.perpetual,currency:"TWD",rules:rules,initialPrice:try Amount("100"))
         var state=try TradingEngine.initial(mode:.offline,capital:Amount("100000"),time:1000);state.instruments=[instrument];state.simulation!.time=time;state.leverageEnabled=true
-        for n in state.equity.indices{state.equity[n].time=time};for n in state.ledger.indices{state.ledger[n].time=time};for n in state.events.indices{state.events[n].time=time}
+        for n in state.equity.indices{state.equity[n].time=time};for n in state.ledger.indices{state.ledger[n].time=time};for n in state.events.indices{state.events[n].time=time;state.events[n].capitalFlow?.time=time}
         engine=try TradingEngine(context:context,repository:repo,initial:state)
     }
     func open(_ side:Side)async throws{

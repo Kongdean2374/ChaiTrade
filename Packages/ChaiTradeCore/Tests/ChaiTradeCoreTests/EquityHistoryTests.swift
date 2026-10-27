@@ -12,6 +12,7 @@ import Testing
         if n==1700{state.cash["TWD"]=try Amount("99000");state.post(event:"synthetic-gain",currency:"TWD",debit:"cash",credit:"synthetic-pnl",amount:try Amount("9000"),time:Int64(n+1000));state.audit("fixture","synthetic gain",time:Int64(n+1000))}
         state.equity.append(EquityPoint(time:Int64(n+1000),value:state.cash["TWD"],flow:flow))
     }
+    state.capitalBasis=try CapitalBasis.reconstruct(state)
     let hot=try repo.save(state),metrics=Analytics.equityMetrics(hot)
     #expect(hot.equity.count==1000);#expect(hot.history?.equityOffset==4000)
     #expect(abs((metrics.unit ?? 0)-0.88)<1e-12);#expect(abs((metrics.drawdown ?? 0)-0.2)<1e-12)

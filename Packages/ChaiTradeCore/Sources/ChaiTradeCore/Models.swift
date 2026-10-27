@@ -275,6 +275,7 @@ public struct AuditEvent: Codable, Identifiable, Sendable {
     public var message: String
     public var instrumentID:String?
     public var orderID:String?
+    public var capitalFlow:CapitalFlowValuation?
 }
 public struct EquityPoint: Codable, Sendable, Equatable {
     public var time: Int64
@@ -364,6 +365,7 @@ public struct AccountState: Codable, Sendable {
     public var positionMode:PositionMode?
     public var cash: [String: Amount] = [:]
     public var netFlows: [String: Amount] = [:]
+    public var capitalBasis:CapitalBasis?
     public var orders: [String: Order] = [:]
     public var positions: [String: Position] = [:]
     public var fills: [Fill] = []
@@ -398,9 +400,9 @@ public struct AccountState: Codable, Sendable {
         self.mode = mode; self.accountID = mode.accountID; self.baseCurrency = baseCurrency; self.instruments = instruments
         if mode == .offline { self.simulation = SimulationState() }
     }
-    public mutating func audit(_ kind: String, _ message: String, time: Int64, id: String? = nil,instrumentID:String?=nil,orderID:String?=nil) {
+    public mutating func audit(_ kind: String, _ message: String, time: Int64, id: String? = nil,instrumentID:String?=nil,orderID:String?=nil,capitalFlow:CapitalFlowValuation?=nil) {
         sequence += 1
-        events.append(AuditEvent(id: id ?? "event-\(sequence)", sequence: sequence, time: time, kind: kind, message: message,instrumentID:instrumentID,orderID:orderID))
+        events.append(AuditEvent(id: id ?? "event-\(sequence)", sequence: sequence, time: time, kind: kind, message: message,instrumentID:instrumentID,orderID:orderID,capitalFlow:capitalFlow))
     }
     public mutating func post(event: String, currency: String, debit: String, credit: String, amount: Amount, time: Int64) {
         ledger.append(LedgerEntry(eventID: event, accountID: accountID, time: time, currency: currency, account: debit, amount: amount))

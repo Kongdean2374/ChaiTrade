@@ -24,7 +24,7 @@ public final class AccountRepository: @unchecked Sendable {
         do {
             try exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;")
             let version = try scalar("PRAGMA user_version") ?? "0"
-            guard Int(version) ?? 99 <= 5 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
+            guard Int(version) ?? 99 <= 6 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
             try exec("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS account_state (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, account_id TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS fills_time ON fills(time); CREATE INDEX IF NOT EXISTS fills_order ON fills(order_id); CREATE INDEX IF NOT EXISTS fills_instrument_time ON fills(account_id,time); CREATE TABLE IF NOT EXISTS equity (ordinal INTEGER PRIMARY KEY,account_id TEXT NOT NULL,metrics TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS financial_flows (id TEXT PRIMARY KEY,account_id TEXT NOT NULL,time INTEGER NOT NULL,sequence INTEGER NOT NULL,payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS financial_flows_time ON financial_flows(time,sequence); CREATE TABLE IF NOT EXISTS report_state (id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_checkpoints (time INTEGER PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fill_report (id TEXT PRIMARY KEY REFERENCES fills(id), cells TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, time INTEGER NOT NULL, instrument TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS orders_time ON orders(time); CREATE INDEX IF NOT EXISTS orders_time_id ON orders(time DESC,id DESC); CREATE INDEX IF NOT EXISTS fills_instrument ON fills(json_extract(payload,'$.instrumentID')); CREATE INDEX IF NOT EXISTS fills_simulation_history ON fills(json_extract(payload,'$.instrumentID'),time); CREATE TABLE IF NOT EXISTS ledger (ordinal INTEGER PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL); COMMIT;")
             if Int(version) ?? 0 < 5 {
                 if let json=try scalar("SELECT payload FROM account_state LIMIT 1"){
@@ -35,8 +35,12 @@ public final class AccountRepository: @unchecked Sendable {
                     old.financialFlows=try FinancialFlowMigration.reconstruct(full)
                     if old.history != nil{old.history!.financialFlowOffset=0}
                     _=try save(old,replacing:(Int(version) ?? 0)<2)
-                }else{try exec("PRAGMA user_version=5")}
+                }else{try exec("PRAGMA user_version=6")}
             }
+            if version=="5"{
+                if let json=try scalar("SELECT payload FROM account_state LIMIT 1"){_=try save(JSONDecoder().decode(AccountState.self,from:Data(json.utf8)))}else{try exec("PRAGMA user_version=6")}
+            }
+            try exec("CREATE INDEX IF NOT EXISTS fills_with_simulation_impact ON fills(json_extract(payload,'$.instrumentID'),time) WHERE json_extract(payload,'$.simulationImpact') IS NOT NULL")
         } catch { sqlite3_close(db); db = nil; throw error }
     }
     deinit { sqlite3_close(db) }
@@ -44,6 +48,37 @@ public final class AccountRepository: @unchecked Sendable {
         self.path=path;self.mode=mode
         guard sqlite3_open_v2(path,&db,SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,nil)==SQLITE_OK else{throw TradeError.corrupt("無法開啟一致性唯讀快照")}
         do{try exec("PRAGMA query_only=ON; PRAGMA busy_timeout=5000")}catch{sqlite3_close(db);db=nil;throw error}
+    }
+    static func archiveReader(_ url:URL,mode:Mode)throws->AccountRepository{try AccountRepository(reading:url.path,mode:mode)}
+    func withArchiveConnection<T>(_ body:(OpaquePointer)throws->T)throws->T{lock.lock();defer{lock.unlock()};guard let db else{throw TradeError.corrupt("帳戶資料庫已關閉")};return try body(db)}
+    func verifyCapitalHistory(_ state:AccountState)throws{lock.lock();defer{lock.unlock()};guard try reconstructCapitalBasis(state)==state.capitalBasis else{throw TradeError.corrupt("歸檔的歷史投入成本不符")}}
+    func rebuildArchiveReports(_ state:AccountState)throws{
+        lock.lock();defer{lock.unlock()};try exec("BEGIN IMMEDIATE")
+        do{
+            try exec("DELETE FROM report_state; DELETE FROM report_checkpoints; DELETE FROM fill_report")
+            var rows:[[String]]=[]
+            try visit("SELECT payload FROM fills ORDER BY rowid"){text in let fill=try JSONDecoder().decode(Fill.self,from:Data(text.utf8));rows.append([fill.id,Analytics.fillFields(fill).map(Analytics.csvCell).joined(separator:",")]);if rows.count==1000{try batch("INSERT INTO fill_report(id,cells) VALUES(?,?)",rows:rows);rows=[]}}
+            try batch("INSERT INTO fill_report(id,cells) VALUES(?,?)",rows:rows);try updatePerformance(state,replacing:true);try exec("COMMIT")
+        }catch{try? exec("ROLLBACK");throw error}
+    }
+    func createArchiveSnapshot(at url:URL)throws{
+        guard !FileManager.default.fileExists(atPath:url.path) else{throw TradeError.invalid("快照目的地已存在，不覆蓋原檔")}
+        try FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
+        var target:OpaquePointer?;guard sqlite3_open_v2(url.path,&target,SQLITE_OPEN_CREATE|SQLITE_OPEN_READWRITE,nil)==SQLITE_OK,let target else{throw TradeError.unavailable("無法建立帳戶檔案快照")};defer{sqlite3_close(target)}
+        do{try withArchiveConnection{source in try SQLiteArchiveDatabase.copy(source:source,target:target)}}catch{try? FileManager.default.removeItem(at:url);throw error}
+    }
+    func installArchiveSnapshot(_ verified:VerifiedAccountDatabase)throws->AccountState{
+        guard verified.mode==mode else{throw TradeError.wrongAccount}
+        guard try ArchiveDigest.file(verified.url)==verified.digest else{throw TradeError.corrupt("已驗證的恢復檔案發生變更，原帳戶未變")}
+        var source:OpaquePointer?;guard sqlite3_open_v2(verified.url.path,&source,SQLITE_OPEN_READONLY,nil)==SQLITE_OK,let source else{throw TradeError.corrupt("無法開啟已驗證的恢復檔案")};defer{sqlite3_close(source)}
+        try withArchiveConnection{target in try SQLiteArchiveDatabase.copy(source:source,target:target);cachedEquity=[];cachedEquityOffset=0}
+        guard let state=try load() else{throw TradeError.corrupt("已恢復檔案缺少帳戶")};return state
+    }
+    func prepareArchiveFile()throws{
+        try withArchiveConnection{db in
+            guard sqlite3_exec(db,"PRAGMA secure_delete=ON; VACUUM",nil,nil,nil)==SQLITE_OK else{throw TradeError.unavailable("檔案快照整理失敗；原帳戶保留")}
+            guard sqlite3_wal_checkpoint_v2(db,"main",SQLITE_CHECKPOINT_TRUNCATE,nil,nil)==SQLITE_OK else{throw TradeError.unavailable("無法完成檔案快照，請稍後重試")}
+        }
     }
     public func readSnapshot()throws->AccountState?{try AccountRepository(reading:path,mode:mode).fullSnapshot()}
     private func exec(_ sql: String) throws {
@@ -123,6 +158,10 @@ public final class AccountRepository: @unchecked Sendable {
         return try encoder.encode(object)
     }
     public static func validate(_ state: AccountState, mode: Mode) throws {
+        if let basis=state.capitalBasis{
+            guard basis.matches(state.netFlows),basis.unvaluedCount>=basis.unvaluedCurrencies.count,basis.unvaluedCount>=0 else{throw TradeError.corrupt("歷史投入成本與外部資金不符")}
+            if (state.history?.ledger ?? 0)==0{guard try basis==CapitalBasis.reconstruct(state) else{throw TradeError.corrupt("歷史投入成本與原始帳本／匯率證據不符")}}
+        }
         for instrument in state.instruments{try TradingSessions.validate(instrument.rules)}
         guard (1...2).contains(state.schema), state.mode == mode, state.accountID == mode.accountID,
               state.orders.values.allSatisfy({ $0.accountID == mode.accountID }),
@@ -135,7 +174,7 @@ public final class AccountRepository: @unchecked Sendable {
             if let simulation=state.simulation,simulation.algorithm=="factor-wave-3"{
                 guard ["factor-wave-1","factor-wave-2"].contains(simulation.baseAlgorithm ?? ""),let enabled=simulation.participantsFrom,enabled>=0,enabled<=32_503_680_000,enabled%Simulation.step==0 else{throw TradeError.corrupt("離線參與者版本或生效時間不合法")}
                 let known=Set(state.instruments.map(\.id)),groups=simulation.impactGroups ?? []
-                guard Set(groups.map(\.groupID)).count==groups.count,groups.allSatisfy({known.contains($0.instrumentID) && $0.volumeTime>=enabled && $0.volumeTime<=simulation.time && $0.volumeTime%Simulation.step==0 && $0.startsAt==$0.volumeTime+Simulation.step && $0.endsAt==$0.startsAt+300 && $0.volume >= .zero && $0.amplitude.magnitude <= Amount.max}) else{throw TradeError.corrupt("交易衝擊時間線或商品身份不合法")}
+                guard Set(groups.map(\.groupID)).count==groups.count,zip(groups,groups.dropFirst()).allSatisfy({($0.volumeTime,$0.groupID)<($1.volumeTime,$1.groupID)}),groups.allSatisfy({known.contains($0.instrumentID) && $0.volumeTime>=enabled && $0.volumeTime<=simulation.time && $0.volumeTime%Simulation.step==0 && $0.startsAt==$0.volumeTime+Simulation.step && $0.endsAt==$0.startsAt+300 && $0.volume >= .zero && $0.amplitude.magnitude <= Amount.max}) else{throw TradeError.corrupt("交易衝擊時間線或商品身份不合法")}
                 guard (state.participantUsage ?? [:]).values.allSatisfy({$0.quantity >= .zero && $0.expiresAt>simulation.time && $0.expiresAt<=simulation.time+60}) else{throw TradeError.corrupt("模擬流動性池用量或期限不合法")}
             }
             guard let simulation=state.simulation,["factor-wave-1","factor-wave-2","factor-wave-3"].contains(simulation.algorithm),simulation.time>=0,simulation.time<=32_503_680_000,simulation.time%Simulation.step==0,simulation.changes.allSatisfy({$0.time>=0 && $0.time<=simulation.time+Simulation.step && $0.time%Simulation.step==0 && $0.volatility.isFinite && (0.1...5).contains($0.volatility) && $0.liquidity.isFinite && (0.1...10).contains($0.liquidity) && ["多頭","空頭","盤整","恐慌","復甦"].contains($0.scenario)}),zip(simulation.changes,simulation.changes.dropFirst()).allSatisfy({$0.0.time<=$0.1.time}),state.instruments.allSatisfy({$0.id.hasPrefix("SIM:") && $0.initialPrice > .zero}) else{throw TradeError.corrupt("離線市場版本、時鐘或商品邊界不合法")}
@@ -250,8 +289,27 @@ public final class AccountRepository: @unchecked Sendable {
         s.orders=s.orders.filter{keep.contains($0.key)}
         return s
     }
-    @discardableResult public func save(_ state: AccountState, replacing: Bool = false) throws -> AccountState {
+    private func reconstructCapitalBasis(_ state:AccountState)throws->CapitalBasis{
+        if (state.history?.ledger ?? 0)==0{return try CapitalBasis.reconstruct(state)}
+        struct Row:Decodable{var ledger:LedgerEntry;var flow:CapitalFlowValuation?}
+        var basis=CapitalBasis(),seen=Set<String>()
+        func include(_ entry:LedgerEntry,flow:CapitalFlowValuation?)throws{
+            guard seen.insert(entry.eventID).inserted else{throw TradeError.corrupt("歷史外部資金身份重複")}
+            try basis.include(try CapitalBasis.checkedFlow(entry:entry,metadata:flow,base:state.baseCurrency))
+        }
+        let sql="SELECT json_object('ledger',json(l.payload),'flow',json_extract(e.payload,'$.capitalFlow')) FROM ledger l LEFT JOIN events e ON e.id=json_extract(l.payload,'$.eventID') WHERE l.ordinal<=? AND json_extract(l.payload,'$.account')='external-capital' ORDER BY l.ordinal"
+        try visit(sql,values:[String(state.history!.ledger)]){text in let row=try JSONDecoder().decode(Row.self,from:Data(text.utf8));try include(row.ledger,flow:row.flow)}
+        for entry in state.ledger where entry.account=="external-capital"{
+            let event=try state.events.first{$0.id==entry.eventID} ?? readRows(AuditEvent.self,sql:"SELECT payload FROM events WHERE id=? LIMIT 1",values:[entry.eventID]).first
+            try include(entry,flow:event?.capitalFlow)
+        }
+        guard basis.matches(state.netFlows) else{throw TradeError.corrupt("外部資金歷史與淨投入不符")}
+        return basis
+    }
+    @discardableResult public func save(_ proposed: AccountState, replacing: Bool = false) throws -> AccountState {
         lock.lock(); defer { lock.unlock() }
+        var state=proposed
+        if state.capitalBasis==nil{state.capitalBasis=try reconstructCapitalBasis(state)}
         if replacing && (state.history.map{$0.fills>0 || $0.ledger>0 || $0.events>0 || ($0.equityOffset ?? 0)>0 || ($0.financialFlowOffset ?? 0)>0} ?? false){throw TradeError.corrupt("完整還原不可使用分頁投影")}
         try Self.validate(state, mode: mode)
         let compact=try Self.compact(state)
@@ -295,7 +353,7 @@ public final class AccountRepository: @unchecked Sendable {
             }
             try updatePerformance(state,replacing:replacing)
             try insert("INSERT INTO account_state(account_id,payload) VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(compact)])
-            try exec("PRAGMA user_version=5; COMMIT")
+            try exec("PRAGMA user_version=6; COMMIT")
             cachedEquity=compact.equity;cachedEquityOffset=compact.history?.equityOffset ?? 0
             return compact
         } catch { try? exec("ROLLBACK"); throw error }
@@ -337,7 +395,7 @@ public final class AccountRepository: @unchecked Sendable {
     }
     public func simulationImpacts(instrumentID:String,from:Int64,through:Int64)throws->[SimulationImpact]{
         lock.lock();defer{lock.unlock()}
-        let fills=try readRows(Fill.self,sql:"SELECT payload FROM fills WHERE json_extract(payload,'$.instrumentID')=? AND time>=? AND time<=? ORDER BY time,id",values:[instrumentID,String(from),String(through)])
+        let fills=try readRows(Fill.self,sql:"SELECT payload FROM fills WHERE json_extract(payload,'$.simulationImpact') IS NOT NULL AND json_extract(payload,'$.instrumentID')=? AND time>=? AND time<=? ORDER BY time,id",values:[instrumentID,String(from),String(through)])
         return try SimulationParticipants.grouped(fills.compactMap(\.simulationImpact))
     }
     public func order(id:String)throws->Order?{

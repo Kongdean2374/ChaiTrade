@@ -105,6 +105,7 @@ public actor TradingEngine {
             s.simulation!.newsFrom=s.simulation!.time-366*86400;s.simulation!.newsAccountingFrom=s.simulation!.time+Simulation.step
         }
         s.productPreferences=ProductPreferences();s.productPreferences!.catalogMigrated=true
+        s.capitalBasis=CapitalBasis()
         try adjustCash(&s, currency: baseCurrency, amount: capital, time: s.simulation?.time ?? time, eventID: "initial-capital")
         return s
     }
@@ -124,15 +125,17 @@ public actor TradingEngine {
     private static func adjustCash(_ s: inout AccountState, currency: String, amount: Amount, time: Int64, eventID: String) throws {
         guard !s.appliedEvents.contains(eventID) else { return }
         if try amount < .zero && amount.magnitude > available(s, currency: currency) { throw TradeError.insufficient("減資超過可用資金；請先撤單或平倉") }
+        let rate=s.lifecycle?.rates.first{$0.currency==currency && $0.base==s.baseCurrency && $0.usable(at:time)}
+        let flow=try CapitalFlowValuation(currency:currency,amount:amount,baseCurrency:s.baseCurrency,time:time,rate:rate)
+        if s.capitalBasis==nil{s.capitalBasis=CapitalBasis.legacyProjection(s)}
+        try s.capitalBasis!.include(flow)
         s.cash[currency] = try (s.cash[currency] ?? .zero) + amount
         s.netFlows[currency] = try (s.netFlows[currency] ?? .zero) + amount
         s.post(event: eventID, currency: currency, debit: "cash", credit: "external-capital", amount: amount, time: time)
-        s.appliedEvents.insert(eventID); s.audit("cashFlow", "虛擬資金調整 \(currency) \(amount)", time: time, id: eventID)
+        s.appliedEvents.insert(eventID); s.audit("cashFlow", "虛擬資金調整 \(currency) \(amount)", time: time, id: eventID,capitalFlow:flow)
         let value = try Analytics.valuation(s,now:time)
         let baseFlow: Amount
-        if currency == s.baseCurrency{baseFlow=amount}
-        else if let rate=s.lifecycle?.rates.first(where:{$0.currency==currency && $0.base==s.baseCurrency && $0.usable(at:time)}){baseFlow=try amount*rate.rate}
-        else{baseFlow = .zero}
+        baseFlow=flow.baseAmount ?? .zero
         s.equity.append(EquityPoint(time:time,value:value.complete ? value.total:nil,flow:baseFlow))
     }
     public func cashFlow(currency: String, amount: Amount, time: Int64, eventID: String = UUID().uuidString, context: AccountContext) throws {
@@ -649,7 +652,7 @@ public actor TradingEngine {
         guard let sim = state.simulation else { return }
         simulationDemand=fullBookIDs
         var histories:[String:SimulationState]=[:]
-        for i in state.instruments{histories[i.id]=try simulationSnapshot(instrumentID:i.id,from:max(0,sim.time-10*366*86400),context:context)}
+        for i in state.instruments{histories[i.id]=try simulationSnapshot(instrumentID:i.id,from:Simulation.quoteHistoryStart(i,state:sim),context:context)}
         try transaction { s in for i in s.instruments { let history=histories[i.id]!,fullBook=(fullBookIDs.map{$0.contains(i.id)} ?? true) || s.heldPositions(i.id).contains{$0.quantity != .zero} || s.orders.values.contains{$0.status.open && $0.request.instrumentID==i.id};s.quotes[i.id] = try Simulation.quote(i, state: history,includeBook:fullBook);if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:history,board:.oddLot,includeBook:fullBook);s.quotes[odd.storageKey]=odd} } }
     }
     public func setSimulationDemand(_ ids:Set<String>,context:AccountContext)throws{
@@ -657,25 +660,37 @@ public actor TradingEngine {
         guard simulationDemand != ids else{return};simulationDemand=ids
         var quotes:[Quote]=[]
         for i in state.instruments where ids.contains(i.id){
-            let history=try simulationSnapshot(instrumentID:i.id,from:max(0,state.simulation!.time-10*366*86400),context:context)
+            let history=try simulationSnapshot(instrumentID:i.id,from:Simulation.quoteHistoryStart(i,state:state.simulation!),context:context)
             quotes.append(try Simulation.quote(i,state:history))
             if i.usesTaiwanBoards{quotes.append(try Simulation.quote(i,state:history,board:.oddLot))}
         }
         try transaction{s in for quote in quotes{s.quotes[quote.storageKey]=quote}}
     }
-    public func simulationSnapshot(instrumentID:String,from:Int64,context:AccountContext)throws->SimulationState{
+    public func simulationSnapshot(instrumentID:String,from:Int64,through:Int64?=nil,context:AccountContext)throws->SimulationState{
         try check(context)
         guard var simulation=state.simulation,state.instruments.contains(where:{$0.id==instrumentID}) else{throw TradeError.invalid("沒有此離線商品")}
         if let cutoff=simulation.impactArchiveCutoff,from<cutoff{
-            simulation.impactGroups=try repository.simulationImpacts(instrumentID:instrumentID,from:max(0,from-305),through:simulation.time)
+            simulation.impactGroups=try repository.simulationImpacts(instrumentID:instrumentID,from:max(0,from-305),through:min(through ?? simulation.time,simulation.time))
             simulation.impactArchiveCutoff=max(0,from)
         }
         return simulation
     }
     public func simulationCandles(instrumentID:String,interval:Int64,count:Int,before:Int64?=nil,context:AccountContext)async throws->[Candle]{
+        try check(context)
         let instrument=try Self.instrument(state,instrumentID)
-        let simulation=try simulationSnapshot(instrumentID:instrumentID,from:max(0,(before ?? state.simulation?.time ?? 0)-10*366*86400),context:context)
-        return try await Task.detached(priority:.userInitiated){try Simulation.candles(instrument,state:simulation,interval:interval,count:count,before:before)}.value
+        guard let current=state.simulation,interval>=60,count>0,count<=2000 else{throw TradeError.invalid("圖表區間不合法")}
+        let end=min(before ?? current.time,current.time),floor=max(0,current.time-10*366*86400)
+        let anchor=CandleCalendar.start(end,interval:interval,zone:instrument.rules.timeZone)
+        var start=max(floor,CandleCalendar.next(anchor,interval:interval,zone:instrument.rules.timeZone,offset:-count))
+        while true{
+            let simulation=try simulationSnapshot(instrumentID:instrumentID,from:start,through:end,context:context)
+            do{return try await Task.detached(priority:.userInitiated){try Simulation.candles(instrument,state:simulation,interval:interval,count:count,before:before)}.value}
+            catch SimulationHistoryError.needsArchivedImpacts{
+                try check(context);try Task.checkCancellation()
+                guard start>floor else{throw SimulationHistoryError.needsArchivedImpacts}
+                start=max(floor,end-max(86400,(end-start)*2))
+            }
+        }
     }
     public func setPositionMode(_ mode:PositionMode,context:AccountContext)throws{
         try check(context)

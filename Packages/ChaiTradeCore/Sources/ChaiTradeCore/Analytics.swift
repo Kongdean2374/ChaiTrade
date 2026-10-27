@@ -5,9 +5,10 @@ public struct Valuation: Sendable {
     public var complete: Bool
     public var missing: [String]
     public var tradingPnL: Amount?
+    public var performanceMissing:[String]=[]
 }
 public enum FXRateKind:String,Codable,Sendable{case reference,userDefined,simulated}
-public struct FXRate: Codable, Sendable {
+public struct FXRate: Codable, Sendable, Equatable {
     public var currency: String
     public var base: String
     public var rate: Amount
@@ -44,7 +45,7 @@ public enum Analytics {
     }
     public static func valuation(_ state:AccountState,rates:[FXRate]=[],now:Int64?=nil)throws->Valuation{
         let asOf=now ?? state.simulation?.time ?? max(state.equity.last?.time ?? 0,state.quotes.values.map(\.receivedAt).max() ?? 0,state.events.last?.time ?? 0)
-        var total = Amount.zero, flows = Amount.zero, missing: [String] = []
+        var total = Amount.zero, missing: [String] = []
         func convert(_ value: Amount, currency: String) throws -> Amount? {
             if value == .zero { return .zero }
             if currency == state.baseCurrency { return value }
@@ -52,7 +53,6 @@ public enum Analytics {
             return try value * rate.rate
         }
         for (currency,cash) in state.cash { if let converted = try convert(cash,currency:currency) { total = try total + converted } }
-        for (currency,flow) in state.netFlows { if let converted = try convert(flow,currency:currency) { flows = try flows + converted } }
         for event in state.lifecycle?.settlements ?? [] where event.completedAt == nil {
             if let converted=try convert(event.receivable-event.payable,currency:event.currency){total=try total+converted}
         }
@@ -64,7 +64,9 @@ public enum Analytics {
             let value = instrument.asset.derivative ? try (price - p.average) * p.quantity * instrument.rules.multiplier : try price * p.quantity
             if let converted = try convert(value, currency:instrument.currency) { total = try total + converted }
         }
-        return Valuation(total:total,complete:missing.isEmpty,missing:Array(Set(missing)).sorted(),tradingPnL:missing.isEmpty ? try total - flows : nil)
+        let basis=state.capitalBasis ?? CapitalBasis.legacyProjection(state)
+        let performanceMissing=basis.unvaluedCount>0 ? ["\(basis.unvaluedCount)筆外部資金缺少入帳時的有效\(basis.unvaluedCurrencies.sorted().joined(separator:"／"))匯率；歷史投入成本未知，不用目前匯率回填損益。"]:basis.matches(state.netFlows) ? []:["外部資金與歷史投入成本不符，需檢查原始帳本。"]
+        return Valuation(total:total,complete:missing.isEmpty,missing:Array(Set(missing)).sorted(),tradingPnL:missing.isEmpty && performanceMissing.isEmpty ? try total - basis.knownBase : nil,performanceMissing:performanceMissing)
     }
     public static func csvCell(_ value: String) -> String {
         let bytes=Array(value.utf8),start=bytes.first==45 ? 1:0

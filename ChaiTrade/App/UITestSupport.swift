@@ -76,6 +76,7 @@ struct UITestProbe: View {
             "positions":s?.positions.mapValues{$0.quantity.description} ?? [:],
             "fillCash":s?.ledger.filter{$0.account=="cash" && ids.contains($0.eventID)}.map{["event":$0.eventID,"amount":$0.amount.description]} ?? [],
             "operations":model.uiTestOperations,"mutationStarts":model.uiTestMutationStarts,"maxOperations":model.uiTestMaxOperations,"catchupNotices":s?.events.filter{$0.kind=="catchupComplete"}.count ?? 0,
+            "marketTapRequests":model.uiTestMarketRequests,"productTapSelections":model.uiTestProductSelections,
             "catchup":model.progress != nil,"pendingCatchup":model.catchupTarget != nil,
             "chartTime":model.candles.last?.time ?? 0,"chartLoading":model.chartLoading,"time":s?.simulation?.time ?? 0
         ]

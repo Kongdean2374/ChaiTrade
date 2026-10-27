@@ -42,6 +42,8 @@ struct ChartAmendment: Identifiable {
     @Published var uiTestOperations=0
     @Published var uiTestMutationStarts=0
     @Published var uiTestMaxOperations=0
+    @Published var uiTestMarketRequests:[String]=[]
+    @Published var uiTestProductSelections:[String]=[]
     #endif
     @Published var market=MarketDomain.stocks
     @Published var browsing:[MarketDomain:MarketBrowsingState]=[:]

@@ -186,7 +186,7 @@ struct OrderForm:View{
         contractRiskSection
         advancedSection
         summarySection
-    }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").toolbar{
+    }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
         ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
@@ -246,7 +246,7 @@ struct OrderForm:View{
         }
     }
     private var submitSection:some View{
-        Button(sending ? "送出中…":"檢查並送出模擬委託"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirm=true}.font(.headline).frame(maxWidth:.infinity,minHeight:48).buttonStyle(.borderedProminent).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder").padding(.horizontal,16).padding(.vertical,8).background(.bar)
+        Button{UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirm=true}label:{Text(sending ? "送出中…":"檢查委託").font(.headline).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.borderedProminent).controlSize(.large).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder").padding(.horizontal,16).padding(.vertical,8).background(.bar)
     }
     private var riskDraft:OrderRequest?{guard let size=orderQuantity else{return nil};var request=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:kind,quantity:size);request.positionSide=hedge ? contractAction.positionSide:nil;request.reduceOnly=effectiveReduceOnly;request.leverage=leverage;request.marginMode=margin;return request}
     private var preview:(Amount,Amount,Amount,Amount)?{

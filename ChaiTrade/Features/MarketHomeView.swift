@@ -19,7 +19,7 @@ struct MarketSwitcher:View {
     var body:some View{
         HStack(spacing:6){
             ForEach([MarketDomain.stocks,.crypto],id:\.self){domain in
-                Button{model.switchMarket(domain)}label:{Text(domain.label).font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:38).background(model.market==domain ? Color.orange.opacity(0.16):Color.clear,in:RoundedRectangle(cornerRadius:10))}
+                Button{model.switchMarket(domain)}label:{Text(domain.label).font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:44).background(model.market==domain ? Color.orange.opacity(0.16):Color.clear,in:RoundedRectangle(cornerRadius:10)).contentShape(Rectangle())}
                     .buttonStyle(.plain).foregroundStyle(model.market==domain ? .orange:.secondary).accessibilityIdentifier(domain == .stocks ? "marketStocks":"marketCrypto").accessibilityAddTraits(model.market==domain ? .isSelected:[])
             }
             Menu{Button("外匯與期貨"){model.switchMarket(.other)};Text("市場切換只改瀏覽分類，A／B 帳戶不變")}label:{Label("其他",systemImage:"ellipsis.circle").font(.caption).padding(.horizontal,8).frame(minHeight:38)}
