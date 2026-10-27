@@ -13,7 +13,7 @@ struct ChartView: UIViewRepresentable {
         config.defaultWebpagePreferences.allowsContentJavaScript=true
         let view=WKWebView(frame:.zero,configuration:config);view.isOpaque=false;view.backgroundColor = .clear
         view.navigationDelegate=context.coordinator
-        if let url=Bundle.main.url(forResource:"index",withExtension:"html",subdirectory:"Resources/ChartWeb") {
+        if let url=Bundle.main.url(forResource:"index",withExtension:"html",subdirectory:"ChartWeb") {
             view.loadFileURL(url,allowingReadAccessTo:url.deletingLastPathComponent())
         }
         return view

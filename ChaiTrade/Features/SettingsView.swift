@@ -102,7 +102,7 @@ struct ProviderSettings: View {
     func test() async{do{guard let i=model.state?.instruments.first(where:{$0.provider==id})else{return};let quote=try await model.provider(id).quote(i,now:Int64(Date().timeIntervalSince1970));result="成功讀取 \(i.symbol) · \(quote.last) · \(quote.quality.rawValue) · \(quote.grade.rawValue)"}catch{result=error.localizedDescription}}
 }
 struct LicenseView: View {
-    var license: String { guard let url=Bundle.main.url(forResource:"LightweightCharts-LICENSE",withExtension:nil,subdirectory:"Resources/Licenses") else{return "授權資源遺失"};return (try? String(contentsOf:url,encoding:.utf8)) ?? "授權檔無法讀取" }
+    var license: String { guard let url=Bundle.main.url(forResource:"LightweightCharts-LICENSE",withExtension:nil,subdirectory:"Licenses") else{return "授權資源遺失"};return (try? String(contentsOf:url,encoding:.utf8)) ?? "授權檔無法讀取" }
     var body: some View{ScrollView{VStack(alignment:.leading,spacing:16){Text("Lightweight Charts™\nCopyright © TradingView, Inc.\nhttps://www.tradingview.com/").font(.headline);Text("圖表資源以 Apache License 2.0 授權，完整條款隨 App 打包。")
         Text(license).font(.caption)
         Text("SQLite：Public Domain。Apple 系統框架依 Apple 平台條款提供。ChaiTrade 自有程式碼採 MIT。").font(.footnote)

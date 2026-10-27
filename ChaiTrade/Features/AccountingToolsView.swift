@@ -1,0 +1,128 @@
+import SwiftUI
+import ChaiTradeCore
+
+struct AccountingToolsView: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        List {
+            Section("可追查的帳務操作") {
+                NavigationLink("估值匯率與來源"){FXEditor()}
+                NavigationLink("股息、分割與商品事件"){CorporateActionEditor()}
+                NavigationLink("資金費率／隔夜費與期貨結算"){CarryEditor()}
+                NavigationLink("逐倉保證金調整"){MarginEditor()}
+            }
+            Section("應收應付與交割"){
+                Text("只有設定交割營業日的商品使用延後交割；未核驗規則預設明示為自訂模擬即時交割。未結算應付限制可用現金，估值不重複加計。").font(.caption).foregroundStyle(.secondary)
+                ForEach(Array((model.state?.lifecycle?.settlements ?? []).reversed())){e in
+                    VStack(alignment:.leading,spacing:5){Text("\(e.currency) 應收 \(e.receivable)／應付 \(e.payable)").font(.caption.monospaced());Text("\(Date(timeIntervalSince1970:TimeInterval(e.due)).formatted()) · \(e.completedAt == nil ? "待交割":"已交割")").font(.caption2).foregroundStyle(.secondary)}
+                }
+            }
+            Section("費用與股務紀錄"){
+                ForEach(Array((model.state?.lifecycle?.carry ?? []).reversed())){e in Text("\(e.kind) · \(e.instrumentID)\n\(e.rate) × \(e.mark)；費用 \(e.amount)\n\(e.source)").font(.caption)}
+                ForEach(Array((model.state?.lifecycle?.actions ?? []).reversed())){e in Text("\(e.kind.rawValue) · \(e.instrumentID) · \(e.source)").font(.caption)}
+            }
+        }.navigationTitle("帳務與市場事件")
+    }
+}
+struct FXEditor: View {
+    @EnvironmentObject var model: AppModel
+    @State private var currency="USD"
+    @State private var rate=""
+    @State private var source="使用者自訂模擬匯率"
+    var body: some View {
+        Form{
+            Text("1 單位來源幣換算為多少 \(model.state?.baseCurrency ?? "TWD")。USDT、USDC 與 USD 分開設定，不固定視為 1:1。人工匯率不宣稱為即時行情。").font(.footnote)
+            TextField("來源幣別",text:$currency).textInputAutocapitalization(.characters);TextField("換算匯率",text:$rate).keyboardType(.decimalPad);TextField("來源說明",text:$source)
+            Button("保存估值匯率"){Task{guard let engine=model.engine,let context=model.context,let base=model.state?.baseCurrency else{return};await model.run{try await engine.setFX(FXRate(currency:currency,base:base,rate:Amount(rate),time:model.now,source:source),context:context)}}}
+            ForEach(model.state?.lifecycle?.rates ?? [],id:\.currency){r in Text("\(r.currency)/\(r.base) @ \(r.rate)\n\(r.source) · \(Date(timeIntervalSince1970:TimeInterval(r.time)).formatted())").font(.caption)}
+        }.navigationTitle("估值匯率")
+    }
+}
+struct CorporateActionEditor: View {
+    @EnvironmentObject var model: AppModel
+    @State private var id=""
+    @State private var kind=CorporateActionKind.split
+    @State private var ratio="2"
+    @State private var amount="1"
+    @State private var symbol=""
+    @State private var payment=Date().addingTimeInterval(86400)
+    @State private var source="使用者人工輸入事件；非官方同步"
+    @State private var confirm=false
+    var body: some View {
+        Form {
+            Picker("商品",selection:$id){ForEach((model.state?.instruments ?? []).filter{!$0.asset.derivative && $0.asset != .index}){i in Text(i.name).tag(i.id)}}
+            Picker("事件",selection:$kind){Text("分割／反向分割").tag(CorporateActionKind.split);Text("股息／配息").tag(CorporateActionKind.dividend);Text("代碼變更").tag(CorporateActionKind.rename);Text("停牌").tag(CorporateActionKind.halt);Text("恢復交易").tag(CorporateActionKind.resume);Text("現金清算／下市").tag(CorporateActionKind.cashLiquidation)}
+            if kind == .split{TextField("每 1 單位換成多少（2＝拆二；0.5＝併二）",text:$ratio).keyboardType(.decimalPad)}
+            if kind == .dividend || kind == .cashLiquidation{TextField("每單位金額",text:$amount).keyboardType(.decimalPad)}
+            if kind == .dividend{DatePicker("股息入帳時間",selection:$payment)}
+            if kind == .rename{TextField("新顯示代碼（穩定 ID 保留）",text:$symbol)}
+            TextField("可信來源或人工模擬說明",text:$source)
+            Text("以目前帳戶時間套用，事件僅記帳一次。分割調整數量與成本，不重寫過去成交；不合法級距的未完成委託會取消。A 缺少官方事件不會自行猜測補做。").font(.caption)
+            Button("檢查並套用帳戶事件"){confirm=true}
+        }.navigationTitle("股務與市場事件")
+            .onAppear{id=model.state?.instruments.first(where:{!$0.asset.derivative && $0.asset != .index})?.id ?? "";payment=Date(timeIntervalSince1970:TimeInterval(model.now+86400))}
+            .confirmationDialog("確認人工事件會影響目前帳戶的持倉與帳務？",isPresented:$confirm,titleVisibility:.visible){Button("確認套用"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let action=try CorporateAction(instrumentID:id,kind:kind,time:model.now,ratio:kind == .split ? Amount(ratio):nil,cashPerUnit:kind == .dividend || kind == .cashLiquidation ? Amount(amount):nil,paymentTime:kind == .dividend ? Int64(payment.timeIntervalSince1970):nil,newSymbol:kind == .rename ? symbol:nil,source:source);try await engine.corporateAction(action,context:context);try await engine.initializeQuotes(context:context)}}}}
+    }
+}
+struct CarryEditor: View {
+    @EnvironmentObject var model: AppModel
+    @State private var id=""
+    @State private var rate="0.0001"
+    @State private var price=""
+    @State private var kind="funding"
+    @State private var eventID=UUID().uuidString
+    @State private var source="使用者自訂模擬費率／結算事件"
+    @State private var final=false
+    @State private var confirm=false
+    var body: some View {
+        Form{
+            Picker("合約",selection:$id){ForEach((model.state?.instruments ?? []).filter{$0.asset.derivative}){i in Text(i.name).tag(i.id)}}
+            Picker("操作",selection:$kind){Text("資金費率").tag("funding");Text("隔夜費／利息").tag("interest");Text("期貨每日／到期結算").tag("settlement")}
+            TextField("有效標記／結算價",text:$price).keyboardType(.decimalPad)
+            if kind != "settlement"{TextField("本期費率（0.0001＝0.01%）",text:$rate).keyboardType(.numbersAndPunctuation)}else{Toggle("最後到期結算並禁止新倉",isOn:$final)}
+            TextField("唯一事件 ID（同 ID 不重複入帳）",text:$eventID).autocorrectionDisabled();TextField("費率／價格來源",text:$source)
+            Text("未取得可靠來源的期間費用不會默認為零或猜測補扣。此頁只處理明確輸入的帳戶事件，不能冒充交易所歷史帳單。").font(.caption)
+            Button("確認記帳"){confirm=true}
+        }.navigationTitle("費用與期貨結算").onAppear{id=model.state?.instruments.first(where:{$0.asset.derivative})?.id ?? ""}
+            .confirmationDialog("確認依指定價格與費率記帳？",isPresented:$confirm,titleVisibility:.visible){Button("確認"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{if kind == "settlement"{try await engine.settleFuture(instrumentID:id,price:Amount(price),time:model.now,eventID:eventID,final:final,context:context)}else{try await engine.applyCarry(instrumentID:id,rate:Amount(rate),mark:Amount(price),time:model.now,eventID:eventID,kind:kind,source:source,context:context)}}}}}
+    }
+}
+struct MarginEditor: View {
+    @EnvironmentObject var model: AppModel
+    @State private var id=""
+    @State private var amount=""
+    @State private var removing=false
+    var body: some View {
+        Form{Picker("逐倉部位",selection:$id){ForEach((model.state?.positions.values.sorted{$0.id<$1.id} ?? []).filter{$0.quantity != .zero && $0.marginMode == .isolated && $0.margin > .zero}){p in Text(p.id).tag(p.id)}};TextField("調整金額",text:$amount).keyboardType(.decimalPad);Toggle("移除保證金",isOn:$removing);Button("確認調整"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let v=try Amount(amount);guard v > .zero else{throw TradeError.invalid("金額需大於零")};try await engine.adjustMargin(instrumentID:id,amount:removing ? v.negated:v,time:model.now,context:context)}}};Text("移除後須高於維持保證金；追加只凍結目前帳戶同幣別可用現金，不重複計入淨值。").font(.caption)}.navigationTitle("調整逐倉保證金")
+    }
+}
+struct RuleEditor: View {
+    @EnvironmentObject var model: AppModel
+    @State private var tick=""
+    @State private var step=""
+    @State private var multiplier=""
+    @State private var maker=""
+    @State private var taker=""
+    @State private var fixed=""
+    @State private var minimum=""
+    @State private var tax=""
+    @State private var zone="UTC"
+    @State private var open=0
+    @State private var close=1440
+    @State private var weekdays=false
+    @State private var days=0
+    @State private var holidays=""
+    var body: some View {
+        Form{
+            Text("自訂模擬規則，不代表交易所已核驗制度。商品有持倉或未完成委託時禁止直接更改規格，避免回頭重寫歷史。").font(.footnote).foregroundStyle(.orange)
+            Section("價格與數量"){TextField("最小跳動",text:$tick);TextField("數量級距",text:$step);TextField("合約乘數",text:$multiplier)}.keyboardType(.decimalPad)
+            Section("每委託累計費用"){TextField("Maker 比例費率",text:$maker);TextField("Taker 比例費率",text:$taker);TextField("固定費",text:$fixed);TextField("最低手續費",text:$minimum);TextField("賣出稅率",text:$tax)}.keyboardType(.decimalPad)
+            Section("交易日曆與交割"){
+                Picker("IANA 時區",selection:$zone){ForEach(["UTC","Asia/Taipei","America/New_York","Europe/London","Asia/Tokyo"],id:\.self){Text($0)}}
+                Stepper("開盤分鐘（當日 0 起算）\(open)",value:$open,in:0...1440,step:15);Stepper("收盤分鐘 \(close)",value:$close,in:0...1440,step:15)
+                Toggle("週一至週五",isOn:$weekdays);TextField("休市日 YYYY-MM-DD，以逗號分隔",text:$holidays).autocorrectionDisabled();Stepper(days == 0 ? "即時交割（簡化）":"交割 \(days) 個營業日（自訂日曆）",value:$days,in:0...10)
+            }
+            Button("保存未來規則"){Task{guard let i=model.selected,let engine=model.engine,let context=model.context else{return};await model.run{var r=i.rules;r.tick=try Amount(tick);r.quantityStep=try Amount(step);r.multiplier=try Amount(multiplier);r.fees.maker=try Amount(maker);r.fees.taker=try Amount(taker);r.fees.fixed=try Amount(fixed);r.fees.minimum=try Amount(minimum);r.fees.sellTax=try Amount(tax);r.timeZone=zone;r.openMinute=open;r.closeMinute=close;r.weekdaysOnly=weekdays;r.holidays=holidays.split(separator:",").map{String($0).trimmingCharacters(in:.whitespaces)};r.settlementBusinessDays=days;r.verifiedAt=nil;r.source="使用者自訂模擬規則；非交易所核驗";r.version="custom-\(model.now)";try await engine.updateRules(instrumentID:i.id,rules:r,context:context)}}}
+        }.navigationTitle("自訂模擬規則").onAppear{guard let r=model.selected?.rules else{return};tick=r.tick.description;step=r.quantityStep.description;multiplier=r.multiplier.description;maker=r.fees.maker.description;taker=r.fees.taker.description;fixed=r.fees.fixed.description;minimum=r.fees.minimum.description;tax=r.fees.sellTax.description;zone=r.timeZone;open=r.openMinute;close=r.closeMinute;weekdays=r.weekdaysOnly;days=r.settlementBusinessDays ?? 0;holidays=r.holidays.joined(separator:",")}
+    }
+}

@@ -66,7 +66,7 @@ struct PortfolioView: View {
                     }.padding(.vertical,6)
                 }
             }
-            Section{Button("績效與資金流分析"){performance=true};Button("本機交易日誌"){journal=true};Button("匯出成交 CSV"){Task{await model.export(kind:"CSV")}};Button("匯出資金帳本 CSV"){Task{await model.export(kind:"ledger")}};Button("匯出 JSON"){Task{await model.export(kind:"JSON")}}}
+            Section{Button("績效與資金流分析"){performance=true};NavigationLink("帳務、交割與市場事件"){AccountingToolsView()};Button("本機交易日誌"){journal=true};Button("匯出成交 CSV"){Task{await model.export(kind:"CSV")}};Button("匯出資金帳本 CSV"){Task{await model.export(kind:"ledger")}};Button("匯出 JSON"){Task{await model.export(kind:"JSON")}}}
             Section("最近資金帳本"){
                 ForEach(Array((model.state?.ledger ?? []).suffix(40).enumerated()),id:\.offset){_,entry in HStack{VStack(alignment:.leading){Text(entry.account).font(.caption);Text(entry.currency).font(.caption2).foregroundStyle(.secondary)};Spacer();Text(entry.amount.description).font(.caption.monospaced())}}
             }
