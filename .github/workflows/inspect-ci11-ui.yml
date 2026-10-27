@@ -23,19 +23,22 @@ jobs:
           # Safer alternative to the rejected screenshot-to-public-log operation:
           # never read, encode, copy or print any screenshot or arbitrary UI text.
           # These are existing clean XCTest artifacts, not the user's 21 photos.
-          import pathlib,re,json
+          import pathlib,re,json,collections
           controls=("openOrder","orderQuantity","submitOrder","openJournal","journalText","saveJournal","activeModeBanner")
           root=pathlib.Path("evidence")
           count=0
-          for path in root.rglob("*.txt"):
-              if "attachments" not in str(path.parent): continue
+          extensions=collections.Counter(p.suffix if re.fullmatch(r"\\.[a-z0-9]{1,10}",p.suffix) else "<other>" for p in root.rglob("*") if p.is_file())
+          print("EVIDENCE_EXTENSION_COUNTS",dict(extensions))
+          for path in root.rglob("*"):
+              if not path.is_file() or path.suffix not in [".txt",".text",".json"]: continue
+              if path.stat().st_size>8000000: continue
               text=path.read_text(errors="replace")
-              if not ("Application," in text and "frame=" in text): continue
+              if not any(control in text for control in controls): continue
               matches=[]
               for line in text.splitlines():
                   for control in controls:
-                      if ("identifier: '"+control+"'") not in line: continue
-                      rect=re.search(r"frame=(\{\{[-0-9., ]+\}, \{[-0-9., ]+\}\})",line)
+                      if ("identifier: '"+control+"'") not in line and ('identifier: "'+control+'"') not in line: continue
+                      rect=re.search(r"frame[=:] ?(\{\{[-0-9., ]+\}, \{[-0-9., ]+\}\})",line)
                       matches.append({"control":control,"rect":rect.group(1) if rect else None})
               count+=1
               print("CONTROL_GEOMETRY",count,json.dumps(matches))
