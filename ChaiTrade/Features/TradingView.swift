@@ -8,6 +8,7 @@ private struct OrderDraft:Identifiable{
     let context:AccountContext
     let side:Side
     let board:TradingBoard
+    var closingPosition:Position?
 }
 struct TradingView:View{
     @EnvironmentObject var model:AppModel
@@ -29,7 +30,7 @@ struct TradingView:View{
             }else{ContentUnavailableView("先選擇商品",systemImage:"chart.xyaxis.line",description:Text("前往行情頁搜尋代碼或名稱"));Button("探索行情"){model.tab=1}}
         }.background(Color(.systemGroupedBackground)).navigationTitle("商品詳情").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge:.bottom){tradeBar}
-            .sheet(item:$draft,onDismiss:{if showOrdersAfterDismiss{showOrdersAfterDismiss=false;model.tab=3}}){intent in NavigationStack{OrderForm(instrument:intent.instrument,accountContext:intent.context,initialSide:intent.side,initialBoard:intent.board,onSubmitted:{showOrdersAfterDismiss=true;draft=nil})}}
+            .sheet(item:$draft,onDismiss:{if showOrdersAfterDismiss{showOrdersAfterDismiss=false;model.tab=3}}){intent in NavigationStack{OrderForm(instrument:intent.instrument,accountContext:intent.context,initialSide:intent.side,initialBoard:intent.board,initialPosition:intent.closingPosition,onSubmitted:{showOrdersAfterDismiss=true;draft=nil})}}
             .sheet(isPresented:$details){NavigationStack{InstrumentDetails()}}
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
@@ -77,6 +78,12 @@ struct TradingView:View{
             ForEach(positions){position in
                 HStack{Metric(title:(position.side?.label ?? "數量")+"（\(i.quantityUnit)）",value:MarketText.number(position.quantity));Metric(title:"平均成本",value:MarketText.number(position.average))}
                 if i.asset.derivative{ContractPositionRiskView(position:position)}
+                if i.asset.derivative,position.quantity != .zero,let context=model.context{
+                    Button(position.quantity > .zero ? "平多（僅減倉）":"平空（僅減倉）"){
+                        draft=OrderDraft(instrument:i,context:context,side:position.quantity > .zero ? .sell:.buy,board:model.selectedBoard,closingPosition:position)
+                    }.buttonStyle(.bordered).disabled(model.interactionBlocked || !model.canTrade(i)).accessibilityIdentifier("closePosition-"+position.id)
+                    if position.marginMode == .isolated{NavigationLink("調整逐倉保證金"){MarginEditor(initialPositionID:position.id)}}
+                }
             }
             Button("查看資產與損益"){model.tab=4}
         }}
@@ -148,6 +155,7 @@ struct OrderForm:View{
     let accountContext:AccountContext
     var initialSide=Side.buy
     var initialBoard=TradingBoard.regular
+    var initialPosition:Position?
     let onSubmitted:@MainActor ()->Void
     @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
@@ -180,7 +188,7 @@ struct OrderForm:View{
     private var hedge:Bool{instrument.asset.derivative && model.state?.positionMode == .hedge}
     private var effectiveSide:Side{hedge ? contractAction.side:side}
     private var effectiveReduceOnly:Bool{hedge ? contractAction.closes:reduceOnly}
-    private var directionLabel:String{hedge ? contractAction.label:(side == .buy ? instrument.buyLabel:instrument.sellLabel)}
+    private var directionLabel:String{hedge ? contractAction.label:MarketText.orderDirection(instrument,side:side,reduceOnly:reduceOnly)}
     private var selectedPosition:Position?{guard let state=model.state else{return nil};return state.positions[state.positionKey(instrument:instrument,side:hedge ? contractAction.positionSide:nil)]}
     private var board:TradingBoard?{instrument.usesTaiwanBoards ? (unit == "張" ? .regular:.oddLot):nil}
     private var quote:Quote?{model.state?.quotes[instrument.quoteKey(board:board)]}
@@ -193,17 +201,18 @@ struct OrderForm:View{
         summarySection
     }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
         ToolbarItem(placement:.principal){
-            Text("模擬下單").font(.headline).frame(minHeight:44).contentShape(Rectangle())
+            Text("模擬下單").font(.headline).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())
                 .accessibilityHint("向下拖曳可取消尚未送出的委託")
-                .simultaneousGesture(DragGesture(minimumDistance:30,coordinateSpace:.global).onEnded{value in
-                    guard !sending,!confirm,value.translation.height>70,abs(value.translation.width)<value.translation.height else{return}
+                .simultaneousGesture(DragGesture(minimumDistance:12,coordinateSpace:.global).onChanged{value in
+                    guard !sending,!confirm,value.translation.height>24,abs(value.translation.width)<value.translation.height else{return}
                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);dismiss()
                 })
         }
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
         ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
-    }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"}}
+    }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"};if let position=initialPosition{reduceOnly=true;side=position.quantity > .zero ? .sell:.buy;contractAction=position.quantity > .zero ? .closeLong:.closeShort;quantity=position.quantity.magnitude.description;leverage=position.leverage;margin=position.marginMode}}
+        .onChange(of:reduceOnly){_,closing in if closing,let position=selectedPosition{side=position.quantity > .zero ? .sell:.buy;leverage=position.leverage;margin=position.marginMode}}
         .onChange(of:unit){_,_ in if board == .oddLot{kind = .limit;tif = .DAY;postOnly=false;protection="無";model.changeBoard(.oddLot)}else if instrument.usesTaiwanBoards{model.changeBoard(.regular)}}
         .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text(confirmationText)}
     }
@@ -216,7 +225,10 @@ struct OrderForm:View{
     private var basicSection:some View{
         Section(instrument.name+" · "+instrument.symbol){
             Text("本機模擬委託").font(.caption).foregroundStyle(.secondary)
-            if hedge{Picker("合約操作",selection:$contractAction){ForEach(ContractAction.allCases,id:\.self){Text($0.label)}}}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
+            if hedge{Picker("合約操作",selection:$contractAction){ForEach(ContractAction.allCases,id:\.self){Text($0.label)}}}else{
+                if instrument.asset.derivative{Picker("合約操作",selection:$reduceOnly){Text("開倉").tag(false);Text("平倉").tag(true)}.pickerStyle(.segmented)}
+                if instrument.asset.derivative && reduceOnly{LabeledContent("方向",value:directionLabel);Text("僅減少既有部位，不反向開倉。").font(.caption).foregroundStyle(.secondary)}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
+            }
             Picker("委託類型",selection:$kind){ForEach(availableKinds,id:\.self){Text($0.label)}}.accessibilityIdentifier("orderKind")
             if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad)}
             if instrument.usesTaiwanBoards{Picker("數量單位",selection:$unit){Text("股").tag("股");Text("張").tag("張")}.pickerStyle(.segmented);Text("1 張＝\(instrument.identity?.boardLot ?? 1000) 股").font(.caption).foregroundStyle(.secondary)}
@@ -230,8 +242,8 @@ struct OrderForm:View{
     }
     @ViewBuilder private var contractRiskSection:some View{
         if instrument.asset.derivative{Section("合約風險"){
-            Stepper("槓桿 \(leverage)×",value:$leverage,in:1...instrument.rules.maxLeverage)
-            Picker("保證金模式",selection:$margin){Text("逐倉").tag(MarginMode.isolated);Text("全倉（同幣別）").tag(MarginMode.cross)}
+            Stepper("槓桿 \(leverage)×",value:$leverage,in:1...instrument.rules.maxLeverage).disabled(effectiveReduceOnly)
+            Picker("保證金模式",selection:$margin){Text("逐倉").tag(MarginMode.isolated);Text("全倉（同幣別）").tag(MarginMode.cross)}.disabled(effectiveReduceOnly)
             Text("虛擬合約可能強平及穿倉；全倉僅共用同帳戶、同結算幣別抵押品。").font(.caption).foregroundStyle(.orange)
         }}
     }
@@ -259,7 +271,9 @@ struct OrderForm:View{
         }
     }
     private var submitSection:some View{
+        VStack(spacing:0){
         Button{UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirm=true}label:{Text(sending ? "送出中…":"檢查委託").font(.headline).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.borderedProminent).controlSize(.large).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder").padding(.horizontal,16).padding(.vertical,8).background(.bar)
+        }.accessibilityElement(children:.contain).accessibilityIdentifier("orderActionBar")
     }
     private var riskDraft:OrderRequest?{guard let size=orderQuantity else{return nil};var request=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:kind,quantity:size);request.positionSide=hedge ? contractAction.positionSide:nil;request.reduceOnly=effectiveReduceOnly;request.leverage=leverage;request.marginMode=margin;return request}
     private var preview:(Amount,Amount,Amount,Amount)?{

@@ -2,6 +2,10 @@ import SwiftUI
 import ChaiTradeCore
 
 @MainActor enum MarketText {
+    static func orderDirection(_ instrument:Instrument?,side:Side,reduceOnly:Bool)->String{
+        if let instrument,instrument.asset.derivative,reduceOnly{return side == .buy ? "平空":"平多"}
+        return side == .buy ? (instrument?.buyLabel ?? "買入"):(instrument?.sellLabel ?? "賣出")
+    }
     static func number(_ amount:Amount?)->String{
         guard let amount else{return "—"}
         let text=amount.description,parts=text.split(separator:".",omittingEmptySubsequences:false)
@@ -16,13 +20,14 @@ import ChaiTradeCore
 }
 struct MarketSwitcher:View {
     @EnvironmentObject var model:AppModel
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body:some View{
         HStack(spacing:6){
             ForEach([MarketDomain.stocks,.crypto],id:\.self){domain in
-                Button{model.switchMarket(domain)}label:{Text(domain.label).font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:44).background(model.market==domain ? Color.orange.opacity(0.16):Color.clear,in:RoundedRectangle(cornerRadius:10)).contentShape(Rectangle())}
-                    .buttonStyle(.plain).foregroundStyle(model.market==domain ? .orange:.secondary).accessibilityIdentifier(domain == .stocks ? "marketStocks":"marketCrypto").accessibilityAddTraits(model.market==domain ? .isSelected:[])
+                Button{model.switchMarket(domain)}label:{Text(typeSize.isAccessibilitySize && domain == .crypto ? "加密":domain.label).font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth:.infinity,minHeight:44).background(model.market==domain ? Color.orange.opacity(0.16):Color.clear,in:RoundedRectangle(cornerRadius:10)).contentShape(Rectangle())}
+                    .buttonStyle(.plain).foregroundStyle(model.market==domain ? .orange:.secondary).accessibilityLabel(domain.label).accessibilityIdentifier(domain == .stocks ? "marketStocks":"marketCrypto").accessibilityAddTraits(model.market==domain ? .isSelected:[])
             }
-            Menu{Button("外匯與期貨"){model.switchMarket(.other)};Text("市場切換只改瀏覽分類，A／B 帳戶不變")}label:{Label("其他",systemImage:"ellipsis.circle").font(.caption).padding(.horizontal,8).frame(minHeight:38)}
+            Menu{Button("外匯與期貨"){model.switchMarket(.other)};Text("市場切換只改瀏覽分類，A／B 帳戶不變")}label:{Image(systemName:"ellipsis.circle").font(.title3).frame(minWidth:44,minHeight:44)}.accessibilityLabel("其他市場：外匯與期貨")
         }.padding(.horizontal,16).padding(.bottom,5).accessibilityElement(children:.contain)
     }
 }

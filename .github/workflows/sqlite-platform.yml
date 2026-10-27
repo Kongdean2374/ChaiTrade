@@ -53,6 +53,8 @@ jobs:
         run: bash scripts/test.sh
       - name: Original T45 gate
         run: bash scripts/test_stress.sh
+      - name: Real encrypted archive above512MB with bounded process memory
+        run: bash scripts/test_archive_scale.sh
       - name: Preserve exact logs
         if: always()
         uses: actions/upload-artifact@v4

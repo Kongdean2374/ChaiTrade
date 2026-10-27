@@ -50,6 +50,8 @@ public enum NetworkPolicy {
             return path.range(of: #"^/marketdata/v1\.0/(stock|futopt)/(intraday/(ticker|quote|candles|trades|volumes)|historical/candles)/[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil || path.range(of:#"^/marketdata/v1\.0/(stock|futopt)/intraday/tickers$"#,options:.regularExpression) != nil
         case "www.nasdaqtrader.com":return ["/dynamic/SymDir/nasdaqlisted.txt","/dynamic/SymDir/otherlisted.txt"].contains(path)
         case "www.federalreserve.gov":return ["/feeds/press_all.xml","/feeds/press_monetary.xml"].contains(path)
+        case "www.twse.com.tw":return path=="/rwd/zh/news/feed" && URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems==[URLQueryItem(name:"type",value:"rss")]
+        case "cryptoslate.com":return ["/feed","/feed/"].contains(path) && url.query==nil
         case "data.alpaca.markets":
             return path == "/v1beta1/news" || path.range(of: #"^/v2/stocks/[A-Z.]+/(snapshot|bars|quotes/latest|trades/latest)$"#, options: .regularExpression) != nil
         case "api.twelvedata.com": return ["/quote","/time_series","/exchange_rate","/forex_pairs"].contains(path)

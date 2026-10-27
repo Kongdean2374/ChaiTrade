@@ -22,6 +22,22 @@ private struct ContractRig{
         var request=OrderRequest(instrumentID:instrument.id,side:side,kind:.market,quantity:try Amount(quantity));request.positionSide=positionSide;request.reduceOnly=reduce;request.leverage=leverage;return request
     }
 }
+@Test func marginAdjustmentIntentAppliesOnceAndInvalidRemovalDoesNotConsumeItsID()async throws{
+    let rig=try ContractRig(),context=rig.context
+    try await rig.engine.ingest(rig.quote(),now:1000,context:context)
+    _=try await rig.engine.submit(rig.request(side:.buy,positionSide:nil),time:1000,context:context)
+    let before=await rig.engine.snapshot(),original=try #require(before.positions[rig.instrument.id]?.margin)
+    for _ in 0..<4{try await rig.engine.adjustMargin(instrumentID:rig.instrument.id,amount:Amount(20),time:1000,eventID:"stable-margin-adjustment",context:context)}
+    let once=await rig.engine.snapshot();#expect(try once.positions[rig.instrument.id]?.margin==original+Amount(20));#expect(once.cash==before.cash)
+    #expect(once.events.filter{$0.id=="stable-margin-adjustment"}.count==1)
+    let next=AccountContext(mode:.online),reopened=try TradingEngine(context:next,repository:rig.repository,initial:#require(try rig.repository.load()))
+    try await reopened.adjustMargin(instrumentID:rig.instrument.id,amount:Amount(20),time:1001,eventID:"stable-margin-adjustment",context:next)
+    #expect(await reopened.snapshot().positions[rig.instrument.id]?.margin==once.positions[rig.instrument.id]?.margin)
+    await #expect(throws:TradeError.self){try await reopened.adjustMargin(instrumentID:rig.instrument.id,amount:Amount(-1000),time:1001,eventID:"retry-after-invalid",context:next)}
+    #expect(await reopened.snapshot().appliedEvents.contains("retry-after-invalid")==false)
+    try await reopened.adjustMargin(instrumentID:rig.instrument.id,amount:Amount(1),time:1001,eventID:"retry-after-invalid",context:next)
+    #expect(try await reopened.snapshot().positions[rig.instrument.id]?.margin==original+Amount(21))
+}
 @Test func marginWarningPrecedesLiquidationDoesNotRepeatAcrossRestartAndRearmsAfterRecovery()async throws{
     let r=try ContractRig(tiers:true),ctx=r.context
     try await r.engine.ingest(r.quote(),now:1000,context:ctx)

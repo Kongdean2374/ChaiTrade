@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ChaiTradeCore
 
 struct AccountingToolsView: View {
@@ -87,13 +88,50 @@ struct CarryEditor: View {
             .confirmationDialog("確認依指定價格與費率記帳？",isPresented:$confirm,titleVisibility:.visible){Button("確認"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{if kind == "settlement"{try await engine.settleFuture(instrumentID:id,price:Amount(price),time:model.now,eventID:eventID,final:final,context:context)}else{try await engine.applyCarry(instrumentID:id,rate:Amount(rate),mark:Amount(price),time:model.now,eventID:eventID,kind:kind,source:source,context:context)}}}}}
     }
 }
+private struct MarginAdjustmentDraft{
+    let position:Position
+    let amount:Amount
+    let context:AccountContext
+    let eventID=UUID().uuidString
+}
 struct MarginEditor: View {
-    @EnvironmentObject var model: AppModel
+    var initialPositionID:String?=nil
+    @EnvironmentObject var model:AppModel
+    @Environment(\.dismiss) private var dismiss
     @State private var id=""
     @State private var amount=""
     @State private var removing=false
-    var body: some View {
-        Form{Picker("逐倉部位",selection:$id){ForEach((model.state?.positions.values.sorted{$0.id<$1.id} ?? []).filter{$0.quantity != .zero && $0.marginMode == .isolated && $0.margin > .zero}){p in Text(p.id).tag(p.id)}};TextField("調整金額",text:$amount).keyboardType(.decimalPad);Toggle("移除保證金",isOn:$removing);Button("確認調整"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let v=try Amount(amount);guard v > .zero else{throw TradeError.invalid("金額需大於零")};let position=model.state?.positions[id];try await engine.adjustMargin(instrumentID:position?.instrumentKey ?? id,amount:removing ? v.negated:v,time:model.now,positionSide:position?.side,context:context)}}};Text("移除後須高於維持保證金；追加只凍結目前帳戶同幣別可用現金，不重複計入淨值。").font(.caption)}.navigationTitle("調整逐倉保證金")
+    @State private var saving=false
+    @State private var confirming=false
+    @State private var draft:MarginAdjustmentDraft?
+    private var positions:[Position]{(model.state?.positions.values.sorted{$0.id<$1.id} ?? []).filter{$0.quantity != .zero && $0.marginMode == .isolated && $0.margin > .zero}}
+    var body:some View{Form{
+        if positions.isEmpty{ContentUnavailableView("目前沒有逐倉合約持倉",systemImage:"chart.line.uptrend.xyaxis")}
+        else{Section("選擇部位"){
+            Picker("逐倉部位",selection:$id){ForEach(positions){p in Text(positionName(p)).tag(p.id)}}
+            if let position=positions.first(where:{$0.id==id}){LabeledContent("目前保證金",value:MarketText.number(position.margin));ContractPositionRiskView(position:position)}
+        }
+        Section("調整"){
+            TextField("調整金額",text:$amount).keyboardType(.decimalPad).accessibilityIdentifier("marginAmount")
+            Toggle("移除保證金",isOn:$removing)
+            Text("追加只凍結目前帳戶同結算幣別的可用現金，不增加淨值；移除後仍須足以支付維持保證金及預估平倉費用。").font(.caption).foregroundStyle(.secondary)
+            Button(saving ? "調整中…":"檢查保證金調整"){prepare()}.disabled(saving || model.interactionBlocked).accessibilityIdentifier("reviewMarginAdjustment")
+        }}
+    }.disabled(saving).scrollDismissesKeyboard(.interactively).navigationTitle("調整逐倉保證金").interactiveDismissDisabled(saving)
+        .onAppear{if id.isEmpty{id=initialPositionID ?? positions.first?.id ?? ""}}
+        .confirmationDialog("確認本機保證金調整？",isPresented:$confirming,titleVisibility:.visible){Button("確認調整"){submit()};Button("取消",role:.cancel){draft=nil}}message:{if let draft{Text(positionName(draft.position)+"\n調整 "+MarketText.number(draft.amount)+"；不會轉出資金。")}}
+    }
+    private func positionName(_ position:Position)->String{
+        let name=model.state?.instruments.first{$0.id==position.instrumentKey}?.name ?? position.instrumentKey
+        return name+" · "+(position.quantity > .zero ? "多倉":"空倉")
+    }
+    private func prepare(){
+        guard !saving,let position=positions.first(where:{$0.id==id}),let context=model.context else{return}
+        do{let input=try Amount(amount);guard input > .zero else{throw TradeError.invalid("金額需大於零")};draft=MarginAdjustmentDraft(position:position,amount:removing ? input.negated:input,context:context);UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirming=true}catch{model.error=error.localizedDescription}
+    }
+    private func submit(){
+        guard !saving,let intent=draft,let engine=model.engine,model.context==intent.context else{return};saving=true
+        Task{defer{saving=false;draft=nil};let success=await model.run{try await engine.adjustMargin(instrumentID:intent.position.instrumentKey,amount:intent.amount,time:model.now,positionSide:intent.position.side,eventID:intent.eventID,context:intent.context)};if success,model.context==intent.context{dismiss()}}
     }
 }
 struct RuleEditor: View {

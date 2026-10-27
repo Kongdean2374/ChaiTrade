@@ -35,7 +35,8 @@ func streamingArchiveRoundtripPreservesJournalsCapitalAndExcludesACache(encrypte
     let bytes=try Data(contentsOf:url),frames=streamFrames(bytes)
     #expect(frames.ranges.count>=3)
     let restored=try StreamingArchiveService.validate(url,stagingRoot:r.output("restore"),expectedMode:.online,password:password)
-    #expect(try restored.state.cash["TWD"]==Amount(5000));#expect(restored.state.journals.count==50)
+    #expect(try restored.state.cash["TWD"]==Amount(5000));#expect(restored.state.journals.count==20);#expect(restored.state.history?.journalCount==50)
+    let full=try AccountRepository(root:r.output("restore"),mode:.online).fullSnapshot();#expect(full?.journals.count==50)
     #expect(restored.state.quotes.isEmpty && restored.state.consumed.isEmpty)
     #expect(try r.original.load()?.quotes.isEmpty==false)
     if encrypted{#expect(throws:(any Error).self){try StreamingArchiveService.validate(url,stagingRoot:r.output("wrong-password"),expectedMode:.online,password:"incorrect-password")}}
@@ -74,5 +75,5 @@ func streamingArchiveRoundtripPreservesJournalsCapitalAndExcludesACache(encrypte
     await #expect(throws:CancellationError.self){try await task.value}
     #expect(!FileManager.default.fileExists(atPath:url.path))
     #expect(try FileManager.default.contentsOfDirectory(atPath:r.root.path).allSatisfy{!$0.hasPrefix(".partial-")})
-    #expect(try r.original.load()?.cash["TWD"]==Amount(5000));#expect(try r.original.load()?.journals.count==50)
+    #expect(try r.original.load()?.cash["TWD"]==Amount(5000));#expect(try r.original.load()?.history?.journalCount==50);#expect(try r.original.fullSnapshot()?.journals.count==50)
 }

@@ -166,6 +166,40 @@ import XCTest
         for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Archive created "+key)}
         capture("AFTER file cache cleanup keeps account")
     }
+    func testActualPublicSourceDirectoryAddsOnlySelectedIdentityAndRoutesToProduct()throws{
+        let app=launchClean();defer{finish()};try onboard(app,online:true)
+        let before=try state(app),initialIDs=Set((before["instruments"] as? [[String:String]] ?? []).compactMap{$0["id"]})
+        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
+        let source=app.buttons["catalogSource-coinbase"];try reveal(source,in:app);source.tap()
+        let message=app.staticTexts["sourceCatalogMessage"]
+        try waitUntil("Actual public source directory did not load",timeout:30){message.exists && message.label.contains("已取得")}
+        try check((try state(app)["instruments"] as? [[String:String]])?.count==initialIDs.count,"Browsing mass-imported source directory")
+        capture("AFTER actual public source identity directory")
+        let choices=app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@ AND identifier ENDSWITH %@","discover-coinbase:","-USD")).allElementsBoundByIndex
+        let row=try XCTUnwrap(choices.first{!initialIDs.contains(String($0.identifier.dropFirst("discover-".count)))})
+        let expected=String(row.identifier.dropFirst("discover-".count));try reveal(row,in:app);row.tap()
+        try waitUntil("Selected directory identity did not return to product",timeout:15){
+            guard let s=try? self.state(app) else{return false};return s["selected"] as? String==expected && s["tab"] as? Int==2 && !app.buttons["reloadSourceCatalog"].exists
+        }
+        let after=try state(app),catalog=try XCTUnwrap(after["instruments"] as? [[String:String]])
+        try check(catalog.count==initialIDs.count+1 && catalog.filter{$0["id"]==expected}.count==1,"One selection did not add exactly one identity")
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Product discovery moved money")
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Discovery created "+key)}
+        capture("AFTER selected public identity in product")
+    }
+    func testMissingFugleKeyExplainsDirectoryFailureWithoutChangingAccount()throws{
+        let app=launchClean();defer{finish()};try onboard(app,online:true)
+        let before=try state(app)
+        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
+        let source=app.buttons["catalogSource-fugle"];try reveal(source,in:app);source.tap()
+        let message=app.staticTexts["sourceCatalogMessage"]
+        try check(message.waitForExistence(timeout:10) && message.label.contains("金鑰"),"Missing directory credential was not explained")
+        try check(app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","discover-")).count==0,"Unconfigured source fabricated catalog entries")
+        let after=try state(app)
+        try check((after["instruments"] as? [[String:String]])==(before["instruments"] as? [[String:String]]),"Failed source discovery altered existing identities")
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Failed discovery changed cash")
+        capture("AFTER source directory missing Key is explicit")
+    }
     func testLocalRecoveryCancelThenVerifiedRestorePreservesOriginalPoint()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)
         let cash=try state(app)["cash"] as? [String:String]
@@ -209,6 +243,25 @@ import XCTest
         for entry in entries{expected+=try XCTUnwrap(entry["amount"].flatMap{Decimal(string:$0,locale:Locale(identifier:"en_US_POSIX"))})}
         try check(Decimal(string:cash,locale:Locale(identifier:"en_US_POSIX"))==expected,"Crypto account cash does not equal exact posted fill cash")
         app.tabBars.buttons["資產"].tap();capture("AFTER B crypto assets after roundtrip")
+    }
+    func testContractPositionHasAnExplicitReduceOnlyCloseJourney()throws{
+        let app=launchClean();defer{finish()};try onboard(app,currency:"USDT")
+        app.buttons["marketCrypto"].tap();app.tabBars.buttons["行情"].tap();app.buttons["合約"].tap()
+        let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app);product.tap()
+        app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()
+        var review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
+        try waitUntil("Contract open did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+        try check((try state(app)["positions"] as? [String:String])?[instrument]=="1","Contract open produced the wrong position")
+        app.tabBars.buttons["交易"].tap();let close=app.buttons["closePosition-"+instrument];try reveal(close,in:app)
+        capture("AFTER contract position with explicit close and risk");close.tap()
+        try check(app.staticTexts["平多"].firstMatch.waitForExistence(timeout:5),"Close draft lost its direction")
+        try check(app.textFields["orderQuantity"].value as? String=="1","Close draft did not use held quantity")
+        app.buttons["orderKind"].tap();app.buttons["市價"].tap();review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
+        try waitUntil("Contract close did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+        let snapshot=try state(app),intents=try XCTUnwrap(snapshot["orderIntents"] as? [[String:String]])
+        try check(intents.count==2 && intents.filter{$0["reduceOnly"]=="true" && $0["side"]=="sell"}.count==1,"Close was not exactly one reduce-only sell")
+        try check((snapshot["positions"] as? [String:String])?[instrument]=="0","Explicit contract close reversed or retained the position")
+        app.tabBars.buttons["資產"].tap();capture("AFTER contract local roundtrip assets")
     }
 
 }

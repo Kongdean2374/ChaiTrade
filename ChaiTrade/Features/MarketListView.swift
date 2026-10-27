@@ -93,7 +93,7 @@ struct ProductCatalogView:View{
         }
         if model.state?.mode == .online{Section("從來源更新商品目錄"){
             NavigationLink("搜尋官方美股／ETF目錄"){USStockDiscoveryView()}
-            ForEach(ProviderID.allCases,id:\.self){id in NavigationLink(id.label){SourceProductDiscoveryView(id:id)}}
+            ForEach(ProviderID.allCases,id:\.self){id in NavigationLink(id.label){SourceProductDiscoveryView(id:id)}.accessibilityIdentifier("catalogSource-"+id.rawValue)}
             Text("來源頁會說明支援市場、權限與限制。更新採加入及核對身份；不改寫既有部位成別的商品。").font(.caption)
         }}else{Section{NavigationLink("自訂離線商品"){CustomInstrumentView()};NavigationLink("舊版自訂商品"){LegacyProductsView()}}}
         Section("尋找商品"){Text("關閉此頁後，在行情頁搜尋 BTC、ETH、2330 或 0050。可依市場、分類、自選及分組篩選。").font(.subheadline)}

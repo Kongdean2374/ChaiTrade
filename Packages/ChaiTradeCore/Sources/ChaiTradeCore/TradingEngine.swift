@@ -58,6 +58,8 @@ public actor TradingEngine {
     public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
         try check(context);return try repository.fillPage(limit:limit,before:before)
     }
+    public func journalPage(limit:Int=20,before:Int64?=nil,context:AccountContext)throws->[JournalPageRow]{try check(context);return try repository.journalPage(limit:limit,before:before)}
+    public func journal(id:String,context:AccountContext)throws->JournalEntry?{try check(context);return try repository.journal(id:id)}
     public func equityPage(limit:Int=100,before:Int64?=nil,context:AccountContext)throws->[EquityPageRow]{try check(context);return try repository.equityPage(limit:limit,before:before)}
     public nonisolated func fullSnapshot(context:AccountContext)async throws->AccountState{
         guard context==self.context else{throw TradeError.wrongAccount}
@@ -832,9 +834,11 @@ public actor TradingEngine {
         guard rate.rate > .zero,rate.base == state.baseCurrency,rate.currency != rate.base,rate.currency.range(of:"^[A-Z]{3,8}$",options:.regularExpression) != nil,rate.time>=0,rate.source.utf8.count<=512,!rate.source.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,(60...604800).contains(rate.maximumAge ?? 86400),state.mode != .online || rate.kind != .simulated else { throw TradeError.invalid("匯率方向或來源不合法") }
         try transaction { s in if s.lifecycle == nil {s.lifecycle=LifecycleState()};s.lifecycle!.rates.removeAll{$0.currency==rate.currency && $0.base==rate.base};s.lifecycle!.rates.append(rate) }
     }
-    public func adjustMargin(instrumentID: String,amount: Amount,time: Int64,positionSide:PositionSide?=nil,context: AccountContext) throws {
+    public func adjustMargin(instrumentID: String,amount: Amount,time: Int64,positionSide:PositionSide?=nil,eventID:String?=nil,context: AccountContext) throws {
         try check(context)
+        if let eventID{guard !eventID.isEmpty,eventID.utf8.count<=128 else{throw TradeError.invalid("保證金調整識別不合法")}}
         try transaction { s in
+            if let eventID,s.appliedEvents.contains(eventID){return}
             let i=try Self.instrument(s,instrumentID)
             let key=s.positionKey(instrument:i,side:positionSide)
             guard i.asset.derivative,var p=s.positions[key],p.quantity != .zero,p.marginMode == .isolated else {throw TradeError.invalid("需有有效標記價與逐倉合約部位")}
@@ -846,7 +850,8 @@ public actor TradingEngine {
                 let risk=try ContractRisk.evaluate(s,positionKey:key,now:self.wallClock?() ?? time)
                 guard risk.equity>risk.maintenanceAndClosingFee else{throw TradeError.invalid("移除後不足以支付維持保證金與預估平倉費用")}
             }
-            s.audit("marginAdjustment","\(instrumentID) 保證金調整 \(amount)",time:time)
+            if let eventID{s.appliedEvents.insert(eventID)}
+            s.audit("marginAdjustment","\(instrumentID) 保證金調整 \(amount)",time:time,id:eventID)
         }
     }
     private static func postCarry(_ s:inout AccountState,instrument i:Instrument,rate:Amount,mark:Amount,amount:Amount,time:Int64,eventID:String,kind:String,source:String,model:String,positionKey:String?=nil)throws{

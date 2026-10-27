@@ -39,32 +39,37 @@ import XCTest
         capture("Clean baseline")
     }
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
-        let screen=app.frame,navigation=app.navigationBars.firstMatch,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
-        let top=navigation.exists ? navigation.frame.maxY:screen.minY
-        var bottom=keyboard.exists ? keyboard.frame.minY:(tabs.exists ? tabs.frame.minY:screen.maxY)
+        let screen=app.frame,navigation=app.navigationBars.allElementsBoundByIndex.last,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
+        // A presented sheet retains the underlying TabBar in the AX tree. Its frame
+        // does not occlude the sheet; use the foreground navigation and hittable bars.
+        let tabBottom=tabs.exists && tabs.isHittable ? tabs.frame.minY:screen.maxY
+        let targetID=element.exists ? element.identifier:"requested control"
         // Hittable alone accepts partly exposed controls behind the pinned buy/sell bar.
         // Require the entire target inside the usable viewport before tapping it.
-        if !["openOrder","openSellOrder","submitOrder","saveJournal"].contains(element.identifier){
-            let footer=app.otherElements["tradeActionBar"].firstMatch
-            if footer.exists{bottom=min(bottom,footer.frame.minY)}
+        let footer=app.otherElements[app.buttons["submitOrder"].exists ? "orderActionBar":"tradeActionBar"].firstMatch
+        let hasFooter = !["openOrder","openSellOrder","submitOrder","saveJournal"].contains(targetID) && footer.exists && footer.isHittable
+        func usableViewport()->CGRect{
+            let top=navigation?.frame.maxY ?? screen.minY
+            var bottom=keyboard.exists ? keyboard.frame.minY:tabBottom
+            if hasFooter{bottom=min(bottom,footer.frame.minY)}
+            return CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
         }
-        let viewport=CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:1,dy:2)
-        func visible()->Bool{element.exists && viewport.contains(element.frame) && element.isHittable}
+        func visible()->Bool{element.exists && usableViewport().contains(element.frame) && element.isHittable}
         for _ in 0..<7{
             if visible(){return}
-            if element.exists{
-                // Large text can move a control above the viewport after a long swipe.
-                // Follow its real frame back toward the visible middle instead of
-                // continuing to scroll past it. The original seven-gesture bound stays.
-                let frame=element.frame,up=frame.midY>viewport.midY
-                if frame.minY>screen.maxY+screen.height/2{app.swipeUp();continue}
-                if frame.maxY<screen.minY-screen.height/2{app.swipeDown();continue}
-                let start=app.coordinate(withNormalizedOffset:CGVector(dx:0.85,dy:up ? 0.65:0.35))
-                let end=app.coordinate(withNormalizedOffset:CGVector(dx:0.85,dy:up ? 0.40:0.60))
-                start.press(forDuration:0.1,thenDragTo:end)
-            }else{app.swipeUp(velocity:.slow)}
+            // Large titles collapse while scrolling; both ends must remain inside
+            // the current content area. A screen-relative downward swipe can start
+            // in the SE navigation bar and never move the scroll view at all.
+            let viewport=usableViewport(),distance=element.exists ? element.frame.midY-viewport.midY:viewport.height*2
+            let up=distance>0,far=abs(distance)>viewport.height*1.5
+            let travel=far ? viewport.height*0.75:min(viewport.height*0.65,max(35,abs(distance)))
+            let startY=up ? viewport.maxY-viewport.height*0.1:viewport.minY+viewport.height*0.1
+            let base=app.coordinate(withNormalizedOffset:.zero)
+            let start=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY))
+            let end=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY+(up ? -travel:travel)))
+            start.press(forDuration:0.1,thenDragTo:end,withVelocity:far ? .fast:.slow,thenHoldForDuration:0.1)
         }
-        try check(visible(),"Control is not completely visible and reachable: "+element.identifier)
+        try check(visible(),"Control is not completely visible and reachable: "+targetID)
     }
     func journal(_ app:XCUIApplication)throws{
         app.tabBars.buttons["資產"].tap();let button=app.buttons["本機交易日誌"];try reveal(button,in:app);button.tap()

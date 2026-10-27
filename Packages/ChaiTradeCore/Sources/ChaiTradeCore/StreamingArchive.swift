@@ -8,7 +8,7 @@ public struct ArchiveLimits:Sendable{
 struct ArchiveFileHeader:Codable{
     var version=1
     var mode:Mode
-    var databaseSchema=6
+    var databaseSchema=7
     var expandedBytes:Int64
     var chunkBytes=1_048_576
     var algorithm:String
@@ -88,7 +88,7 @@ public enum StreamingArchiveService{
         guard try read(input,count:magic.count)==magic else{throw TradeError.corrupt("不是ChaiTrade大型封存")}
         let headerLength=try integer(read(input,count:4));guard (1...16384).contains(headerLength) else{throw TradeError.corrupt("封存標頭長度無效")}
         let rawHeader=try read(input,count:headerLength),header=try JSONDecoder().decode(ArchiveFileHeader.self,from:rawHeader),headerDigest=BackupService.digest(rawHeader)
-        guard header.version==1,header.databaseSchema==6,header.mode==expectedMode,header.chunkBytes==1_048_576,header.expandedBytes>0,header.expandedBytes<=limits.maximumExpandedBytes,header.createdAt>=0 else{throw TradeError.corrupt("封存版本、帳戶或展開大小不符")}
+        guard header.version==1,(6...7).contains(header.databaseSchema),header.mode==expectedMode,header.chunkBytes==1_048_576,header.expandedBytes>0,header.expandedBytes<=limits.maximumExpandedBytes,header.createdAt>=0 else{throw TradeError.corrupt("封存版本、帳戶或展開大小不符")}
         let key:Data
         if header.algorithm=="none"{guard header.iterations==0,header.salt.isEmpty else{throw TradeError.corrupt("封存加密參數不合法")};key=Data()}
         else{guard header.algorithm=="AES-256-GCM/PBKDF2-HMAC-SHA256/chunks-1",let password else{throw TradeError.corrupt("需要此大型封存的密碼")};key=try BackupService.derive(password,salt:header.salt,iterations:header.iterations)}
@@ -121,7 +121,8 @@ public enum StreamingArchiveService{
         let verified=try SQLiteArchiveDatabase.verify(database,mode:expectedMode)
         if expectedMode == .online{guard verified.state.quotes.isEmpty,verified.state.consumed.isEmpty else{throw TradeError.corrupt("真實行情封存不得攜帶報價／撮合快取")}}
         let repository=try AccountRepository(root:stagingRoot,mode:expectedMode)
-        try repository.rebuildArchiveReports(verified.state);progress?(0.95);try repository.prepareArchiveFile()
+        guard let migrated=try repository.load() else{throw TradeError.corrupt("封存遷移後缺少帳戶")}
+        try repository.rebuildArchiveReports(migrated);progress?(0.95);try repository.prepareArchiveFile()
         guard let state=try repository.load() else{throw TradeError.corrupt("已驗證封存缺少帳戶")}
         let result=try VerifiedAccountDatabase(mode:expectedMode,url:database,digest:ArchiveDigest.file(database),state:state)
         complete=true;progress?(1);return result

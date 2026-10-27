@@ -292,6 +292,9 @@ public struct JournalEntry: Codable, Identifiable, Sendable {
     public var orderID: String?
     public var emotion: String?
     public var screenshot: Data?
+    /// Hot/page projections retain attachment identity; bytes are loaded only on demand.
+    public var screenshotBytes:Int?
+    public var screenshotSHA256:String?
     public init(id: String = UUID().uuidString, text: String, tags: String, time: Int64) { self.id = id; self.text = text; self.tags = tags; self.time = time }
 }
 public struct ChartPreferences: Codable, Sendable {
@@ -342,6 +345,7 @@ public struct HistoryWindow: Codable, Sendable {
     public var equityOffset:Int?
     public var equityMetrics:EquityMetrics?
     public var financialFlowOffset:Int?
+    public var journalCount:Int?
     public init() {}
 }
 public struct FillTotals: Codable, Sendable {

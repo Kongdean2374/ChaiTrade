@@ -47,7 +47,7 @@ struct OrdersView:View{
         let i=instrument(order.request.instrumentID)
         return VStack(alignment:.leading,spacing:9){
             HStack{VStack(alignment:.leading,spacing:4){Text(i?.name ?? order.request.instrumentID).font(.headline);Text((i?.symbol ?? order.request.instrumentID)+" · "+(i?.identity?.exchange ?? "")).font(.caption).foregroundStyle(.secondary)};Spacer();Text(order.status.displayName).font(.caption.weight(.semibold)).foregroundStyle(.orange)}
-            Text((order.request.side == .buy ? i?.buyLabel:i?.sellLabel ?? "賣出") ?? "買入").font(.subheadline)
+            Text(MarketText.orderDirection(i,side:order.request.side,reduceOnly:order.request.reduceOnly)).font(.subheadline)
             HStack{Text(order.request.kind.label+" · "+order.request.timeInForce.rawValue);Spacer();Text(MarketText.number(order.filled)+" / "+MarketText.number(order.request.quantity)+(i?.quantityUnit ?? ""))}.font(.caption).monospacedDigit()
             LabeledContent("委託價格",value:order.request.price.map{MarketText.number($0)} ?? "市價").font(.caption)
             if let reason=order.suspension{Text(reason).font(.caption).foregroundStyle(.orange)}
@@ -57,7 +57,8 @@ struct OrdersView:View{
     }
     private func fillRow(_ fill:Fill)->some View{
         let i=instrument(fill.instrumentID)
-        let direction=fill.side == .buy ? (i?.buyLabel ?? "買入"):(i?.sellLabel ?? "賣出")
+        let original=model.state?.orders[fill.orderID]
+        let direction=i?.asset.derivative==true && original==nil ? (fill.side == .buy ? "買入":"賣出"):MarketText.orderDirection(i,side:fill.side,reduceOnly:original?.request.reduceOnly ?? false)
         let title="\(i?.name ?? fill.instrumentID) · \(direction)"
         let execution="\(MarketText.number(fill.quantity))\(i?.quantityUnit ?? "") @ \(MarketText.number(fill.price)) \(i?.currency ?? "")"
         let fees="費用 \(MarketText.number(fill.fee)) · 稅 \(MarketText.number(fill.tax))"
@@ -166,6 +167,12 @@ struct JournalView: View {
     @State private var attach=false
     @State private var saving=false
     @State private var draftID=UUID().uuidString
+    @State private var page:[JournalPageRow]=[]
+    @State private var cursors:[Int64]=[]
+    @State private var pageLoading=false
+    @State private var generation=UUID()
+    @State private var imageID:String?
+    @State private var imageData:Data?
     @FocusState private var editingJournal:Bool
     var body: some View {
         Form{
@@ -179,12 +186,15 @@ struct JournalView: View {
 
             }.disabled(saving || model.interactionBlocked)
 
-            ForEach(Array((model.state?.journals ?? []).reversed())){entry in
+            Section{HStack{Text("已保存 \(model.state?.history?.journalCount ?? model.state?.journals.count ?? 0) 則");Spacer();Button("較新"){guard !cursors.isEmpty,!pageLoading else{return};cursors.removeLast();Task{await loadPage()}}.disabled(cursors.isEmpty || pageLoading);Button("較舊"){if let cursor=page.last?.cursor{cursors.append(cursor);Task{await loadPage()}}}.disabled(page.count<20 || pageLoading)}.font(.caption);if pageLoading{ProgressView("讀取日誌…")}}
+            ForEach(page){row in
+                let entry=row.entry
                 Section(entry.tags){
                     Text(entry.text)
                     if let emotion=entry.emotion,!emotion.isEmpty{Text(emotion).font(.caption)}
                     if let id=entry.orderID{Text("委託 \(id)").font(.caption.monospaced()).textSelection(.enabled)}
-                    if let data=entry.screenshot,let image=UIImage(data:data){Text("已附模擬圖表").font(.caption);Image(uiImage:image).resizable().scaledToFit().accessibilityLabel("已儲存的模擬圖表").accessibilityIdentifier("savedJournalChart");Button("匯出這張模擬圖表"){model.exportDocument=ExportDocument(data:data);model.exportName="ChaiTrade-模擬交易-\(model.settings.activeMode.accountID).png";model.exporting=true}}
+                    if entry.screenshotBytes != nil,imageID != entry.id{Button("查看已附模擬圖表"){Task{await loadImage(entry.id)}}}
+                    if imageID==entry.id,let data=imageData,let image=UIImage(data:data){Text("已附模擬圖表").font(.caption);Image(uiImage:image).resizable().scaledToFit().accessibilityLabel("已儲存的模擬圖表").accessibilityIdentifier("savedJournalChart");Button("匯出這張模擬圖表"){model.exportDocument=ExportDocument(data:data);model.exportName="ChaiTrade-模擬交易-\(model.settings.activeMode.accountID).png";model.exporting=true};Button("收起圖表"){imageID=nil;imageData=nil}}
                     Text(Date(timeIntervalSince1970:TimeInterval(entry.time)).formatted()).font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -192,6 +202,23 @@ struct JournalView: View {
             ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(saving)}
             ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
         }
+        .task(id:model.state?.journals.last?.id){cursors=[];await loadPage(showLatestImage:true)}
+        .onDisappear{generation=UUID();imageID=nil;imageData=nil}
+    }
+    private func loadPage(showLatestImage:Bool=false)async{
+        guard let engine=model.engine,let context=model.context else{return}
+        let token=UUID();generation=token;pageLoading=true;imageID=nil;imageData=nil
+        defer{if generation==token{pageLoading=false}}
+        do{
+            let result=try await engine.journalPage(before:cursors.last,context:context)
+            try Task.checkCancellation();guard model.context==context,generation==token else{return}
+            page=result
+            if showLatestImage,let first=result.first,first.entry.screenshotBytes != nil{await loadImage(first.id)}
+        }catch is CancellationError{}catch{if model.context==context,generation==token{model.error=error.localizedDescription}}
+    }
+    private func loadImage(_ id:String)async{
+        guard let engine=model.engine,let context=model.context else{return};let token=generation
+        do{let journal=try await engine.journal(id:id,context:context);try Task.checkCancellation();guard model.context==context,generation==token else{return};imageID=id;imageData=journal?.screenshot}catch is CancellationError{}catch{if model.context==context,generation==token{model.error=error.localizedDescription}}
     }
     private var saveButton:some View{
         Button(saving ? "保存中…":"保存日誌"){

@@ -97,11 +97,14 @@ enum SQLiteArchiveDatabase{
             // Older SQLite marks its own json_extract expression indexes unsafe with trusted_schema=OFF.
             // Inspect only sqlite_schema first, then permit the exact compiled schema's built-in indexes.
             // No imported views, triggers, virtual tables or custom SQL are accepted or evaluated.
-            guard try strings(db,"PRAGMA user_version")==["6"],try schema(db)==expected else{throw TradeError.corrupt("歸檔資料庫版本或結構不符；不執行自訂SQL")}
+            let version=try strings(db,"PRAGMA user_version")
+            let permitted=version==["6"] ? expected.filter{!$0.components(separatedBy:"\u{1f}")[2].hasPrefix("journal_")}:expected
+            guard (version==["6"] || version==["7"]),try schema(db)==permitted else{throw TradeError.corrupt("歸檔資料庫版本或結構不符；不執行自訂SQL")}
             guard try strings(db,"PRAGMA quick_check")==["ok"],try strings(db,"SELECT count(*) FROM account_state")==["1"] else{throw TradeError.corrupt("歸檔資料庫完整性不符")}
         }
         guard let hot=try reader.load(),hot.mode==mode,hot.accountID==mode.accountID else{throw TradeError.wrongAccount}
         try verifyRows(reader,state:hot)
+        try reader.withArchiveConnection{_ in try reader.verifyJournalsUnlocked(hot)}
         try reader.verifyCapitalHistory(hot)
         return try VerifiedAccountDatabase(mode:mode,url:url,digest:ArchiveDigest.file(url),state:hot)
     }

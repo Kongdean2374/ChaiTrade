@@ -181,10 +181,15 @@ extension AppModel {
     func loadNews(force:Bool=false)async{
         guard let state,let context,!newsLoading else{return}
         if let simulation=state.simulation{marketNews=SimulationNews.stories(state:simulation);newsIssue=nil;return}
-        guard force || now-lastNewsFetch>120 || marketNews.isEmpty else{return}
+        guard state.mode == .online else{return}
+        guard lastNewsFetch==0 || now-lastNewsFetch >= (force ? 15:900) else{return}
         newsLoading=true;defer{newsLoading=false};lastNewsFetch=now
         var stories:[MarketNewsStory]=[],issues:[String]=[]
-        do{stories=try await PublicNewsFeed.fetch(mode:.online,transport:ReadOnlyTransport(mode:.online),now:now)}catch{issues.append("官方總體新聞目前無法載入，請稍後重試。")}
+        do{
+            let results=try await PublicNewsFeed.fetchAll(mode:.online,transport:ReadOnlyTransport(mode:.online),now:now,instruments:state.instruments)
+            guard self.context==context,!Task.isCancelled else{return}
+            for result in results{stories+=result.stories;if let issue=result.issue{issues.append(result.source.label+"："+issue)}}
+        }catch is CancellationError{return}catch{issues.append("新聞來源目前無法載入，請稍後重試。")}
         if credentialReady[.alpaca]==true{
             let symbols=state.instruments.filter{$0.provider == .alpaca && state.watchlist.contains($0.id)}.map(\.symbol)
             do{stories += try await provider(.alpaca).news(symbols:symbols,now:now)}catch{issues.append("自選公司新聞需對應來源授權；可繼續查看官方總體新聞。")}

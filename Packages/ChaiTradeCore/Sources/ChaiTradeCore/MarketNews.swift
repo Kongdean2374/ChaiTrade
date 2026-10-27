@@ -10,6 +10,7 @@ public struct MarketNewsStory:Codable,Identifiable,Sendable,Equatable {
     public var origin:NewsOrigin
     public var url:URL?
     public var markets:[MarketDomain]
+    public var assetClasses:[AssetClass]?
     public var instrumentIDs:[String]
     public var sector:String?
     public var kind:String
@@ -90,6 +91,7 @@ public enum MarketNewsSelection{
         }.map(\.id))
         return stories.filter{story in
             guard story.publishedAt<=now,story.markets.contains(market),story.origin==origin else{return false}
+            if let classes=story.assetClasses,!instruments.contains(where:{eligible.contains($0.id) && classes.contains($0.asset)}){return false}
             if !story.instrumentIDs.isEmpty && eligible.isDisjoint(with:story.instrumentIDs){return false}
             if favoritesOnly{return !watchlist.intersection(eligible).intersection(story.instrumentIDs).isEmpty}
             return true
