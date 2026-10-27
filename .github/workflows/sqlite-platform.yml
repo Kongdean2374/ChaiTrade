@@ -1,0 +1,45 @@
+name: SQLite archive platform diagnostics
+on:
+  push:
+    branches: [diagnose-sqlite-archive-20261027]
+permissions:
+  contents: read
+jobs:
+  sqlite-platform:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+      - name: Probe platform archive protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/sqlite-archive-probe.c" <<'PROBE'
+          #include <stdio.h>
+          #include <sqlite3.h>
+          int main(void) {
+              sqlite3 *db = NULL;
+              int rc = sqlite3_open_v2(":memory:", &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+              if (rc != SQLITE_OK) return 1;
+              printf("sqlite_version=%s\n", sqlite3_libversion());
+              printf("omit_load_extension=%d\n", sqlite3_compileoption_used("OMIT_LOAD_EXTENSION"));
+              int flag = -1;
+              rc = sqlite3_db_config(db, SQLITE_DBCONFIG_DEFENSIVE, 1, &flag);
+              printf("defensive_enable_rc=%d flag=%d\n", rc, flag);
+              flag = -1;
+              rc = sqlite3_db_config(db, SQLITE_DBCONFIG_DEFENSIVE, -1, &flag);
+              printf("defensive_read_rc=%d flag=%d\n", rc, flag);
+              flag = -1;
+              rc = sqlite3_db_config(db, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, 0, &flag);
+              printf("extension_disable_rc=%d flag=%d\n", rc, flag);
+              flag = -1;
+              rc = sqlite3_db_config(db, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, -1, &flag);
+              printf("extension_read_rc=%d flag=%d\n", rc, flag);
+              sqlite3_close(db);
+              return 0;
+          }
+          PROBE
+          xcrun clang -Wall -Wextra -Werror "$RUNNER_TEMP/sqlite-archive-probe.c" -lsqlite3 -o "$RUNNER_TEMP/sqlite-archive-probe"
+          "$RUNNER_TEMP/sqlite-archive-probe"
