@@ -22,7 +22,7 @@ import ChaiTradeCore
             var settings=AppSettings();settings.activeMode = .offline;settings.onboarded=true
             for mode in Mode.allCases {
                 var state=try TradingEngine.initial(mode:mode,capital:Amount("100000"),time:1_793_064_600)
-                if mode == .offline{state.instruments=Array(state.instruments.filter{$0.asset == .taiwanStock}.prefix(2));state.simulation!.paused=true;state.continueWhileAway=false}
+                if mode == .offline{state.instruments=Array(try Simulation.legacyCatalog().filter{$0.asset == .taiwanStock}.prefix(2));state.simulation=SimulationState();state.simulation!.paused=true;state.continueWhileAway=false}
                 let repo=try AccountRepository(root:root,mode:mode);try repo.save(state)
             }
             try settings.save(root:root)

@@ -19,6 +19,10 @@ public struct SimulationState: Codable, Sendable {
     public var liquidity = 1.0
     public var changes: [SimulationChange] = []
     public var priceAdjustments: [PriceAdjustment]?
+    public var newsFrom:Int64?
+    public var newsAccountingFrom:Int64?
+    public var newsWorldID:String?
+    public var newsUniverse:[NewsInstrument]?
     public init() {}
 }
 public struct SimulationChange: Codable, Sendable {
@@ -50,7 +54,7 @@ public enum Simulation {
         return a + (b - a) * fraction
     }
     private static func priceValue(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Double {
-        guard state.algorithm == "factor-wave-1" else { throw TradeError.unavailable("模擬演算法版本不相容，保留檢查點") }
+        guard ["factor-wave-1","factor-wave-2"].contains(state.algorithm) else { throw TradeError.unavailable("模擬演算法版本不相容，保留檢查點") }
         let stream = hash(instrument.id), category = hash(instrument.asset.rawValue)
         let regime = Int(random(seed: state.seed, stream: 11, index: time / 86400) * 5)
         let amplitudes = [1.0, 1.2, 0.5, 2.8, 1.6]
@@ -65,8 +69,9 @@ public enum Simulation {
         let elapsed = Double(time - (control?.time ?? time))
         let trend = scenario == "多頭" ? min(0.15, elapsed / 86400 * 0.03) : scenario == "空頭" ? max(-0.15, -elapsed / 86400 * 0.03) : scenario == "恐慌" ? -0.12 * min(1, elapsed / 3600) : 0
         let adjustment = (state.priceAdjustments ?? []).filter { $0.instrumentID == instrument.id && $0.time <= time }.reduce(1.0) { $0 * $1.factor.displayDouble }
-        let raw = instrument.initialPrice.displayDouble * adjustment * exp(common + sector + slow + fast * amplitudes[regime] * vol + trend)
-        let tick = instrument.rules.tick.displayDouble
+        let news=SimulationNews.priceImpact(instrument,at:time,state:state)
+        let raw = instrument.initialPrice.displayDouble * adjustment * exp(common + sector + slow + fast * amplitudes[regime] * vol + trend + news)
+        let tick = instrument.rules.priceTicks?.first(where:{$0.below == nil || raw < $0.below!.displayDouble})?.tick.displayDouble ?? instrument.rules.tick.displayDouble
         guard raw.isFinite, tick > 0 else { throw TradeError.invalid("模擬價格超出範圍") }
         return max(tick, (raw / tick).rounded() * tick)
     }
@@ -75,20 +80,57 @@ public enum Simulation {
     }
     public static func quote(_ instrument: Instrument, state: SimulationState) throws -> Quote {
         let time = state.time, price = try price(instrument, at: time, state: state)
-        let spreadSteps = max(1, Int((price.displayDouble * 0.00015) / instrument.rules.tick.displayDouble))
-        let spread = try instrument.rules.tick * Amount(spreadSteps)
+        let active=SimulationNews.active(instrument,at:time,state:state)
+        let tick=instrument.rules.tick(at:price)
+        let shortage=active.map{$0.liquidityMultiplier ?? 1}.min() ?? 1
+        let spreadSteps = max(1, Int((price.displayDouble * 0.00015 / max(0.1,shortage)) / tick.displayDouble))
+        let spread = try tick * Amount(spreadSteps)
         let liquidity = state.changes.last(where: { $0.time <= time })?.liquidity ?? 1
-        let count = max(1, Int(Double(instrument.liquidity) * liquidity))
+        let count = max(1, Int(Double(instrument.liquidity) * liquidity * shortage))
         var bids: [Level] = [], asks: [Level] = []
         for level in 1...8 {
             let delta = try spread * Amount(level)
             let size = try instrument.rules.quantityStep * Amount(max(1, count / level))
-            bids.append(Level(max(instrument.rules.tick, try price - delta), size))
-            asks.append(Level(try price + delta, size))
+            bids.append(Level(try instrument.rules.roundedPrice(max(tick,try price-delta),.down),size))
+            asks.append(Level(try instrument.rules.roundedPrice(price+delta,.up),size))
         }
         var q = Quote(instrumentID: instrument.id, source: "B 決定性離線市場", time: time, sequence: time / step, last: price, bids: bids, asks: asks)
         if instrument.asset.derivative { q.mark = price }
+        q.causalEventIDs=active.map(\.id)
+        if active.contains(where:{$0.kind=="halt"}){q.valid=false;q.coverage="模擬暫停交易情境，委託保留"}
+        let referenceTime=time-86400
+        let reference=try self.price(instrument,at:referenceTime,state:state)
+        q.summary=QuoteSummary(reference:reference,window:instrument.asset == .crypto || instrument.asset == .perpetual ? "模擬24小時":"模擬前一日",marketStatus:instrument.rules.isOpen(at:time) ? "模擬交易中":"模擬休市")
         return q
+    }
+    public static func stepVolume(_ instrument:Instrument,at time:Int64,state:SimulationState)->Double{
+        guard state.algorithm == "factor-wave-2" || state.newsFrom != nil else{return Double(instrument.liquidity)}
+        let active=SimulationNews.active(instrument,at:time,state:state)
+        if active.contains(where:{$0.kind=="halt"}){return 0}
+        let control=state.changes.last(where:{$0.time<=time})?.liquidity ?? 1
+        let factor=active.map{$0.volumeMultiplier ?? 1}.max() ?? 1
+        return Double(max(1,instrument.liquidity/20))*instrument.rules.quantityStep.displayDouble*control*factor
+    }
+    public static func summary(_ instrument:Instrument,state:SimulationState)throws->QuoteSummary{
+        let end=state.time,continuous=[AssetClass.crypto,.perpetual,.forex].contains(instrument.asset)
+        let day=CandleCalendar.start(end,interval:86400,zone:instrument.rules.timeZone)
+        let previous=continuous ? end-86400:(try previousTradingTime(before:day,rules:instrument.rules) ?? end-86400)
+        let from=continuous ? end-86400:day
+        var boundaries:Set<Int64>=[from,end+step]
+        for change in state.changes where change.time>from && change.time<=end{boundaries.insert(change.time)}
+        let first=from/SimulationNews.period-1,last=end/SimulationNews.period
+        if state.newsFrom != nil{for bucket in first...last{if let story=SimulationNews.story(bucket:bucket,state:state),story.instrumentIDs.contains(instrument.id){for time in [story.publishedAt,story.endsAt ?? end+step] where time>from && time<=end{boundaries.insert(time)}}}}
+        var calendar=Calendar(identifier:.gregorian);calendar.timeZone=TimeZone(identifier:instrument.rules.timeZone)!
+        var date=calendar.startOfDay(for:Date(timeIntervalSince1970:TimeInterval(from)))
+        while Int64(date.timeIntervalSince1970)<=end{
+            for minute in [0,instrument.rules.openMinute,instrument.rules.closeMinute] where minute<1440{
+                if let boundary=calendar.date(bySettingHour:minute/60,minute:minute%60,second:0,of:date){let value=Int64(boundary.timeIntervalSince1970);if value>from && value<=end{boundaries.insert(value)}}
+            }
+            date=calendar.date(byAdding:.day,value:1,to:date)!
+        }
+        let sorted=boundaries.sorted();var volume=0.0
+        for (left,right) in zip(sorted,sorted.dropFirst()) where instrument.rules.isOpen(at:left){volume+=Double(max(0,(right-left)/step))*stepVolume(instrument,at:left,state:state)}
+        return QuoteSummary(reference:try price(instrument,at:previous,state:state),volume:try Amount(String(format:"%.10f",locale:Locale(identifier:"en_US_POSIX"),volume)),window:continuous ? "模擬24小時":"模擬當日",marketStatus:instrument.rules.isOpen(at:end) ? "模擬交易中":"模擬休市")
     }
     public static func candles(_ instrument: Instrument, state: SimulationState, interval: Int64, count: Int, before: Int64? = nil) throws -> [Candle] {
         guard interval >= 60, count > 0, count <= 2000 else { throw TradeError.invalid("圖表區間不合法") }
@@ -105,7 +147,7 @@ public enum Simulation {
             let next=CandleCalendar.next(start,interval:interval,zone:zone)
             let key=prefix+String(start)
             if next<=end,let cached=candleCache.get(key){result.append(cached);start=CandleCalendar.next(start,interval:interval,zone:zone,offset:-1);continue}
-            var first:Double?,last:Double?,high = -Double.infinity,low=Double.infinity,events=0
+            var first:Double?,last:Double?,high = -Double.infinity,low=Double.infinity,volume=0.0
             // Log-price is affine within each minute/control segment. Quantization is monotone.
             // Exact five-second extrema therefore occur at segment endpoints, not at arbitrary samples.
             var t = start
@@ -123,13 +165,16 @@ public enum Simulation {
                     }
                     for change in state.priceAdjustments ?? [] where change.instrumentID==instrument.id && change.time>=t && change.time<=minuteEnd{points.insert(change.time);if change.time-step>=t{points.insert(change.time-step)}}
                     for point in points.sorted(){let value=try priceValue(instrument,at:point,state:state);if first==nil{first=value};last=value;high=max(high,value);low=min(low,value)}
-                    events+=Int((minuteEnd-t)/step+1)
+                    var boundaries=[t,minuteEnd+step]
+                    boundaries += state.changes.map(\.time).filter{$0>t && $0<=minuteEnd}
+                    let ordered=Set(boundaries).sorted()
+                    for (left,right) in zip(ordered,ordered.dropFirst()){volume += Double((right-left)/step)*stepVolume(instrument,at:left,state:state)}
                 }
                 t=minuteEnd+step
             }
             if let first,let last{
                 func canonical(_ x:Double)throws->Double{try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),x)).displayDouble}
-                let candle=try Candle(time:start,open:canonical(first),high:canonical(high),low:canonical(low),close:canonical(last),volume:Double(events*instrument.liquidity),complete:next<=state.time)
+                let candle=try Candle(time:start,open:canonical(first),high:canonical(high),low:canonical(low),close:canonical(last),volume:volume,complete:next<=state.time)
                 result.append(candle);if next<=end{candleCache.put(key,candle)}
             }
             let previous=CandleCalendar.next(start,interval:interval,zone:zone,offset:-1)
@@ -155,7 +200,8 @@ public enum Simulation {
         }
         return nil
     }
-    public static func catalog() throws -> [Instrument] {
+    public static func catalog() throws -> [Instrument] {try InstrumentCatalog.builtIn(mode:.offline)}
+    public static func legacyCatalog() throws -> [Instrument] {
         let groups: [(AssetClass, Int, String, String)] = [(.taiwanStock,30,"TWD","島嶼"),(.usStock,30,"USD","星河"),(.etf,20,"TWD","柴選"),(.crypto,20,"USD","星幣"),(.forex,10,"USD","匯流"),(.perpetual,5,"USD","永續"),(.future,5,"TWD","期契"),(.index,5,"TWD","指標")]
         var result: [Instrument] = []
         for (asset, count, currency, prefix) in groups {

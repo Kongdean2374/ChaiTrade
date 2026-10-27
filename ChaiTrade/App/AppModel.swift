@@ -43,6 +43,28 @@ struct ChartAmendment: Identifiable {
     @Published var uiTestMutationStarts=0
     @Published var uiTestMaxOperations=0
     #endif
+    @Published var market=MarketDomain.stocks
+    @Published var browsing:[MarketDomain:MarketBrowsingState]=[:]
+    @Published var quoteIssues:[String:MarketIssueKind]=[:]
+    @Published var quoteRetryAt:[String:Int64]=[:]
+    @Published var marketClock=Int64(Date().timeIntervalSince1970)
+    @Published var simulatedSummaries:[String:QuoteSummary]=[:]
+    @Published var marketNews:[MarketNewsStory]=[]
+    @Published var newsLoading=false
+    @Published var newsIssue:String?
+    @Published var catalogLoading=false
+    @Published var catalogIssue:String?
+    @Published var credentialReady:[ProviderID:Bool]=[:]
+    var visibleOwners:[String:Set<String>]=[:]
+    let quoteScheduler=VisibleQuoteScheduler()
+    var quoteServiceTask:Task<Void,Never>?
+    var quoteServiceGeneration=UUID()
+    var browseSaveTask:Task<Void,Never>?
+    var browsingDirty:Set<MarketDomain>=[]
+    var summaryTask:Task<Void,Never>?
+    var summaryMinute:Int64 = -1
+    var lastNewsFetch:Int64=0
+    var lastChartRefresh:Int64=0
     @Published var state: AccountState?
     @Published var settings=AppSettings()
     @Published var error: String?
@@ -77,12 +99,12 @@ struct ChartAmendment: Identifiable {
     private var notifying=false
     private var booted=false
     private var busy=false
-    private var foreground=true
+    var foreground=true
     private var lastUptime=ProcessInfo.processInfo.systemUptime
     private var fractionalTime=0.0
     private var lastFetch=0.0
-    private var chartGeneration=UUID()
-    private var candleTask:Task<[Candle],Error>?
+    var chartGeneration=UUID()
+    var candleTask:Task<[Candle],Error>?
     private var chartCache:[String:[Candle]]=[:]
     private var chartCacheOrder:[String]=[]
     private var streamTask: Task<Void,Never>?
@@ -120,20 +142,23 @@ struct ChartAmendment: Identifiable {
             let switched=target != settings.activeMode
             let ctx=AccountContext(mode:target),root=self.root
             let (existing,service)=try await Task.detached{let repo=try AccountRepository(root:root,mode:target);guard let existing=try repo.load() else{throw TradeError.corrupt("帳戶不存在，請使用備份恢復；不會重建空帳戶覆蓋資料")};let service=try TradingEngine(context:ctx,repository:repo,initial:existing,wallClock:{Int64(Date().timeIntervalSince1970)});return (existing,service)}.value
+            try await service.prepareProductExperience(context:ctx)
             try await service.initializeQuotes(context:ctx)
             if switched || existing.lastWallTime == nil{try await service.saveWallClock(Int64(Date().timeIntervalSince1970),context:ctx)}
             engine=service;context=ctx;state=await service.snapshot()
             if let s=state,s.mode == .offline {
                 selectedID=s.instruments.first(where:{$0.currency==s.baseCurrency && !$0.asset.derivative && $0.asset != .index && $0.rules.isOpen(at:s.simulation!.time)})?.id ?? s.instruments.first?.id ?? ""
             }else{selectedID=state?.instruments.first(where:{$0.asset == .crypto})?.id ?? state?.instruments.first?.id ?? ""}
+            restoreProductBrowsing()
+            loadCredentialReadiness()
             settings.activeMode=target;settings.pendingMode=nil;try settings.save(root:root)
             var resources=URLResourceValues();resources.isExcludedFromBackup=true
             var url=root;try url.setResourceValues(resources)
             try FileManager.default.setAttributes([.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication],ofItemAtPath:root.path)
             if !switched { await prepareCatchup() }
             lastUptime=ProcessInfo.processInfo.systemUptime
-            await loadChart()
-            restartStream()
+            if tab==2{await loadChart()}
+            restartStream();await ensureQuoteService()
         } catch { self.error=error.localizedDescription;booted=false }
     }
     func onboard(mode: Mode, online: String, offline: String, currency: String) async {
@@ -158,9 +183,10 @@ struct ChartAmendment: Identifiable {
         guard let engine,let context else{return}
         do{let granted=try await notifications.requestPermission();try await engine.configureNotifications(granted,context:context);await refresh();if !granted{notice="通知權限未開啟；交易與 App 內事件中心仍可使用"}}catch{self.error=error.localizedDescription}
     }
-    func select(_ instrument: Instrument) { selectedID=instrument.id;chartBefore=nil;chartCount=160;tab=2;restartStream();Task{await loadChart()} }
+    func select(_ instrument:Instrument){selectProduct(instrument)}
     func tick() async {
         guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil,catchupTarget == nil else { return }
+        marketClock=Int64(Date().timeIntervalSince1970)
         busy=true;defer{busy=false}
         let uptime=ProcessInfo.processInfo.systemUptime, elapsed=max(0,uptime-lastUptime);lastUptime=uptime
         do {
@@ -172,17 +198,19 @@ struct ChartAmendment: Identifiable {
                         let target=sim.time+seconds;fractionalTime -= Double(seconds)
                         var cursor=sim.time
                         while cursor < target && !Task.isCancelled && foreground && catchupTarget == nil { cursor=try await engine.advance(to:target,wallTarget:Int64(Date().timeIntervalSince1970),context:context) }
-                        await refresh()
+                        await refresh();await updateSimulatedSummaries()
                         if tab==2 { await loadChart() }
                     }
                 }
             } else if uptime-lastFetch>=10 {
-                lastFetch=uptime;await fetchQuotes()
+                lastFetch=uptime;await ensureQuoteService()
             }
         } catch { self.error=error.localizedDescription }
     }
     func suspend() async {
         foreground=false
+        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID()
+        if let context{await quoteScheduler.cancel(context:context)}
         candleTask?.cancel();candleTask=nil
         streamTask?.cancel();streamTask=nil
         guard let engine,let context else{return}
@@ -195,9 +223,9 @@ struct ChartAmendment: Identifiable {
     func resume() async {
         guard !foreground else{return};foreground=true;lastUptime=ProcessInfo.processInfo.systemUptime
         await prepareCatchup()
-        restartStream()
+        restartStream();await ensureQuoteService()
     }
-    private func restartStream() {
+    func restartStream() {
         streamTask?.cancel();streamTask=nil
         guard foreground,let i=selected,i.provider == .coinbase,context?.mode == .online,let context,let engine else{return}
         streamTask=Task{
@@ -214,7 +242,7 @@ struct ChartAmendment: Identifiable {
                 }catch{
                     guard !Task.isCancelled else{return}
                     self.providerStatus[.coinbase]=error.localizedDescription
-                    try? await engine.markMonitoringGap(instrumentID:i.id,time:Int64(Date().timeIntervalSince1970),context:context)
+                    try? await engine.markMonitoringGap(instrumentID:i.id,time:Int64(Date().timeIntervalSince1970),expectedSourcePrefix:"Coinbase Exchange WS",context:context)
                     await self.refresh()
                 }
                 attempts+=1
@@ -271,28 +299,13 @@ struct ChartAmendment: Identifiable {
     }
     func provider(_ id: ProviderID) throws -> MarketDataProvider {
         guard context?.mode == .online else { throw TradeError.invalid("B 不取得憑證或建立 Provider") }
-        let credentials=try ProviderCredentials(key:KeychainVault.read(id.rawValue+".key"),secret:KeychainVault.read(id.rawValue+".secret"))
+        let credentials=try id.needsKey ? ProviderCredentials(key:KeychainVault.read(id.rawValue+".key"),secret:KeychainVault.read(id.rawValue+".secret")):ProviderCredentials()
         return try MarketDataProvider(id:id,credentials:credentials,transport:ReadOnlyTransport(mode:.online))
     }
-    func fetchQuotes() async {
-        guard !fetching,let s=state,s.mode == .online,let context,let engine else{return}
-        fetching=true;defer{fetching=false}
-        var ids=s.watchlist.union(s.positions.values.filter{$0.quantity != .zero}.map(\.id))
-        ids.formUnion(s.orders.values.filter{$0.status.open}.map{$0.request.instrumentID});ids.insert(selectedID)
-        ids.formUnion(s.alerts.filter{$0.firedAt == nil}.map(\.instrumentID))
-        for i in s.instruments where ids.contains(i.id) {
-            guard foreground,let id=i.provider else{continue}
-            if i.provider == .coinbase,i.id==selectedID,let q=s.quotes[i.id],q.source.hasPrefix("Coinbase Exchange WS"),q.valid,Int64(Date().timeIntervalSince1970)-q.receivedAt<10{continue}
-            do {
-                let service=try provider(id),received=Int64(Date().timeIntervalSince1970)
-                let q=try await service.quote(i,now:received)
-                guard self.context == context,foreground else { continue }
-                try await engine.ingest(q,now:Int64(Date().timeIntervalSince1970),context:context)
-                providerStatus[id]="\(q.quality.rawValue)・\(q.grade.rawValue)・\(q.coverage)"
-            } catch { providerStatus[id]=error.localizedDescription;try? await engine.markMonitoringGap(instrumentID:i.id,time:Int64(Date().timeIntervalSince1970),context:context) }
-        }
-        await refresh()
-        if tab==2 { await loadChart() }
+    func fetchQuotes()async{
+        guard context?.mode == .online else{return}
+        await quoteScheduler.retry(requiredQuoteIDs)
+        await ensureQuoteService()
     }
     func saveChartPreferences(indicator:String,period:Int,line:Bool)async{
         guard let engine,let context,!selectedID.isEmpty else{return}
@@ -317,7 +330,7 @@ struct ChartAmendment: Identifiable {
     }
     func loadLatestChart()async{chartBefore=nil;chartCount=160;await loadChart()}
     func loadChart() async {
-        guard let i=selected,let s=state else{return}
+        guard let i=selected,let s=state,let capturedContext=context else{return}
         let generation=UUID();chartGeneration=generation;chartError=nil;chartLoading=true
         defer{if generation==chartGeneration{chartLoading=false}}
         let interval=interval,count=chartCount,before=chartBefore
@@ -339,11 +352,11 @@ struct ChartAmendment: Identifiable {
                 if values.count<cached.count || (cached.count<count && values.count==cached.count){notice="來源沒有提供更早的可用歷史；不產生替代 K 線"}
             }
             else { throw TradeError.unavailable("尚無圖表來源") }
-            guard generation==chartGeneration else{return};candles=values
+            guard generation==chartGeneration,self.context==capturedContext,self.selectedID==i.id else{return};candles=values
             if values.isEmpty { chartError="此範圍沒有行情，請切換週期或載入更多歷史" }
         } catch is CancellationError {} catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
     }
-    func clearChartCaches(){candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
+    func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
     @discardableResult func submit(_ request: OrderRequest, oco: OrderRequest? = nil) async ->Bool {
         guard !interactionBlocked else{error="離線市場事件尚未處理完成，暫停新的委託";return false}
         guard let engine,let context else{error="帳戶尚未準備完成";return false}
@@ -351,6 +364,7 @@ struct ChartAmendment: Identifiable {
         await UITestSupport.submissionDelay()
         #endif
         guard !interactionBlocked else{error="市場事件處理中，暫停新的委託";return false}
+        if context.mode == .online,let instrument=state?.instruments.first(where:{$0.id==request.instrumentID}),!canTrade(instrument){error="行情或交易條件已變更，請重新確認有效報價後再送出";return false}
         do{
             if let oco{try await engine.submitOCO(request,oco,time:self.now,context:context)}else{_=try await engine.submit(request,time:self.now,context:context)}
             notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh();return true

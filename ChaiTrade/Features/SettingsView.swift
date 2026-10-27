@@ -2,119 +2,35 @@ import SwiftUI
 import UniformTypeIdentifiers
 import ChaiTradeCore
 
-struct SettingsView: View {
-    @EnvironmentObject var model: AppModel
+struct SettingsView:View {
+    @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
-    @State private var backupPassword=""
-    @State private var importing=false
-    @State private var confirmRestore=false
-    @State private var restoreURL: URL?
-    @State private var resetStage=false
-    @State private var resetText=""
-    @State private var confirmReset=false
-    var body: some View {
-        Form {
-            Section("運作模式（下次完整啟動生效）") {
-                Text("目前：\(model.settings.activeMode.label)")
-                ForEach(Mode.allCases,id:\.self){mode in Button(mode.label){model.setPending(mode)}}
-                if let pending=model.settings.pendingMode{Text("待套用：\(pending.label)。請完整關閉並重新開啟；返回主畫面不等於程序重啟。").font(.footnote).foregroundStyle(.orange);Button("取消待切換"){model.setPending(nil)}}
-            }
-            Section("外觀"){
-                Picker("主題",selection:$model.settings.theme){Text("深色").tag("dark");Text("淺色").tag("light");Text("跟隨系統").tag("system")}.onChange(of:model.settings.theme){_,_ in model.saveSettings()}
-                Toggle("臺灣紅漲綠跌",isOn:$model.settings.taiwanColors).onChange(of:model.settings.taiwanColors){_,_ in model.saveSettings()}
-                Toggle("遮蔽資產金額",isOn:$model.settings.hideBalances).onChange(of:model.settings.hideBalances){_,_ in model.saveSettings()}
-            }
-            Section("交易與風險"){
-                Toggle("啟用槓桿／合約功能",isOn:Binding(get:{model.state?.leverageEnabled ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(leverageEnabled:v,context:context)}}}))
-                Text("啟用即表示了解虛擬合約可能強平及穿倉，負債會保留。現貨不自動借貸。").font(.caption).foregroundStyle(.orange)
-                if model.state?.mode == .online{
-                    Toggle("允許合約採自訂參考風險價模型",isOn:Binding(get:{model.state?.useReferenceRiskPrice ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(useReferenceRiskPrice:v,context:context)}}}))
-                    Text("缺少交易所標記價時，只有明確啟用才可用來源參考價計算自訂風險。畫面會標示此模型；不能宣稱為交易所標記價。").font(.caption)
-                    Toggle("允許 E3 參考價估算撮合",isOn:Binding(get:{model.state?.allowEstimatedExecution ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(allowEstimated:v,context:context)}}}))
-                    Text("E3 使用明示價差與有限流動性模型，成交永久標記為估算。延遲／過期行情仍不可成交。").font(.caption)
-                }
-            }
-            if let sim=model.state?.simulation{
-                Section("B 離線沙盒（只影響未來）"){
-                    SimulationControls()
-                    Picker("市場情境",selection:Binding(get:{sim.scenario},set:{v in Task{await model.configureSimulation(scenario:v)}})){ForEach(["多頭","空頭","盤整","恐慌","復甦"],id:\.self){Text($0)}}
-                    VStack(alignment:.leading){Text("波動係數 \(sim.volatility,specifier:"%.1f")×");Slider(value:Binding(get:{sim.volatility},set:{v in Task{await model.configureSimulation(volatility:v)}}),in:0.1...5,step:0.1)}
-                    VStack(alignment:.leading){Text("流動性 \(sim.liquidity,specifier:"%.1f")×");Slider(value:Binding(get:{sim.liquidity},set:{v in Task{await model.configureSimulation(liquidity:v)}}),in:0.1...5,step:0.1)}
-                    Toggle("離開期間以 1× 計時，重開才補算",isOn:Binding(get:{model.state?.continueWhileAway ?? true},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(continueWhileAway:v,context:context)}}}))
-                    Text("固定種子 \(String(sim.seed)) · \(sim.algorithm)\n切到 A 期間 B 暫停；不常駐背景。").font(.caption.monospaced())
-                    if model.catchupTarget != nil{Button("繼續補算"){Task{await model.catchUp()}}}
-                }
-            }
-            Section("A 真實行情來源") {
-                if model.state?.mode == .offline{Text("B 不讀取金鑰、不建立網路 Provider。切到 A 並完整重新啟動後配置。").font(.footnote)}
-                else{ForEach(ProviderID.allCases,id:\.self){id in NavigationLink(id.label){ProviderSettings(id:id)}}}
-            }
-            Section("目前帳戶通知"){
-                Button("啟用／檢查系統通知權限"){Task{await model.enableNotifications()}}
-                if model.state?.notificationEnabled==true{Button("停用此帳戶系統通知"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.configureNotifications(false,context:context)}}}}
-                Text("只有實際運作中的行情／交易引擎能偵測事件。沒有背景即時監控保證；B 補算事件會標示補算發現。拒絕權限仍保留 App 內事件。").font(.caption)
-            }
-            Section("目前帳戶備份與還原") {
-                if model.exportingWork{ProgressView("建立一致性備份中…")}
-                SecureField("備份／還原密碼（可留空）",text:$backupPassword)
-                Text("密碼備份使用 AES-256-GCM 與 PBKDF2-HMAC-SHA256（600,000 次）。密碼遺失無法恢復。API 金鑰不進備份。").font(.caption)
-                Button("匯出目前帳戶備份"){Task{await model.export(kind:"backup",password:backupPassword)}}
-                Button("完整備份 A 與 B（各自隔離）"){Task{await model.export(kind:"both",password:backupPassword)}}
-                Button("選擇備份並驗證還原"){importing=true}
-                Text("還原會先驗證模式、版本、校驗碼與帳本，再取代此帳戶。雙帳戶備份會取出符合目前模式的帳戶；另一帳戶保持不變。原帳戶會保存本機恢復點；A／B 不可交叉還原。").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("重設目前帳戶") {
-                Button("重設 \(model.settings.activeMode.accountID)",role:.destructive){resetStage=true}
-                if resetStage{Text("先匯出備份，再輸入 RESET 二次確認。另一帳戶不受影響。").font(.caption);TextField("輸入 RESET",text:$resetText).autocorrectionDisabled();Button("確認重設目前帳戶",role:.destructive){confirmReset=true}.disabled(resetText != "RESET")}
-            }
-            Section("關於"){
-                Text("ChaiTrade 1.0 · 原生本機模擬交易\n無真實交易、錢包、入出金、廣告或遙測。")
-                NavigationLink("第三方授權"){LicenseView()}
-                Text("建置成功、IPA 結構驗證、裝機簽署、實機啟動及交易驗收是不同項目。未簽名 IPA 須自行使用有效簽署方式安裝。").font(.footnote).foregroundStyle(.secondary)
-            }
-        }.navigationTitle("設定").toolbar{Button("完成"){dismiss()}}
-            .fileImporter(isPresented:$importing,allowedContentTypes:[.data,.json]){result in switch result{case .success(let url):restoreURL=url;confirmRestore=true;case .failure(let error):model.error=error.localizedDescription}}
-            .confirmationDialog("以備份取代目前帳戶？",isPresented:$confirmRestore,titleVisibility:.visible){Button("確認驗證並還原",role:.destructive){if let url=restoreURL{Task{await model.importBackup(url,password:backupPassword)}}}}
-            .confirmationDialog("確定重設此帳戶？",isPresented:$confirmReset,titleVisibility:.visible){Button("重設並保存恢復點",role:.destructive){Task{await reset()}}}
-    }
-    func reset() async {
-        guard let engine=model.engine,let context=model.context else{return}
-        await model.run{
-            model.maintainingAccount=true;defer{model.maintainingAccount=false}
-            let (token,current)=try await engine.beginMaintenance(context:context),time=model.now
-            do{
-            let backup=try await Task.detached{try BackupService.export(current,password:nil,time:time)}.value
-            let dir=model.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
-            try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
-            try backup.write(to:dir.appendingPathComponent("before-reset-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
-            let fresh=try TradingEngine.initial(mode:context.mode,baseCurrency:current.baseCurrency,capital:Amount("1000000"),time:model.now)
-            try await engine.restore(fresh,maintenanceToken:token,context:context);try await engine.initializeQuotes(context:context)
-            model.clearChartCaches();model.stateRevision=UUID();resetStage=false;resetText="";model.notice="目前帳戶已重設；原資料有本機恢復點"
-            }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
+    var body:some View{List{
+        Section{Text("讓看盤與練習交易照自己的習慣運作。").foregroundStyle(.secondary)}
+        Section{
+            NavigationLink{ModeAccountSettings()}label:{Label("模式與帳戶",systemImage:"person.crop.circle")}
+            NavigationLink{ConnectionsView()}label:{Label("行情連線",systemImage:"antenna.radiowaves.left.and.right")}
+            NavigationLink{TradingPreferencesView()}label:{Label("交易偏好",systemImage:"slider.horizontal.3")}
+            NavigationLink{OfflineSettingsView()}label:{Label("離線模擬",systemImage:"airplane")}
+            NavigationLink{AppearanceNotificationSettings()}label:{Label("外觀與通知",systemImage:"bell.badge")}
+            NavigationLink{DataBackupView()}label:{Label("資料備份／還原",systemImage:"externaldrive")}
+            NavigationLink{AdvancedDiagnosticsView()}label:{Label("進階診斷",systemImage:"stethoscope")}
         }
-    }
+        Section{NavigationLink("關於與第三方授權"){LicenseView()};Text("ChaiTrade · 私人娛樂模擬交易。所有資金與委託在本機處理。").font(.footnote).foregroundStyle(.secondary)}
+    }.navigationTitle("設定").toolbar{Button("完成"){dismiss()}}}
 }
-struct ProviderSettings: View {
-    @EnvironmentObject var model: AppModel
-    let id: ProviderID
-    @State private var key=""
-    @State private var secret=""
-    @State private var result=""
-    var body: some View {
-        Form{
-            Text("只讀取行情，不使用交易 SDK、帳戶委託或轉帳 API。請使用自己的合法行情權限，勿把金鑰提交到 GitHub。").font(.footnote)
-            if id.needsKey{SecureField("API Key",text:$key);if id == .alpaca{SecureField("API Secret",text:$secret)};Button("保存至裝置 Keychain"){save()};Button("刪除此來源金鑰",role:.destructive){key="";secret="";save()}}
-            Button("保存並測試讀取行情"){save();Task{await test()}}
-            if id != .alpaca{Button("載入來源商品目錄（最多 2,000 個）"){Task{do{guard let engine=model.engine,let context=model.context else{return};let products=try await model.provider(id).products();try await engine.importOnlineInstruments(products,context:context);await model.refresh();result="已加入 \(products.count) 個來源商品；既有資料未改寫"}catch{result=error.localizedDescription}}}}
-            if !result.isEmpty{Text(result).font(.caption)}
-            if let status=model.providerStatus[id]{Text(status).font(.caption)}
-            Text("\(id == .alpaca ? "IEX 單一市場，不是全美綜合報價。":id == .twelveData ? "外匯參考價，E3 估算預設不成交。":"資料能力、時間戳及授權以實際回應為準。")\n需要授權的來源尚未提供憑證時，不代表已完成實際連線驗證。").font(.footnote).foregroundStyle(.secondary)
-        }.navigationTitle(id.label)
-            .onAppear{guard model.state?.mode == .online else{return};do{key=try KeychainVault.read(id.rawValue+".key");secret=try KeychainVault.read(id.rawValue+".secret")}catch{result=error.localizedDescription}}
-    }
-    func save(){guard model.state?.mode == .online else{return};do{try KeychainVault.write(key,key:id.rawValue+".key");try KeychainVault.write(secret,key:id.rawValue+".secret");result="金鑰已保存於裝置，不包含在備份內"}catch{result=error.localizedDescription}}
-    func test() async{do{guard let i=model.state?.instruments.first(where:{$0.provider==id})else{result="請先載入來源商品目錄，並核對確切合約代碼";return};let quote=try await model.provider(id).quote(i,now:Int64(Date().timeIntervalSince1970));result="成功讀取 \(i.symbol) · \(quote.last) · \(quote.quality.rawValue) · \(quote.grade.rawValue)"}catch{result=error.localizedDescription}}
+struct ModeAccountSettings:View{
+    @EnvironmentObject var model:AppModel
+    var body:some View{Form{
+        Section("目前帳戶"){Text(model.settings.activeMode.label);Text("股票／加密切換只是瀏覽分類，使用相同帳戶。A／B 則是完全隔離的帳戶、資金、委託與歷史。").font(.footnote)}
+        Section("下次完整啟動切換"){
+            ForEach(Mode.allCases,id:\.self){mode in Button(mode.label){model.setPending(mode)}}
+            if let pending=model.settings.pendingMode{Text("待切換："+pending.label+"。請完整關閉 App 再開啟；回到主畫面不會換帳戶。").font(.footnote).foregroundStyle(.orange);Button("取消待切換"){model.setPending(nil)}}
+        }
+        Section{NavigationLink("重設目前帳戶"){AccountResetView()};Text("改版與切換市場不會自動重設資產。").font(.caption).foregroundStyle(.secondary)}
+    }.navigationTitle("模式與帳戶")}
 }
+
 struct LicenseView: View {
     @Environment(\.openURL) private var openURL
     @State private var confirmExternal=false
@@ -124,4 +40,55 @@ struct LicenseView: View {
         Text(license).font(.caption)
         Text("SQLite：Public Domain。Apple 系統框架依 Apple 平台條款提供。ChaiTrade 自有程式碼採 MIT。").font(.footnote)
     }.padding()}.confirmationDialog("將開啟外部官方網站，離開本機離線操作環境",isPresented:$confirmExternal,titleVisibility:.visible){Button("開啟 TradingView"){openURL(URL(string:"https://www.tradingview.com/")!)}}}
+}
+
+struct TradingPreferencesView:View{
+    @EnvironmentObject var model:AppModel
+    var body:some View{Form{
+            Section("交易與風險"){
+                Toggle("啟用槓桿／合約功能",isOn:Binding(get:{model.state?.leverageEnabled ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(leverageEnabled:v,context:context)}}}))
+                Text("啟用即表示了解虛擬合約可能強平及穿倉，負債會保留。現貨不自動借貸。").font(.caption).foregroundStyle(.orange)
+                if model.state?.mode == .online{
+                    Toggle("允許合約採自訂參考風險價模型",isOn:Binding(get:{model.state?.useReferenceRiskPrice ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(useReferenceRiskPrice:v,context:context)}}}))
+                    Text("缺少交易所標記價時，只有明確啟用才可用來源參考價計算自訂風險。畫面會標示此模型；不能宣稱為交易所標記價。").font(.caption)
+                    Toggle("允許參考價模型估算撮合",isOn:Binding(get:{model.state?.allowEstimatedExecution ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(allowEstimated:v,context:context)}}}))
+                    Text("參考價估算使用明示價差與有限流動性模型，成交永久標記為估算。延遲／過期行情仍不可成交。").font(.caption)
+                }
+            }
+    }.navigationTitle("交易偏好")}
+}
+
+struct OfflineSettingsView:View{
+    @EnvironmentObject var model:AppModel
+    var body:some View{Form{
+            if let sim=model.state?.simulation{
+                Section("B 離線沙盒（只影響未來）"){
+                    SimulationControls()
+                    Picker("市場情境",selection:Binding(get:{sim.scenario},set:{v in Task{await model.configureSimulation(scenario:v)}})){ForEach(["多頭","空頭","盤整","恐慌","復甦"],id:\.self){Text($0)}}
+                    VStack(alignment:.leading){Text("波動係數 \(sim.volatility,specifier:"%.1f")×");Slider(value:Binding(get:{sim.volatility},set:{v in Task{await model.configureSimulation(volatility:v)}}),in:0.1...5,step:0.1)}
+                    VStack(alignment:.leading){Text("流動性 \(sim.liquidity,specifier:"%.1f")×");Slider(value:Binding(get:{sim.liquidity},set:{v in Task{await model.configureSimulation(liquidity:v)}}),in:0.1...5,step:0.1)}
+                    Toggle("離開期間以 1× 計時，重開才補算",isOn:Binding(get:{model.state?.continueWhileAway ?? true},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(continueWhileAway:v,context:context)}}}))
+                    Text("切到 A 期間 B 暫停；相同時間線可重播。事件均為模擬情境，非真實新聞。").font(.caption)
+                    if model.catchupTarget != nil{Button("繼續補算"){Task{await model.catchUp()}}}
+                }
+            }
+
+            if model.state?.mode != .offline{Section{Text("這些偏好屬於 B 帳戶。請在模式與帳戶選擇 B，完整重新啟動後再調整。").font(.footnote)}}
+    }.navigationTitle("離線模擬")}
+}
+
+struct AppearanceNotificationSettings:View{
+    @EnvironmentObject var model:AppModel
+    var body:some View{Form{
+            Section("外觀"){
+                Picker("主題",selection:$model.settings.theme){Text("深色").tag("dark");Text("淺色").tag("light");Text("跟隨系統").tag("system")}.onChange(of:model.settings.theme){_,_ in model.saveSettings()}
+                Toggle("臺灣紅漲綠跌",isOn:$model.settings.taiwanColors).onChange(of:model.settings.taiwanColors){_,_ in model.saveSettings()}
+                Toggle("遮蔽資產金額",isOn:$model.settings.hideBalances).onChange(of:model.settings.hideBalances){_,_ in model.saveSettings()}
+            }
+            Section("目前帳戶通知"){
+                Button("啟用／檢查系統通知權限"){Task{await model.enableNotifications()}}
+                if model.state?.notificationEnabled==true{Button("停用此帳戶系統通知"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.configureNotifications(false,context:context)}}}}
+                Text("只有實際運作中的行情／交易引擎能偵測事件。沒有背景即時監控保證；B 補算事件會標示補算發現。拒絕權限仍保留 App 內事件。").font(.caption)
+            }
+    }.navigationTitle("外觀與通知")}
 }

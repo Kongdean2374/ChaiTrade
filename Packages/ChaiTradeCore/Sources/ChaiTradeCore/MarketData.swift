@@ -45,11 +45,12 @@ public enum NetworkPolicy {
         let path = url.path
         switch url.host {
         case "api.exchange.coinbase.com":
-            return path == "/products" || path == "/time" || path.range(of: #"^/products/[A-Z0-9-]+/(ticker|book|candles|trades)$"#, options: .regularExpression) != nil
+            return path == "/products" || path == "/time" || path.range(of: #"^/products/[A-Z0-9-]+/(ticker|book|candles|trades|stats)$"#, options: .regularExpression) != nil
         case "api.fugle.tw":
             return path.range(of: #"^/marketdata/v1\.0/(stock|futopt)/(intraday/(quote|candles|trades|volumes)|historical/candles)/[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil || path.range(of:#"^/marketdata/v1\.0/(stock|futopt)/intraday/tickers$"#,options:.regularExpression) != nil
+        case "www.federalreserve.gov":return ["/feeds/press_all.xml","/feeds/press_monetary.xml"].contains(path)
         case "data.alpaca.markets":
-            return path.range(of: #"^/v2/stocks/[A-Z.]+/(snapshot|bars|quotes/latest|trades/latest)$"#, options: .regularExpression) != nil
+            return path == "/v1beta1/news" || path.range(of: #"^/v2/stocks/[A-Z.]+/(snapshot|bars|quotes/latest|trades/latest)$"#, options: .regularExpression) != nil
         case "api.twelvedata.com": return ["/quote","/time_series","/exchange_rate","/forex_pairs"].contains(path)
         case "fapi.binance.com": return ["/fapi/v1/depth","/fapi/v1/premiumIndex","/fapi/v1/ticker/24hr","/fapi/v1/klines","/fapi/v1/exchangeInfo"].contains(path)
         default: return false
@@ -71,21 +72,20 @@ public struct ReadOnlyTransport: MarketTransport {
     }
     public func get(_ url: URL, headers: [String:String]) async throws -> Data {
         guard NetworkPolicy.permits(url, method: "GET", mode: .online) else { throw TradeError.invalid("網路白名單拒絕：僅可讀取市場行情") }
+        try await HTTPRequestBudget.shared.wait(host:url.host ?? "")
         var request = URLRequest(url: url); request.httpMethod = "GET"
         request.setValue("ChaiTrade/1.0 market-data-only", forHTTPHeaderField: "User-Agent")
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         let (data, response): (Data, URLResponse)
         do { (data, response) = try await session.data(for: request) }
-        catch { let failure=error as NSError;throw TradeError.unavailable("裝置離線、TLS 或行情連線失敗（\(failure.domain) \(failure.code)）；停止新成交，可重試") }
+        catch is CancellationError{throw CancellationError()} catch {throw MarketDataFailure(.connectionFailed)}
         guard let http = response as? HTTPURLResponse else { throw TradeError.unavailable("來源回應格式不合法") }
         switch http.statusCode {
         case 200..<300: guard data.count <= 8_000_000 else { throw TradeError.unavailable("行情回應過大") }; return data
-        case 401: throw TradeError.unavailable("行情認證失敗：請更新此來源的 Keychain 金鑰")
-        case 403: throw TradeError.unavailable("來源拒絕存取：請確認行情權限、所在地或服務條款")
-        case 429: throw TradeError.unavailable("行情限速，請於 \(http.value(forHTTPHeaderField: "Retry-After") ?? "60") 秒後重試")
-        case 300..<400: throw TradeError.unavailable("已拒絕來源重新導向，避免憑證流向其他主機")
-        case 500..<600: throw TradeError.unavailable("行情來源維護或服務異常，稍後重試")
-        default: throw TradeError.unavailable("行情請求失敗（HTTP \(http.statusCode)）；請確認商品及方案")
+        default:
+            let failure=HTTPMarketFailure.classify(status:http.statusCode,retryAfter:http.value(forHTTPHeaderField:"Retry-After"))
+            if failure.kind == .rateLimited{await HTTPRequestBudget.shared.throttle(host:url.host ?? "",seconds:failure.retryAfter ?? 60)}
+            throw failure
         }
     }
 }
@@ -95,7 +95,7 @@ public struct MarketDataProvider: Sendable {
     private let transport: any MarketTransport
     public init(id: ProviderID, credentials: ProviderCredentials, transport: any MarketTransport) { self.id = id; self.credentials = credentials; self.transport = transport }
     private func fetch(path: String, query: [String:String] = [:], requiresCredentials: Bool = true) async throws -> JSONValue {
-        if requiresCredentials && id.needsKey && credentials.key.isEmpty { throw TradeError.unavailable("\(id.label) 尚未配置行情金鑰，請至設定加入自己的合法權限") }
+        if requiresCredentials && id.needsKey && credentials.key.isEmpty { throw MarketDataFailure(.missingKey) }
         let host: String
         switch id { case .coinbase: host = "api.exchange.coinbase.com"; case .fugle,.fugleFutures: host = "api.fugle.tw"; case .alpaca: host = "data.alpaca.markets"; case .twelveData: host = "api.twelvedata.com"; case .binance: host = "fapi.binance.com" }
         var components = URLComponents(); components.scheme = "https"; components.host = host; components.path = path
@@ -106,7 +106,7 @@ public struct MarketDataProvider: Sendable {
         components.queryItems = query.sorted(by: { $0.key < $1.key }).map { URLQueryItem(name: $0.key, value: $0.value) }
         guard let url = components.url, NetworkPolicy.permits(url, method: "GET", mode: .online) else { throw TradeError.invalid("來源路徑不符合行情白名單") }
         let json = try JSONValue.parse(await transport.get(url, headers: headers))
-        if json["status"].string == "error" || json["error"].string != nil { throw TradeError.unavailable("來源回報權限、商品或方案錯誤；不以假資料替代") }
+        if json["status"].string == "error" || json["error"].string != nil {throw HTTPMarketFailure.classify(status:Int(json["code"].integer ?? 403),retryAfter:nil)}
         return json
     }
     private static func timestamp(_ value: JSONValue) throws -> Int64 {
@@ -119,7 +119,7 @@ public struct MarketDataProvider: Sendable {
         }
         throw TradeError.unavailable("來源缺少可驗證的行情時間，暫停成交")
     }
-    public func quote(_ instrument: Instrument, now: Int64) async throws -> Quote {
+    public func quote(_ instrument: Instrument, now: Int64,includeSummary:Bool=false,board:TradingBoard?=nil) async throws -> Quote {
         guard instrument.provider == id else { throw TradeError.invalid("來源與商品 ID 不符，禁止合併不同市場") }
         let symbol = instrument.symbol
         guard symbol.range(of: #"^[A-Za-z0-9/._-]{1,32}$"#, options: .regularExpression) != nil else { throw TradeError.invalid("商品代碼不合法") }
@@ -132,13 +132,21 @@ public struct MarketDataProvider: Sendable {
             let bids = try book["bids"].array.prefix(50).map { try Level($0[0].amount(), $0[1].amount()) }
             let asks = try book["asks"].array.prefix(50).map { try Level($0[0].amount(), $0[1].amount()) }
             q = Quote(instrumentID: instrument.id, source: id.label, time: time, sequence: book["sequence"].integer ?? time, last: try ticker["price"].amount(), bids: bids, asks: asks, coverage: "Coinbase 單一交易所；REST 快照估算", receivedAt: now)
+            if includeSummary{
+                do{let stats=try await fetch(path:"/products/\(symbol)/stats");q.summary=QuoteSummary(open:try? stats["open"].amount(),high:try? stats["high"].amount(),low:try? stats["low"].amount(),reference:try? stats["open"].amount(),volume:try? stats["volume"].amount(),window:"24小時")}
+                catch is CancellationError{throw CancellationError()}catch{q.summary=QuoteSummary(window:"24小時統計暫時無法讀取，可重試")}
+            }
         case .fugle,.fugleFutures:
             let family = id == .fugle ? "stock" : "futopt"
-            let j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/quote/\(symbol)")
+            let j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/quote/\(symbol)",query:id == .fugle && board == .oddLot ? ["type":"oddlot"]:[:])
             let time = try Self.timestamp(j["lastUpdated"])
             let bids = try j["bids"].array.map { try Level($0["price"].amount(), $0["size"].amount()) }
             let asks = try j["asks"].array.map { try Level($0["price"].amount(), $0["size"].amount()) }
             q = Quote(instrumentID: instrument.id, source: id.label, time: time, sequence: j["lastUpdated"].integer ?? time, last: try j["lastPrice"].amount(), bids: bids, asks: asks, grade: bids.isEmpty || asks.isEmpty ? .E3 : .E1, coverage: "依 Fugle 使用者行情授權及交易盤", receivedAt: now)
+            q.board=id == .fugle ? (board ?? .regular):nil
+            q.summary=QuoteSummary(open:try? j["openPrice"].amount(),high:try? j["highPrice"].amount(),low:try? j["lowPrice"].amount(),reference:(try? j["referencePrice"].amount()) ?? (try? j["previousClose"].amount()),volume:try? j["total"]["tradeVolume"].amount(),turnover:try? j["total"]["tradeValue"].amount(),window:"當日")
+            if case .bool(true)=j["isTrial"]{q.valid=false;q.quality = .unavailable}
+            if case .bool(true)=j["isDelayed"]{q.quality = .delayed}
         case .alpaca:
             let j = try await fetch(path: "/v2/stocks/\(symbol)/snapshot", query: ["feed":"iex"])
             let trade = j["latestTrade"], book = j["latestQuote"]
@@ -146,6 +154,7 @@ public struct MarketDataProvider: Sendable {
             let bids = try [Level(book["bp"].amount(), book["bs"].amount())]
             let asks = try [Level(book["ap"].amount(), book["as"].amount())]
             q = Quote(instrumentID: instrument.id, source: id.label, time: min(time, try Self.timestamp(book["t"])), sequence: time, last: try trade["p"].amount(), bids: bids, asks: asks, grade: .E2, coverage: "IEX 單一市場；不是全美綜合報價", receivedAt: now)
+            q.summary=QuoteSummary(open:try? j["dailyBar"]["o"].amount(),high:try? j["dailyBar"]["h"].amount(),low:try? j["dailyBar"]["l"].amount(),reference:try? j["prevDailyBar"]["c"].amount(),volume:try? j["dailyBar"]["v"].amount(),window:"IEX當日")
         case .twelveData:
             let j = try await fetch(path: "/quote", query: ["symbol":symbol])
             let time = try Self.timestamp(j["timestamp"])
@@ -157,11 +166,24 @@ public struct MarketDataProvider: Sendable {
             let time = try Self.timestamp(mark["time"])
             q = Quote(instrumentID: instrument.id, source: id.label, time: min(time,book["E"].integer.map{$0/1000} ?? time), sequence: book["lastUpdateId"].integer ?? time, last: try ticker["lastPrice"].amount(), bids: try book["bids"].array.map { try Level($0[0].amount(),$0[1].amount()) }, asks: try book["asks"].array.map { try Level($0[0].amount(),$0[1].amount()) }, coverage: "USDⓈ-M 線性永續；僅公開資料", receivedAt: now)
             q.mark = try mark["markPrice"].amount()
+            q.summary=QuoteSummary(open:try? ticker["openPrice"].amount(),high:try? ticker["highPrice"].amount(),low:try? ticker["lowPrice"].amount(),reference:try? ticker["openPrice"].amount(),volume:try? ticker["volume"].amount(),turnover:try? ticker["quoteVolume"].amount(),window:"24小時")
         }
         guard q.last > .zero else{throw TradeError.unavailable("來源未提供有效成交價格；保留最後已知值，不用零代替未知行情")}
-        if now - q.time > q.maximumAge { q.quality = .stale }
+        if now - q.time > q.maximumAge,q.quality == .realtime { q.quality = .stale }
         if q.bids.isEmpty || q.asks.isEmpty { q.grade = .E3 }
         return q
+    }
+    public func news(symbols:[String],now:Int64)async throws->[MarketNewsStory]{
+        guard id == .alpaca else{throw MarketDataFailure(.unsupported)}
+        let cleaned=Array(Set(symbols)).filter{$0.range(of:#"^[A-Z.]{1,16}$"#,options:.regularExpression) != nil}.sorted()
+        let data=try await fetch(path:"/v1beta1/news",query:["symbols":cleaned.prefix(50).joined(separator:","),"limit":"50","include_content":"false","sort":"desc"])
+        return try data["news"].array.compactMap{row in
+            guard let title=row["headline"].string,let link=row["url"].string,let url=URL(string:link),url.scheme=="https",let identity=row["id"].string else{return nil}
+            let time=try Self.timestamp(row["created_at"])
+            guard time<=now else{return nil}
+            let ids=row["symbols"].array.compactMap(\.string).map{"alpaca:"+$0}
+            return MarketNewsStory(id:"alpaca-news-"+identity,title:title,summary:String((row["summary"].string ?? "請查看來源原文。").prefix(4000)),publishedAt:time,source:row["source"].string ?? "Alpaca 授權新聞",origin:.real,url:url,markets:[.stocks],instrumentIDs:ids,sector:nil,kind:"companyNews",endsAt:nil,logPriceImpact:nil,volumeMultiplier:nil,liquidityMultiplier:nil)
+        }.sorted{$0.publishedAt>$1.publishedAt}
     }
     public func products() async throws -> [Instrument] {
         let json: JSONValue,rows: [JSONValue]
@@ -198,6 +220,8 @@ public struct MarketDataProvider: Sendable {
             }
             rules.source="\(id.label) 商品目錄；精度依可用欄位，其餘為未核驗的自訂模擬規則"
             var instrument=Instrument(id:"\(id.rawValue):\(symbol)",symbol:symbol,name:name,asset:asset,currency:currency,rules:rules,initialPrice:.zero,provider:id)
+            instrument.identity=InstrumentIdentity(exchange:id == .coinbase ? "Coinbase Exchange":id == .fugle ? (row["exchange"].string ?? "TWSE"):id == .binance ? "Binance USDⓈ-M":id == .fugleFutures ? "TAIFEX":"參考匯率",market:[.crypto,.perpetual].contains(asset) ? .crypto:[.forex,.future].contains(asset) ? .other:.stocks,baseAsset:row["base_currency"].string ?? row["baseAsset"].string ?? symbol,unit:asset == .crypto || asset == .perpetual ? (row["base_currency"].string ?? row["baseAsset"].string ?? symbol):asset == .future ? "口":"股",boardLot:id == .fugle ? 1000:1)
+            if id == .coinbase {if case .bool(true)=row["trading_disabled"]{instrument.halted=true};if let status=row["status"].string,status != "online"{instrument.halted=true}}
             if asset == .future{instrument.requiresRuleConfirmation=true}
             result.append(instrument)
         }
@@ -270,15 +294,5 @@ public struct MarketDataProvider: Sendable {
     }
 }
 public enum Providers {
-    public static func catalog() throws -> [Instrument] {
-        let items: [(ProviderID,String,String,AssetClass,String)] = [(.coinbase,"BTC-USD","Bitcoin",.crypto,"USD"),(.coinbase,"ETH-USD","Ethereum",.crypto,"USD"),(.fugle,"2330","台積電",.taiwanStock,"TWD"),(.fugle,"0050","元大台灣50",.etf,"TWD"),(.alpaca,"AAPL","Apple",.usStock,"USD"),(.alpaca,"SPY","SPDR S&P 500 ETF",.etf,"USD"),(.twelveData,"EUR/USD","歐元／美元自訂模擬合約",.forex,"USD"),(.binance,"BTCUSDT","BTC USDT 線性永續",.perpetual,"USDT")]
-        return try items.map { provider,symbol,name,asset,currency in
-            var rule = try RulePack(tick: Amount(asset == .forex ? "0.00001":"0.01"), quantityStep: Amount(asset == .crypto || asset == .forex || asset == .perpetual ? "0.001":"1"))
-            rule.source = "未核驗市場規則；自訂模擬；交易前需核對合約規格"
-            if asset == .usStock || provider == .alpaca { rule.timeZone = "America/New_York"; rule.weekdaysOnly = true; rule.openMinute = 570; rule.closeMinute = 960 }
-            if provider == .fugle { rule.timeZone = "Asia/Taipei"; rule.weekdaysOnly = true; rule.openMinute = 540; rule.closeMinute = 810 }
-            if provider == .fugleFutures { rule.multiplier = try Amount(200) }
-            return Instrument(id:"\(provider.rawValue):\(symbol)",symbol:symbol,name:name,asset:asset,currency:currency,rules:rule,initialPrice:.zero,provider:provider)
-        }
-    }
+    public static func catalog() throws -> [Instrument] {let all=try InstrumentCatalog.builtIn(mode:.online);return all.filter{$0.asset == .crypto}+all.filter{$0.asset != .crypto}}
 }

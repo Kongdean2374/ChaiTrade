@@ -47,6 +47,7 @@ public struct RulePack: Codable, Sendable, Equatable {
     public var effectiveFrom: Int64 = 1_761_523_200
     public var verifiedAt: Int64? = nil
     public var tick: Amount
+    public var priceTicks:[PriceTickBand]?
     public var quantityStep: Amount
     public var minimumNotional: Amount = .zero
     public var multiplier: Amount = .one
@@ -86,6 +87,7 @@ public struct Instrument: Codable, Identifiable, Equatable, Sendable {
     public var asset: AssetClass
     public var currency: String
     public var provider: ProviderID?
+    public var identity:InstrumentIdentity?
     public var rules: RulePack
     public var initialPrice: Amount
     public var volatility: Double = 0.002
@@ -118,6 +120,9 @@ public struct Quote: Codable, Sendable, Equatable {
     public var grade: ExecutionGrade
     public var coverage: String
     public var valid = true
+    public var summary:QuoteSummary?
+    public var board:TradingBoard?
+    public var causalEventIDs:[String]?
     public var maximumAge: Int64 = 30
     public init(instrumentID: String, source: String, time: Int64, sequence: Int64, last: Amount, bids: [Level], asks: [Level], quality: DataQuality = .realtime, grade: ExecutionGrade = .E1, coverage: String = "模擬市場", receivedAt: Int64? = nil) {
         self.instrumentID = instrumentID; self.source = source; self.time = time; self.receivedAt = receivedAt ?? time
@@ -159,6 +164,7 @@ public struct OrderRequest: Codable, Sendable {
     public var instrumentID: String
     public var side: Side
     public var kind: OrderKind
+    public var board:TradingBoard?
     public var quantity: Amount
     public var price: Amount?
     public var trigger: Amount?
@@ -216,6 +222,7 @@ public struct Fill: Codable, Identifiable, Sendable {
     public var estimatedExecution: Bool
     public var modelVersion = "shadow-depth-1"
     public var liquidityEventID: String
+    public var causalEventIDs:[String]?
     public var ruleVersion: String
     public var realized: Amount
 }
@@ -349,6 +356,7 @@ public struct AccountState: Codable, Sendable {
     public var lastWallTime: Int64?
     public var sequence: Int64 = 0
     public var lifecycle: LifecycleState?
+    public var productPreferences:ProductPreferences?
     public init(mode: Mode, baseCurrency: String, instruments: [Instrument]) {
         self.mode = mode; self.accountID = mode.accountID; self.baseCurrency = baseCurrency; self.instruments = instruments
         if mode == .offline { self.simulation = SimulationState() }

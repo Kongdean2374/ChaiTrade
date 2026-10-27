@@ -11,6 +11,39 @@ public actor TradingEngine {
         try AccountRepository.validate(initial, mode: context.mode)
         self.context = context; self.repository = repository; self.wallClock=wallClock;self.state = try repository.save(initial)
     }
+    public func prepareProductExperience(context:AccountContext)throws{
+        try check(context)
+        guard state.productPreferences?.catalogMigrated != true else{return}
+        try transaction{s in
+            s=try InstrumentCatalog.migrate(s)
+            if s.mode == .offline,s.simulation?.newsUniverse == nil{
+                let universe=s.instruments.filter{$0.identity?.legacy != true}.map(NewsInstrument.init)
+                s.simulation!.newsUniverse=universe;s.simulation!.newsWorldID=BackupService.digest(try AccountRepository.encode(universe))
+                s.simulation!.newsFrom=((s.simulation!.time/60)+1)*60;s.simulation!.newsAccountingFrom=s.simulation!.time+Simulation.step
+            }
+            s.audit("catalogMigration","商品目錄增量升級；既有商品身份、部位、規則與歷史保持原值",time:s.simulation?.time ?? Int64(Date().timeIntervalSince1970))
+        }
+    }
+    public func saveMarketBrowsing(_ browsing:MarketBrowsingState,market:MarketDomain,activate:Bool=false,context:AccountContext)throws{
+        try check(context)
+        guard browsing.search.utf8.count<=512,browsing.recent.count<=30,browsing.recent.allSatisfy({id in state.instruments.contains{$0.id==id && $0.market==market}}),browsing.selectedID.map({id in state.instruments.contains{$0.id==id && $0.market==market}}) ?? true else{throw TradeError.invalid("市場瀏覽狀態與商品不符")}
+        try transaction{s in
+            if s.productPreferences==nil{s.productPreferences=ProductPreferences()}
+            s.productPreferences!.markets[market.rawValue]=browsing
+            if activate{s.productPreferences!.activeMarket=market}
+        }
+    }
+    public func saveWatchGroup(_ group:WatchGroup,context:AccountContext)throws{
+        try check(context)
+        guard !group.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,group.name.utf8.count<=160,group.instrumentIDs.count<=500,Set(group.instrumentIDs).count==group.instrumentIDs.count,group.instrumentIDs.allSatisfy({id in state.instruments.contains{$0.id==id && $0.market==group.market}}) else{throw TradeError.invalid("自選群組名稱或商品不合法")}
+        try transaction{s in
+            if s.productPreferences==nil{s.productPreferences=ProductPreferences()}
+            s.productPreferences!.groups.removeAll{$0.id==group.id};s.productPreferences!.groups.append(group)
+            guard s.productPreferences!.groups.count<=30 else{throw TradeError.invalid("最多 30 個自選群組")}
+            s.watchlist.formUnion(group.instrumentIDs)
+        }
+    }
+    public func removeWatchGroup(id:String,context:AccountContext)throws{try check(context);try transaction{$0.productPreferences?.groups.removeAll{$0.id==id}}}
     public func snapshot() -> AccountState { state }
     public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
         try check(context);return try repository.fillPage(limit:limit,before:before)
@@ -53,7 +86,14 @@ public actor TradingEngine {
     }
     public static func initial(mode: Mode, baseCurrency: String = "TWD", capital: Amount, time: Int64) throws -> AccountState {
         var s = AccountState(mode: mode, baseCurrency: baseCurrency, instruments: try mode == .offline ? Simulation.catalog() : Providers.catalog())
-        if mode == .offline{s.schema=2}
+        if mode == .offline{
+            s.schema=2
+            s.simulation!.algorithm="factor-wave-2"
+            s.simulation!.newsUniverse=s.instruments.map(NewsInstrument.init)
+            s.simulation!.newsWorldID=BackupService.digest(try AccountRepository.encode(s.simulation!.newsUniverse!))
+            s.simulation!.newsFrom=s.simulation!.time-366*86400;s.simulation!.newsAccountingFrom=s.simulation!.time+Simulation.step
+        }
+        s.productPreferences=ProductPreferences();s.productPreferences!.catalogMigrated=true
         try adjustCash(&s, currency: baseCurrency, amount: capital, time: s.simulation?.time ?? time, eventID: "initial-capital")
         return s
     }
@@ -112,7 +152,7 @@ public actor TradingEngine {
         guard i.rules.expiry == nil || time < i.rules.expiry! else { throw TradeError.invalid("合約已到期") }
         guard r.quantity > .zero, try r.quantity.isMultiple(of: i.rules.quantityStep) else { throw TradeError.invalid("數量不符合商品級距") }
         for p in [r.price, r.trigger].compactMap({$0}) {
-            guard p > .zero, try p.isMultiple(of: i.rules.tick) else { throw TradeError.invalid("價格不符合最小跳動") }
+            guard p > .zero, try p.isMultiple(of: i.rules.tick(at:p)) else { throw TradeError.invalid("價格不符合最小跳動") }
         }
         if [.limit, .stopLimit].contains(r.kind) && r.price == nil { throw TradeError.invalid("請輸入限價") }
         if r.kind.conditional && r.kind != .trailing && r.trigger == nil { throw TradeError.invalid("請輸入觸發價") }
@@ -232,16 +272,17 @@ public actor TradingEngine {
         }
         try transaction { s in
             try Self.settleDue(&s, now:now)
-            if let old = s.quotes[quote.instrumentID], old.source == quote.source, old.sequence >= quote.sequence { return }
+            if let old = s.quotes[quote.instrumentID],old.source == quote.source {if old.sequence>quote.sequence{return};if old.sequence==quote.sequence && old.valid && old.quality == .realtime{return}}
             s.quotes[quote.instrumentID] = quote
             try Self.match(&s, quote: quote, now: now)
             try Self.risk(&s, quote: quote, now: now)
             try Self.recordEquity(&s,time:now)
         }
     }
-    public func markMonitoringGap(instrumentID: String,time: Int64,context: AccountContext) throws {
+    public func markMonitoringGap(instrumentID: String,time: Int64,expectedSourcePrefix:String?=nil,context: AccountContext) throws {
         try check(context)
         guard let previous=state.quotes[instrumentID],previous.valid || previous.quality != .stale else{return}
+        if let expectedSourcePrefix,state.quotes[instrumentID]?.source.hasPrefix(expectedSourcePrefix) != true{return}
         try transaction {s in
             if var quote=s.quotes[instrumentID]{quote.valid=false;quote.quality = .stale;s.quotes[instrumentID]=quote}
             for id in s.orders.keys where s.orders[id]!.status.open && s.orders[id]!.request.instrumentID==instrumentID{s.orders[id]!.suspension="行情監控曾中斷，等待新快照；不回填缺口成交"}
@@ -409,7 +450,8 @@ public actor TradingEngine {
             }else{o.reserved = o.request.side == .buy ? try remainingNotional+feeRemaining:.zero}
         }
         let fillID = "fill-\(o.id)-\(s.sequence + 1)"
-        let fill = Fill(id: fillID, accountID: s.accountID, orderID: o.id, instrumentID: i.id, side: o.request.side, quantity: quantity, price: price, fee: fee, tax: tax, time: now, quoteTime: q.time, source: q.source, grade: q.grade, estimatedExecution: q.grade == .E3, liquidityEventID: "\(q.source)-\(q.sequence)", ruleVersion: o.ruleVersion, realized: realized)
+        var fill = Fill(id: fillID, accountID: s.accountID, orderID: o.id, instrumentID: i.id, side: o.request.side, quantity: quantity, price: price, fee: fee, tax: tax, time: now, quoteTime: q.time, source: q.source, grade: q.grade, estimatedExecution: q.grade == .E3, liquidityEventID: "\(q.source)-\(q.sequence)", ruleVersion: o.ruleVersion, realized: realized)
+        fill.causalEventIDs=q.causalEventIDs
         s.fills.append(fill)
         if delayedSettlement {
             if s.lifecycle == nil { s.lifecycle = LifecycleState() }
@@ -486,19 +528,35 @@ public actor TradingEngine {
                 s.simulation!.time += Simulation.step
                 let financialSequence=s.sequence
                 let sim = s.simulation!
+                if sim.time%60==0{try Self.applySimulationNews(&s,at:sim.time)}
                 try Self.settleDue(&s,now:sim.time)
                 try Self.scheduledOfflineLifecycle(&s,previous:sim.time-Simulation.step,now:sim.time)
                 for i in s.instruments.sorted(by: { $0.id < $1.id }) where i.rules.isOpen(at: sim.time) && !i.halted {
                     let q = try Simulation.quote(i, state: sim); s.quotes[i.id] = q
                     try Self.match(&s, quote: q, now: sim.time); try Self.risk(&s, quote: q, now: sim.time)
                 }
-                if sim.time % 21600 == 0 {
-                    s.audit("simulationNews", "模擬事件：產業、政策與流動性因子重新定價；非真實新聞", time: sim.time)
-                }
                 if sim.time % 60 == 0 || s.sequence>financialSequence { try Self.recordEquity(&s,time:sim.time) }
             }
             if let wallTarget { s.lastWallTime = wallTarget - max(0,target-s.simulation!.time) }
             return s.simulation!.time
+        }
+    }
+    private static func applySimulationNews(_ s:inout AccountState,at time:Int64)throws{
+        guard let sim=s.simulation,let accountingFrom=sim.newsAccountingFrom,time>=accountingFrom else{return}
+        for bucket in [time/SimulationNews.period-1,time/SimulationNews.period]{
+            guard let story=SimulationNews.story(bucket:bucket,state:sim),story.publishedAt>=accountingFrom else{continue}
+            let publication="published-"+story.id
+            if story.publishedAt<=time,!s.appliedEvents.contains(publication){
+                s.appliedEvents.insert(publication);s.audit("simulationNews",story.title+"；模擬情境，非真實新聞",time:story.publishedAt,id:publication)
+                if let id=story.instrumentIDs.first,story.kind=="dividend"{
+                    let action=CorporateAction(id:story.id,instrumentID:id,kind:.dividend,time:story.publishedAt,cashPerUnit:try Amount("0.25"),paymentTime:story.endsAt,source:"B 模擬新聞情境 "+story.id)
+                    try applyCorporateAction(action,to:&s)
+                }
+                if let id=story.instrumentIDs.first,story.kind=="split"{
+                    let action=CorporateAction(id:story.id,instrumentID:id,kind:.split,time:story.publishedAt,ratio:try Amount("2"),source:"B 模擬新聞情境 "+story.id)
+                    try applyCorporateAction(action,to:&s)
+                }
+            }
         }
     }
     public func configureSimulation(speed: Int, paused: Bool, scenario: String, volatility: Double, liquidity: Double, context: AccountContext) throws {
@@ -687,9 +745,10 @@ public actor TradingEngine {
             }
         }
     }
-    public func corporateAction(_ action: CorporateAction,context: AccountContext) throws {
-        try check(context)
-        try transaction {s in
+    public func corporateAction(_ action:CorporateAction,context:AccountContext)throws{
+        try check(context);try transaction{s in try Self.applyCorporateAction(action,to:&s)}
+    }
+    private static func applyCorporateAction(_ action:CorporateAction,to s:inout AccountState)throws{
             guard !s.appliedEvents.contains(action.id) else{return}
             guard !action.source.isEmpty,let index=s.instruments.firstIndex(where:{$0.id==action.instrumentID}) else {throw TradeError.invalid("缺少事件來源或商品")}
             let i=s.instruments[index]
@@ -728,7 +787,6 @@ public actor TradingEngine {
             }
             s.lifecycle!.actions.append(action);s.appliedEvents.insert(action.id);s.audit("corporateAction","\(action.kind.rawValue) · \(action.source)",time:action.time,id:action.id)
             try Self.settleDue(&s,now:action.time)
-        }
     }
     public func restore(_ restored: AccountState,maintenanceToken:UUID?=nil, context: AccountContext) throws {
         guard context==self.context else{throw TradeError.wrongAccount}
