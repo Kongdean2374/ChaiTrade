@@ -27,7 +27,7 @@ jobs:
         run: bash scripts/build_unsigned_ipa.sh
       - name: Isolated iPhone UI interaction and smoke tests
         run: bash scripts/test_ui.sh
-        timeout-minutes: 25
+        timeout-minutes: 35
       - name: Read-only public market connectivity evidence
         run: python3 scripts/probe_public_market.py
         timeout-minutes: 1

@@ -32,3 +32,5 @@ Latest local full Release: all 67 tests executed and passed with CHAI_STRESS=1 a
 [REMAINING_WORK.md](REMAINING_WORK.md) lists the incomplete product behaviors and unavailable external checks. The plan's 2 s normal B cold launch and other physical-device performance targets remain unverified.
 
 互動專項新增五項對抗性案例及逐案例獨立資料，首次 Apple 執行尚未完成；詳見 INTERACTION_VALIDATION.md。既有四項正常流程證據不涵蓋本輪新增驗證。
+
+互動基準 run 40488978661 已完成：9 個獨立案例中 3 個失敗，證據先行保留；確認日誌五筆（四筆空白）及補算面板被整體停用，自選另有手勢送達數假設問題。修正後本地 70 項完整 Release 通過、零跳過；Apple 九案例各兩次重跑尚未完成。詳見 INTERACTION_VALIDATION.md 與 INTERACTION_BASELINE.json。

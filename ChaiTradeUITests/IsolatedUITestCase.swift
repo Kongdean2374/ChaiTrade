@@ -14,7 +14,8 @@ import XCTest
         XCTContext.runActivity(named:stage+" · "+session){activity in
             let shot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());shot.lifetime = .keepAlways;activity.add(shot)
             let tree=XCTAttachment(string:app.debugDescription);tree.name="Accessibility hierarchy";tree.lifetime = .keepAlways;activity.add(tree)
-            let state=XCTAttachment(string:app.staticTexts["uiTestState"].firstMatch.label);state.name="Synthetic account state";state.lifetime = .keepAlways;activity.add(state)
+            let probe=app.staticTexts["uiTestState"].firstMatch
+            let state=XCTAttachment(string:probe.exists ? probe.label:"Probe unavailable; hierarchy and database retained");state.name="Synthetic account state";state.lifetime = .keepAlways;activity.add(state)
         }
     }
     func check(_ condition:@autoclosure () throws ->Bool,_ message:String,file:StaticString=#filePath,line:UInt=#line)throws{
@@ -22,7 +23,7 @@ import XCTest
     }
     func state(_ app:XCUIApplication)throws->[String:Any]{
         let probe=app.staticTexts["uiTestState"].firstMatch
-        try check(probe.waitForExistence(timeout:5),"Missing read-only state probe")
+        try check(probe.exists || probe.waitForExistence(timeout:5),"Missing read-only state probe")
         return try XCTUnwrap(JSONSerialization.jsonObject(with:Data(probe.label.utf8)) as? [String:Any])
     }
     func ready(_ app:XCUIApplication)throws{
@@ -32,6 +33,9 @@ import XCTest
         try check((s["orders"] as? [String])?.isEmpty==true,"Test inherited orders")
         try check((s["journals"] as? [[String:String]])?.isEmpty==true,"Test inherited journals")
         try check((s["watchlist"] as? [String])?.isEmpty==true,"Test inherited favorites")
+        try check((s["fills"] as? [[String:String]])?.isEmpty==true,"Test inherited fills")
+        try check((s["positions"] as? [String:String])?.isEmpty==true,"Test inherited positions")
+        try check((s["cash"] as? [String:String])==["TWD":"100000"],"Fixture did not start from clean capital")
         capture("Clean baseline")
     }
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{

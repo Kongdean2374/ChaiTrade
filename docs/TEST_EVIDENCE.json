@@ -163,5 +163,107 @@
     "localOrderFeedback150MillisecondsP95": "storage benchmark passed; physical UI/device latency not measured",
     "frameRateMemoryBattery": "not measured on physical device",
     "bulkAndIntegrity": "explicit multi-second background operations; not screen-load timings"
+  },
+  "interactionBaseline": {
+    "commit": "46942a6355841ca85224c687af2e98b164521920",
+    "runID": 40488978661,
+    "conclusion": "failure",
+    "cases": {
+      "InteractionTests.testBackNavigationSheetCancelSwipeAndKeyboard": {
+        "result": "passed",
+        "seconds": 76.353
+      },
+      "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": {
+        "result": "failed",
+        "seconds": 47.476
+      },
+      "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": {
+        "result": "failed",
+        "seconds": 32.822
+      },
+      "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": {
+        "result": "passed",
+        "seconds": 41.396
+      },
+      "InteractionTests.testRapidTabsReselectAndFavoritesPersist": {
+        "result": "failed",
+        "seconds": 13.318
+      },
+      "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": {
+        "result": "passed",
+        "seconds": 58.05
+      },
+      "SmokeTests.testOfflineMarketOrderUsesLocalEngine": {
+        "result": "passed",
+        "seconds": 33.647
+      },
+      "SmokeTests.testOfflineOnboardingAndNavigation": {
+        "result": "passed",
+        "seconds": 29.929
+      },
+      "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": {
+        "result": "passed",
+        "seconds": 57.19
+      }
+    },
+    "evidenceArtifactID": 12729017997,
+    "evidenceURL": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40488978661/artifacts/12729017997",
+    "archiveSHA256": "45716c2be61893f536e7e903e23195337f82a373469785ff99484bc9397bbe1e",
+    "uniqueSessionDirectories": 9,
+    "verifiedFindings": {
+      "journal": {
+        "session": "907501FC-A390-4EC5-BF5F-CBB3E4FE8DE2",
+        "persistedEntries": 5,
+        "blankEntries": 4,
+        "expectedEntries": 1
+      },
+      "catchup": {
+        "session": "97699478-2EBF-4C73-8B64-1DB4D1B3D5D8",
+        "doneButtonDisabled": true,
+        "formScrollDisabled": true,
+        "submitUnreachable": true,
+        "orders": 0,
+        "fills": 0
+      },
+      "favorites": {
+        "session": "FDD07926-46BD-4B5E-BEFA-2263035E37C4",
+        "requestedPhysicalTaps": 4,
+        "observedIntentStarts": 3,
+        "classification": "test gesture delivery assumption failed; this run does not establish lost-update failure"
+      },
+      "order": {
+        "session": "D23E722D-DE22-49EC-B31A-40311D521E40",
+        "orders": 1,
+        "fills": 1,
+        "cash": "99962.8629",
+        "result": "passed rapid confirmation, cancel and exact ledger checks"
+      }
+    }
+  },
+  "interactionFixedLocal": {
+    "summaryTests": 70,
+    "skipped": 0,
+    "stressEnabled": true,
+    "liveEnabled": true,
+    "result": "passed",
+    "sourceStatus": "working correction batch; Apple rerun pending",
+    "T45": {
+      "analytics100000Seconds": 0.016836651,
+      "bulkImportSeconds": 11.705088368,
+      "csv100000Seconds": 0.12463521,
+      "equityPoints": 100001,
+      "fills": 100000,
+      "fullIntegrityLoadSeconds": 9.292566089,
+      "hotEquityPoints": 1000,
+      "hotFills": 100,
+      "hotLoadSeconds": 0.046959535,
+      "hotOrders": 100,
+      "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+      "orderWriteP95Seconds": 0.046970226,
+      "page100P95Seconds": 0.002931751,
+      "passed": true,
+      "platform": "Debian GNU/Linux 12 (bookworm)",
+      "samplesPerP95": 30
+    }
   }
 }

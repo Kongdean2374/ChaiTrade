@@ -526,8 +526,14 @@ public actor TradingEngine {
             if let useReferenceRiskPrice{s.useReferenceRiskPrice=useReferenceRiskPrice}
         }
     }
+    public func toggleWatch(_ instrumentID:String,context:AccountContext)throws{
+        try check(context)
+        guard state.instruments.contains(where:{$0.id==instrumentID}) else{throw TradeError.invalid("自選商品不存在")}
+        try transaction{s in if s.watchlist.contains(instrumentID){s.watchlist.remove(instrumentID)}else{s.watchlist.insert(instrumentID)}}
+    }
     public func recordJournal(_ journal: JournalEntry, context: AccountContext) throws {
         try check(context)
+        guard !journal.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else{throw TradeError.invalid("日誌內容不能空白")}
         if let id=journal.orderID{guard try repository.order(id:id) != nil else{throw TradeError.invalid("關聯委託不在目前帳戶")}}
         try transaction{$0.journals.removeAll{$0.id==journal.id};$0.journals.append(journal)}
     }

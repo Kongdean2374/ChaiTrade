@@ -22,7 +22,7 @@ struct RootView: View {
                         Text(model.state!.mode.label).font(.caption.weight(.semibold)).accessibilityIdentifier("activeModeBanner")
                         Spacer()
                         if model.settings.pendingMode != nil { Image(systemName:"arrow.triangle.2.circlepath").accessibilityLabel("待下次完整啟動切換") }
-                        Button { settings=true } label: { Image(systemName:"gearshape") }.accessibilityLabel("設定")
+                        Button { settings=true } label: { Image(systemName:"gearshape") }.accessibilityLabel("設定").disabled(model.interactionBlocked)
                     }.padding(.horizontal).padding(.vertical,10).background(.bar)
                     TabView(selection:$model.tab) {
                         NavigationStack { DashboardView() }.tabItem{Label("總覽",systemImage:"square.grid.2x2")}.tag(0)
@@ -31,7 +31,7 @@ struct RootView: View {
                         NavigationStack { OrdersView() }.tabItem{Label("委託",systemImage:"list.bullet.rectangle")}.tag(3)
                         NavigationStack { PortfolioView() }.tabItem{Label("資產",systemImage:"wallet.bifold")}.tag(4)
                     }.id(model.stateRevision)
-                }.disabled(model.progress != nil || model.catchupTarget != nil || model.maintainingAccount)
+                }
             }
         }
         .overlay(alignment:.bottomLeading){UITestProbe()}
@@ -48,7 +48,7 @@ struct RootView: View {
             else if let progress=model.progress {
                 VStack { Text("順序處理離線市場事件").font(.headline);ProgressView(value:progress);Text("已完成事件會逐批保存；此時暫停下單").font(.caption);Button("暫停補算"){model.stopCatchup()} }.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
             } else if model.catchupTarget != nil && model.clockWarning == nil {
-                VStack(spacing:10){Text("市場事件處理已暫停").font(.headline);Button("從檢查點繼續處理"){Task{await model.catchUp()}};Button("放棄未完成的推進",role:.destructive){model.clockWarning="確定放棄尚未處理的推進區段？已完成的行情與交易會保留。"}}.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
+                VStack(spacing:10){Text("市場事件處理已暫停").font(.headline);Button("從檢查點繼續處理"){Task{await model.catchUp()}}.disabled(model.catchingUp);Button("放棄未完成的推進",role:.destructive){model.clockWarning="確定放棄尚未處理的推進區段？已完成的行情與交易會保留。"}.disabled(model.catchingUp)}.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
             } else if let notice=model.notice {
                 Button{model.notice=nil}label:{Text(notice).font(.caption).padding().foregroundStyle(.primary).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12))}.padding()
             }

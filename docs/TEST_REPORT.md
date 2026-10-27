@@ -45,3 +45,5 @@
 Fugle／Alpaca／Twelve Data 缺少合法憑證／方案；Binance 地區回應 HTTP 451，均不宣稱實際行情成功。未完成的官方市場規則、雙向持倉／階梯保證金、完整現金流績效、B 參與者／新聞因果、商品中心及通知功能見 [REMAINING_WORK.md](REMAINING_WORK.md)。TEST_MATRIX.md 的部分通過與未執行項目繼續保留。
 
 互動專項新增五項對抗性案例及逐案例獨立資料，首次 Apple 執行尚未完成；詳見 INTERACTION_VALIDATION.md。既有四項正常流程證據不涵蓋本輪新增驗證。
+
+互動基準 run 40488978661 已完成：9 個獨立案例中 3 個失敗，證據先行保留；確認日誌五筆（四筆空白）及補算面板被整體停用，自選另有手勢送達數假設問題。修正後本地 70 項完整 Release 通過、零跳過；Apple 九案例各兩次重跑尚未完成。詳見 INTERACTION_VALIDATION.md 與 INTERACTION_BASELINE.json。

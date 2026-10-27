@@ -127,6 +127,8 @@ struct JournalView: View {
     @State private var emotion=""
     @State private var orderID=""
     @State private var attach=false
+    @State private var saving=false
+    @State private var draftID=UUID().uuidString
     var body: some View {
         Form{
             Section("新增本機檢討"){
@@ -136,15 +138,20 @@ struct JournalView: View {
                 TextEditor(text:$text).frame(minHeight:120).accessibilityIdentifier("journalText")
                 if model.journalScreenshot != nil{Toggle("附加剛擷取的本機圖表",isOn:$attach).accessibilityIdentifier("attachJournalChart")}
                 if attach,let data=model.journalScreenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit().frame(maxHeight:220).accessibilityLabel("待儲存的模擬圖表").accessibilityIdentifier("journalChartPreview")}
-                Button("保存日誌"){
-                    Task{guard let engine=model.engine,let context=model.context,!text.isEmpty else{return};await model.run{
-                        var entry=JournalEntry(text:text,tags:tags,time:model.now)
-                        entry.emotion=emotion;entry.orderID=orderID.isEmpty ? nil:orderID;entry.instrumentID=model.selectedID.isEmpty ? nil:model.selectedID
-                        entry.screenshot=attach ? model.journalScreenshot:nil
-                        try await engine.recordJournal(entry,context:context)
-                    };if model.error==nil{text="";tags="";emotion="";orderID="";attach=false;model.journalScreenshot=nil}}
-                }
-            }
+                Button(saving ? "保存中…":"保存日誌"){
+                    guard !saving,!model.interactionBlocked,!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else{return}
+                    saving=true
+                    var entry=JournalEntry(id:draftID,text:text,tags:tags,time:model.now)
+                    entry.emotion=emotion;entry.orderID=orderID.isEmpty ? nil:orderID;entry.instrumentID=model.selectedID.isEmpty ? nil:model.selectedID
+                    let screenshot=attach ? model.journalScreenshot:nil;entry.screenshot=screenshot
+                    let intent=entry
+                    Task{defer{saving=false};if await model.saveJournal(intent){
+                        text="";tags="";emotion="";orderID="";attach=false;draftID=UUID().uuidString
+                        if screenshot==model.journalScreenshot{model.journalScreenshot=nil}
+                    }}
+                }.disabled(saving || model.interactionBlocked || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty).accessibilityIdentifier("saveJournal")
+            }.disabled(saving || model.interactionBlocked)
+
             ForEach(Array((model.state?.journals ?? []).reversed())){entry in
                 Section(entry.tags){
                     Text(entry.text)
@@ -154,7 +161,7 @@ struct JournalView: View {
                     Text(Date(timeIntervalSince1970:TimeInterval(entry.time)).formatted()).font(.caption).foregroundStyle(.secondary)
                 }
             }
-        }.overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("交易日誌").toolbar{Button("完成"){dismiss()}}
+        }.interactiveDismissDisabled(saving).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("交易日誌").toolbar{Button("完成"){dismiss()}.disabled(saving)}
     }
 }
 

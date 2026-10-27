@@ -13,9 +13,11 @@ import ChaiTradeCore
     static var fixture:Bool { session != nil && ProcessInfo.processInfo.arguments.contains("--uitest-fixture") }
     static var contention:Bool { fixture && ProcessInfo.processInfo.arguments.contains("--uitest-contention") }
     static var controlledCatchup:Bool { fixture && ProcessInfo.processInfo.arguments.contains("--uitest-controlled-catchup") }
-    static func root(base:URL)throws->URL{
+    static func root(base:URL)->URL{
         guard let session else{return base.appendingPathComponent("ChaiTrade",isDirectory:true)}
-        let root=base.appendingPathComponent("ChaiTradeUITests/\(session)",isDirectory:true)
+        return base.appendingPathComponent("ChaiTradeUITests/\(session)",isDirectory:true)
+    }
+    static func prepare(root:URL)throws{
         if fixture,!FileManager.default.fileExists(atPath:root.appendingPathComponent("app-settings.json").path){
             var settings=AppSettings();settings.activeMode = .offline;settings.onboarded=true
             for mode in Mode.allCases {
@@ -25,10 +27,10 @@ import ChaiTradeCore
             }
             try settings.save(root:root)
         }
-        return root
     }
-    static func delay()async{if contention{try? await Task.sleep(for:.milliseconds(700))}}
-    static func checkpoint()async{if controlledCatchup{try? await Task.sleep(for:.milliseconds(300))}}
+    static func delay()async{if contention{let duration=ProcessInfo.processInfo.arguments.contains("--uitest-slow-save") ? 10000:2000;try? await Task.sleep(for:.milliseconds(duration))}}
+    static func submissionDelay()async{if fixture && ProcessInfo.processInfo.arguments.contains("--uitest-slow-submit"){try? await Task.sleep(for:.seconds(10))}}
+    static func checkpoint()async{if controlledCatchup{try? await Task.sleep(for:.milliseconds(700))}}
 }
 #endif
 
@@ -54,7 +56,7 @@ struct UITestProbe: View {
             "fills":fills.map{f -> [String:String] in ["id":f.id,"order":f.orderID,"quantity":f.quantity.description,"price":f.price.description,"fee":f.fee.description,"tax":f.tax.description,"multiplier":s?.instruments.first(where:{$0.id==f.instrumentID})?.rules.multiplier.description ?? "1"]},
             "positions":s?.positions.mapValues{$0.quantity.description} ?? [:],
             "fillCash":s?.ledger.filter{$0.account=="cash" && ids.contains($0.eventID)}.map{["event":$0.eventID,"amount":$0.amount.description]} ?? [],
-            "operations":model.uiTestOperations,"mutationStarts":model.uiTestMutationStarts,"catchupNotices":s?.events.filter{$0.kind=="catchupComplete"}.count ?? 0,
+            "operations":model.uiTestOperations,"mutationStarts":model.uiTestMutationStarts,"maxOperations":model.uiTestMaxOperations,"catchupNotices":s?.events.filter{$0.kind=="catchupComplete"}.count ?? 0,
             "catchup":model.progress != nil,"pendingCatchup":model.catchupTarget != nil,
             "time":s?.simulation?.time ?? 0
         ]
@@ -68,7 +70,7 @@ struct UITestCatchupControl:View {
     var body:some View{
         #if DEBUG
         if UITestSupport.controlledCatchup {
-            Button("開始受控補算"){model.catchupTarget=model.now+21600;Task{await model.catchUp()}}
+            Button("開始受控補算"){model.catchupTarget=model.now+10800;Task{await model.catchUp()}}
                 .accessibilityIdentifier("uiTestBeginCatchup")
         }
         #endif

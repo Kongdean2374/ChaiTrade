@@ -19,7 +19,7 @@ struct TradingView: View {
                     HStack(alignment:.top) {
                         VStack(alignment:.leading,spacing:5){Text(i.name).font(.title2.bold());Text("\(i.symbol) / \(i.currency)").font(.caption.monospaced()).foregroundStyle(.secondary)}
                         Spacer()
-                        Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id) == true ? "star.fill":"star")}.accessibilityLabel("切換自選").accessibilityIdentifier("toggleWatch").accessibilityValue(model.state?.watchlist.contains(i.id)==true ? "已加入":"未加入")
+                        Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id) == true ? "star.fill":"star")}.accessibilityLabel("切換自選").disabled(model.interactionBlocked).accessibilityIdentifier("toggleWatch").accessibilityValue(model.state?.watchlist.contains(i.id)==true ? "已加入":"未加入")
                         Button{details=true}label:{Image(systemName:"info.circle")}.accessibilityLabel("商品規格")
                     }
                     HStack(alignment:.firstTextBaseline){Text(model.quote?.last.description ?? "未提供").font(.system(size:34,weight:.semibold,design:.rounded)).monospacedDigit();Spacer();Text(model.quote?.grade.rawValue ?? "E0").font(.caption.monospaced()).padding(7).background(.quaternary,in:Capsule())}
@@ -95,9 +95,11 @@ struct OrderForm: View {
     @State private var stop=""
     @State private var confirm=false
     @State private var sending=false
+    @State private var submitted=false
+    @State private var requestID=UUID().uuidString
+    @State private var ocoRequestID=UUID().uuidString
     var body: some View {
         Form {
-            UITestCatchupControl()
             if let i=model.selected {
                 Section("\(i.name) · 本機模擬委託") {
                     Picker("方向",selection:$side){ForEach(Side.allCases,id:\.self){Text($0.label)}}.pickerStyle(.segmented)
@@ -132,9 +134,12 @@ struct OrderForm: View {
                     if let preview=preview { LabeledContent("預估名目金額",value:preview.0.description);LabeledContent("預估費用（未含稅）",value:preview.1.description);if i.asset.derivative{LabeledContent("預估初始保證金",value:preview.2.description)} }
                     Text("實際成交依有效買賣盤及價格保護，可能部分成交或保留。規則：\(i.rules.version)").font(.caption)
                 }
-                Section{Button(sending ? "送出中…":"檢查並送出模擬委託"){confirm=true}.font(.headline).disabled(sending).accessibilityIdentifier("submitOrder")}
+                Section{Button(sending ? "送出中…":"檢查並送出模擬委託"){confirm=true}.font(.headline).disabled(sending || submitted || model.interactionBlocked).accessibilityIdentifier("submitOrder")}
             }
-        }.overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{Button("完成"){dismiss()}}
+        }.disabled(sending).interactiveDismissDisabled(sending).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{
+                ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
+                ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
+            }
             .onAppear{price=model.quote?.last.description ?? ""}
             .confirmationDialog("確認本機模擬委託",isPresented:$confirm,titleVisibility:.visible){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text("\(model.selected?.symbol ?? "") · \(side.label) · \(quantity)\n不會向交易所傳送委託。")}
     }
@@ -154,19 +159,21 @@ struct OrderForm: View {
         }catch{model.error=error.localizedDescription}
     }
     func send() async {
-        guard let i=model.selected else{return}
+        guard !sending,!submitted,!model.interactionBlocked,let i=model.selected else{return}
         sending=true;defer{sending=false}
         do {
             var r=OrderRequest(instrumentID:i.id,side:side,kind:kind,quantity:try Amount(quantity),price:[.limit,.stopLimit].contains(kind) ? try Amount(price):nil,trigger:kind.conditional && kind != .trailing ? try Amount(trigger):nil)
+            r.requestID=requestID
             r.timeInForce=tif;r.expiresAt=tif == .GTD ? Int64(expiry.timeIntervalSince1970):nil;r.postOnly=postOnly;r.reduceOnly=reduceOnly;r.leverage=leverage;r.marginMode=margin;r.triggerReference=reference
             if kind == .trailing{r.trailingDistance=try Amount(distance);r.trailingPercent=trailingPercent}
             if protection == "括號"{r.bracketProfit=try Amount(profit);r.bracketStop=try Amount(stop)}
+            let accepted:Bool
             if protection == "OCO"{
                 r.kind = .takeProfit;r.trigger=try Amount(profit);r.price=nil;r.reduceOnly=true
-                var second=OrderRequest(instrumentID:i.id,side:side,kind:.stopMarket,quantity:r.quantity,trigger:try Amount(stop));second.reduceOnly=true;second.leverage=leverage;second.marginMode=margin
-                await model.submit(r,oco:second)
-            }else{await model.submit(r)}
-            if model.error == nil{dismiss();model.tab=3}
+                var second=OrderRequest(instrumentID:i.id,side:side,kind:.stopMarket,quantity:r.quantity,trigger:try Amount(stop));second.requestID=ocoRequestID;second.reduceOnly=true;second.leverage=leverage;second.marginMode=margin
+                accepted=await model.submit(r,oco:second)
+            }else{accepted=await model.submit(r)}
+            if accepted{submitted=true;dismiss();model.tab=3}
         }catch{model.error=error.localizedDescription}
     }
 }

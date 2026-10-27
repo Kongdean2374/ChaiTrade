@@ -41,6 +41,7 @@ struct ChartAmendment: Identifiable {
     #if DEBUG
     @Published var uiTestOperations=0
     @Published var uiTestMutationStarts=0
+    @Published var uiTestMaxOperations=0
     #endif
     @Published var state: AccountState?
     @Published var settings=AppSettings()
@@ -68,6 +69,7 @@ struct ChartAmendment: Identifiable {
     @Published var maintainingAccount=false
     @Published var catchupTarget: Int64?
     @Published var clockWarning: String?
+    @Published private(set) var catchingUp=false
     @Published var chartAmendment: ChartAmendment?
     private(set) var engine: TradingEngine?
     private(set) var context: AccountContext?
@@ -88,7 +90,8 @@ struct ChartAmendment: Identifiable {
     init() {
         let base=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask).first!
         #if DEBUG
-        root=(try? UITestSupport.root(base:base)) ?? base.appendingPathComponent("UITestSetupFailed",isDirectory:true)
+        root=UITestSupport.root(base:base)
+        do{try UITestSupport.prepare(root:root)}catch{self.error="獨立 UI 測試資料建立失敗：\(error.localizedDescription)"}
         #else
         root=base.appendingPathComponent("ChaiTrade",isDirectory:true)
         #endif
@@ -99,12 +102,15 @@ struct ChartAmendment: Identifiable {
     var quote: Quote? { state?.quotes[selectedID] }
     var valuation: Valuation? { state.flatMap { try? Analytics.valuation($0) } }
     func money(_ value: Amount?) -> String { settings.hideBalances ? "••••••" : value?.description ?? "未提供" }
-    func run(_ operation: () async throws -> Void) async {
+    var interactionBlocked:Bool { progress != nil || catchupTarget != nil || maintainingAccount || clockWarning != nil }
+    @discardableResult func run(_ operation: () async throws -> Void) async ->Bool {
+        guard !interactionBlocked else{error="市場事件尚未處理完成，請完成補算或明確放棄後再操作";return false}
         #if DEBUG
-        uiTestOperations+=1;uiTestMutationStarts+=1;defer{uiTestOperations-=1}
+        uiTestOperations+=1;uiTestMutationStarts+=1;uiTestMaxOperations=max(uiTestMaxOperations,uiTestOperations);defer{uiTestOperations-=1}
         await UITestSupport.delay()
         #endif
-        do { try await operation();await refresh() } catch { self.error=error.localizedDescription }
+        guard !interactionBlocked else{error="市場事件處理中，請完成後再操作";return false}
+        do { try await operation();await refresh();return true } catch { self.error=error.localizedDescription;return false }
     }
     func boot() async {
         guard !booted,settings.onboarded else { return }
@@ -165,7 +171,7 @@ struct ChartAmendment: Identifiable {
                     if seconds > 0 {
                         let target=sim.time+seconds;fractionalTime -= Double(seconds)
                         var cursor=sim.time
-                        while cursor < target && !Task.isCancelled { cursor=try await engine.advance(to:target,wallTarget:Int64(Date().timeIntervalSince1970),context:context) }
+                        while cursor < target && !Task.isCancelled && foreground && catchupTarget == nil { cursor=try await engine.advance(to:target,wallTarget:Int64(Date().timeIntervalSince1970),context:context) }
                         await refresh()
                         if tab==2 { await loadChart() }
                     }
@@ -180,6 +186,7 @@ struct ChartAmendment: Identifiable {
         candleTask?.cancel();candleTask=nil
         streamTask?.cancel();streamTask=nil
         guard let engine,let context else{return}
+        if catchupTarget != nil || progress != nil{stopCatchup();return}
         await run {
             try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context)
             if context.mode == .online {for id in self.state?.quotes.keys.sorted() ?? []{try await engine.markMonitoringGap(instrumentID:id,time:Int64(Date().timeIntervalSince1970),context:context)}}
@@ -222,8 +229,9 @@ struct ChartAmendment: Identifiable {
         if delta>=5 { catchupTarget=sim.time+delta;await catchUp() }
     }
     func catchUp() async {
-        guard let target=catchupTarget,let engine,let context,let start=state?.simulation?.time else{return}
-        clockWarning=nil;progress=0
+        guard !catchingUp,let target=catchupTarget,let engine,let context,let start=state?.simulation?.time else{return}
+        catchingUp=true;clockWarning=nil;progress=0
+        defer{catchingUp=false;progress=nil;lastUptime=ProcessInfo.processInfo.systemUptime}
         do {
             var cursor=start
             let wallTarget=Int64(Date().timeIntervalSince1970)
@@ -231,14 +239,15 @@ struct ChartAmendment: Identifiable {
                 #if DEBUG
                 await UITestSupport.checkpoint()
                 #endif
+                guard progress != nil else{break}
                 cursor=try await engine.advance(to:target,wallTarget:wallTarget,catchup:true,context:context)
+                guard progress != nil else{await refresh();break}
                 progress=Double(cursor-start)/Double(max(1,target-start))
                 // Simulation, ledger and corresponding wall anchor commit in the same transaction.
                 await refresh();await Task.yield()
             }
-            if cursor+5>target { catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間";try await engine.recordNotice("catchupComplete",message:"離線市場補算完成；非背景即時推播",time:cursor,context:context);await refresh() }
+            if progress != nil && cursor+5>target { catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間";try await engine.recordNotice("catchupComplete",message:"離線市場補算完成；非背景即時推播",time:cursor,context:context);await refresh() }
         } catch { self.error=error.localizedDescription }
-        progress=nil;lastUptime=ProcessInfo.processInfo.systemUptime
     }
     func stopCatchup() { progress=nil }
     func nextSession() async {
@@ -330,15 +339,20 @@ struct ChartAmendment: Identifiable {
         } catch is CancellationError {} catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
     }
     func clearChartCaches(){candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
-    func submit(_ request: OrderRequest, oco: OrderRequest? = nil) async {
-        guard let engine,let context else{return}
+    @discardableResult func submit(_ request: OrderRequest, oco: OrderRequest? = nil) async ->Bool {
+        guard !interactionBlocked else{error="離線市場事件尚未處理完成，暫停新的委託";return false}
+        guard let engine,let context else{error="帳戶尚未準備完成";return false}
+        #if DEBUG
+        await UITestSupport.submissionDelay()
+        #endif
+        guard !interactionBlocked else{error="市場事件處理中，暫停新的委託";return false}
         do{
             if let oco{try await engine.submitOCO(request,oco,time:self.now,context:context)}else{_=try await engine.submit(request,time:self.now,context:context)}
-            notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh()
+            notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh();return true
         }catch{
             let message=error.localizedDescription
             if self.context==context{try? await engine.recordNotice("rejected",message:"委託拒絕："+String(message.prefix(250)),time:now,context:context);await refresh()}
-            self.error=message
+            self.error=message;return false
         }
     }
 
@@ -352,10 +366,14 @@ struct ChartAmendment: Identifiable {
         await run{try await engine.configureSimulation(speed:speed ?? sim.speed,paused:paused ?? sim.paused,scenario:scenario ?? sim.scenario,volatility:volatility ?? sim.volatility,liquidity:liquidity ?? sim.liquidity,context:context)}
     }
     func toggleWatch(_ id: String) async {
-        guard var set=state?.watchlist,let engine,let context else{return}
-        if set.contains(id) { set.remove(id) } else { set.insert(id) }
-        let updated=set;await run{try await engine.updatePreferences(watchlist:updated,context:context)}
+        guard let engine,let context else{return}
+        await run{try await engine.toggleWatch(id,context:context)}
     }
+    func saveJournal(_ entry:JournalEntry)async->Bool{
+        guard let engine,let context else{error="帳戶尚未準備完成";return false}
+        return await run{try await engine.recordJournal(entry,context:context)}
+    }
+
     func export(kind: String, password: String = "") async {
         guard let s=state,let engine,let context,!exportingWork else{return}
         exportingWork=true;defer{exportingWork=false}

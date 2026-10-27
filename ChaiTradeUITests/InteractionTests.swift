@@ -2,30 +2,43 @@ import XCTest
 
 @MainActor final class InteractionTests:IsolatedUITestCase {
     func testRapidJournalSavePersistsExactlyOneEntry()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-contention"]);defer{capture("final")};try ready(app);try journal(app)
+        let app=launchClean(fixture:true,flags:["--uitest-contention","--uitest-slow-save"]);defer{capture("final")};try ready(app);try journal(app)
         let text=app.textViews["journalText"];text.tap();text.typeText("Rapid journal unique draft")
-        let save=app.buttons["保存日誌"];try reveal(save,in:app);rapid(save,count:5)
-        try waitUntil("Journal save did not finish"){(try? self.state(app)["journals"] as? [[String:String]])?.count ?? 0 > 0}
+        let save=app.buttons["saveJournal"];try reveal(save,in:app);rapid(save,count:5)
+        try waitUntil("Journal did not enter an in-flight save"){(try? self.state(app)["operations"] as? Int ?? 0)>0}
+        try check(!app.buttons["完成"].isEnabled,"Save allowed closing before commit")
+        app.navigationBars["交易日誌"].swipeDown()
+        try check(app.navigationBars["交易日誌"].exists,"Swipe dismissed an in-flight journal save")
+        try waitUntil("Journal save did not finish",timeout:12){let s=try? self.state(app);return (s?["operations"] as? Int)==0 && (s?["journals"] as? [[String:String]])?.count==1}
         let s=try state(app),entries=s["journals"] as? [[String:String]] ?? []
         try check(entries.count==1,"Rapid save duplicated journal: \(entries.count)")
         try check(entries.first?["text"]=="Rapid journal unique draft","Journal text changed")
         app.buttons["完成"].tap();app.terminate();app.launch()
         try check(app.tabBars.buttons["資產"].waitForExistence(timeout:30),"Relaunch failed")
         try check((try state(app)["journals"] as? [[String:String]])==entries,"Journal not persisted exactly once")
+        try journal(app);let next=app.textViews["journalText"];next.tap();next.typeText("Rapid journal unique draft")
+        let second=app.buttons["saveJournal"];try reveal(second,in:app);second.tap()
+        try waitUntil("A genuinely new journal draft was incorrectly deduplicated",timeout:12){(try? self.state(app)["journals"] as? [[String:String]])?.count==2}
+        try check(!app.alerts["操作未完成"].exists,"Journal produced an unexpected error")
     }
     func testRapidOrderConfirmationAndCancelDebitExactlyOnce()throws{
-        let app=launchClean(fixture:true);defer{capture("final")};try ready(app)
+        let app=launchClean(fixture:true,flags:["--uitest-slow-submit"]);defer{capture("final")};try ready(app)
         let initial=try XCTUnwrap((try state(app)["cash"] as? [String:String])?["TWD"])
         try marketOrder(app);let submit=app.buttons["submitOrder"];try reveal(submit,in:app);rapid(submit)
         try check(app.buttons["確認送出"].waitForExistence(timeout:5),"Confirmation missing");app.buttons["取消"].tap()
         try check((try state(app)["fills"] as? [[String:String]])?.isEmpty==true,"Cancelled confirmation created fill")
         try check((try state(app)["cash"] as? [String:String])?["TWD"]==initial,"Cancelled order changed cash")
         submit.tap();let confirm=app.buttons["確認送出"];try check(confirm.waitForExistence(timeout:5),"Second confirmation missing");rapid(confirm,count:5)
-        try waitUntil("Order did not settle"){app.tabBars.buttons["委託"].isHittable}
+        try check(!app.buttons["完成"].isEnabled,"In-flight order allowed a second close/send path")
+        app.navigationBars["模擬下單"].swipeDown()
+        try check(app.navigationBars["模擬下單"].exists,"Swipe dismissed an in-flight confirmed order")
+        try waitUntil("Order did not settle",timeout:12){app.tabBars.buttons["委託"].isHittable}
         let s=try state(app),fills=s["fills"] as? [[String:String]] ?? []
         try check(fills.count==1,"Rapid order produced \(fills.count) fills")
         try check((s["orders"] as? [String])?.count==1,"Rapid order created multiple requests")
         let f=try XCTUnwrap(fills.first)
+        try check(f["quantity"]=="1","Rapid order filled more than the confirmed quantity")
+        try check((s["positions"] as? [String:String])?["SIM:TAIWANSTOCK01"]=="1","Position was not updated exactly once")
         let cost=number(f["price"]!).multiplying(by:number(f["quantity"]!)).multiplying(by:number(f["multiplier"]!)).adding(number(f["fee"]!)).adding(number(f["tax"]!))
         let expected=number(initial).subtracting(cost)
         try check(number((s["cash"] as? [String:String])?["TWD"] ?? "NaN")==expected,"Cash was not deducted exactly once")
@@ -38,13 +51,18 @@ import XCTest
     }
     func testRapidTabsReselectAndFavoritesPersist()throws{
         let app=launchClean(fixture:true,flags:["--uitest-contention"]);defer{capture("final")};try ready(app)
-        app.tabBars.buttons["交易"].tap();let watch=app.buttons["toggleWatch"];try check(watch.waitForExistence(timeout:5),"Favorite control missing");rapid(watch,count:4)
+        app.tabBars.buttons["交易"].tap();let watch=app.buttons["toggleWatch"];try check(watch.waitForExistence(timeout:5),"Favorite control missing")
+        let before=(try state(app)["mutationStarts"] as? Int) ?? 0
+        let point=watch.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
+        for _ in 0..<4{point.tap()}
         // Four distinct toggle intents must end at the initial state, even while persistence is busy.
         try waitUntil("Four favorite toggles did not settle",timeout:6){(try? self.state(app)["operations"] as? Int)==0}
-        try check(try state(app)["mutationStarts"] as? Int==4,"Rapid test did not dispatch four favorite intents")
+        try check((try state(app)["mutationStarts"] as? Int)==before+4,"Rapid test did not dispatch four favorite intents")
+        try check((try state(app)["maxOperations"] as? Int ?? 0)>=2,"Test did not overlap asynchronous favorite writes")
         try check((try state(app)["watchlist"] as? [String])?.isEmpty==true,"Favorite toggles lost updates")
         watch.tap();try waitUntil("Favorite add missing"){watch.value as? String=="已加入"}
-        for name in ["行情","行情","資產","總覽","交易","交易","委託","行情","交易"]{app.tabBars.buttons[name].tap()}
+        for name in ["行情","資產","總覽","交易","委託","行情","交易"]{app.tabBars.buttons[name].tap()}
+        rapid(app.tabBars.buttons["交易"],count:3)
         try check(app.buttons["toggleWatch"].value as? String=="已加入","Tab switching lost favorite")
         let expected=try XCTUnwrap(try state(app)["watchlist"] as? [String]);try check(expected.count==1,"Unexpected favorite count")
         app.terminate();app.launch();try check(app.tabBars.buttons["行情"].waitForExistence(timeout:30),"Relaunch failed")
@@ -62,23 +80,26 @@ import XCTest
         let save=app.buttons["保存日誌"];try reveal(save,in:app);try check(save.isHittable,"Keyboard blocks journal save")
         app.buttons["完成"].tap();try check((try state(app)["journals"] as? [[String:String]])?.isEmpty==true,"Closing journal saved an unconfirmed draft")
         try journal(app);try check((app.textViews["journalText"].value as? String)?.isEmpty==true,"Dismissed draft leaked into new sheet")
-        app.navigationBars["交易日誌"].swipeDown();try check(app.tabBars.buttons["資產"].waitForExistence(timeout:5),"Swipe-dismiss did not close sheet")
+        app.navigationBars["交易日誌"].swipeDown();try waitUntil("Swipe-dismiss did not close journal"){!app.navigationBars["交易日誌"].exists && app.tabBars.buttons["資產"].isHittable}
         try marketOrder(app);let quantity=app.textFields["orderQuantity"];quantity.tap();quantity.typeText("0")
         let submit=app.buttons["submitOrder"];try reveal(submit,in:app);try check(submit.isHittable,"Keyboard blocks order submit")
-        app.navigationBars["模擬下單"].swipeDown();try check(app.tabBars.buttons["交易"].waitForExistence(timeout:5),"Order sheet did not dismiss")
+        app.navigationBars["模擬下單"].swipeDown();try waitUntil("Order sheet did not dismiss"){!app.navigationBars["模擬下單"].exists && app.tabBars.buttons["交易"].isHittable}
         try check((try state(app)["orders"] as? [String])?.isEmpty==true,"Dismissed order mutated account")
         try check((try state(app)["journals"] as? [[String:String]])?.isEmpty==true,"Cancelled journal mutated account")
     }
     func testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume()throws{
         let app=launchClean(fixture:true,flags:["--uitest-controlled-catchup"]);defer{capture("final")};try ready(app);try marketOrder(app)
+        let submit=app.buttons["submitOrder"];try reveal(submit,in:app)
         let begin=app.buttons["uiTestBeginCatchup"];try check(begin.exists,"Controlled catchup button missing");begin.tap()
         try waitUntil("Actual catchup never started"){(try? self.state(app)["catchup"] as? Bool)==true}
         capture("Catchup running with order sheet already open")
-        let submit=app.buttons["submitOrder"];for _ in 0..<7 where !submit.exists{app.swipeUp()};try check(submit.exists,"Order submit missing")
+        try check(submit.exists,"Order submit missing after catchup started")
         try check(!submit.isEnabled,"Order sheet remains enabled during catchup")
-        app.buttons["完成"].tap()
+        try check(app.buttons["完成"].isEnabled,"Catchup trapped user inside a disabled sheet");app.buttons["完成"].tap()
+        app.tabBars.buttons["行情"].tap();app.tabBars.buttons["交易"].tap()
         let pause=app.buttons["暫停補算"];try check(pause.waitForExistence(timeout:5),"Cannot pause catchup");rapid(pause)
         try check(app.buttons["從檢查點繼續處理"].waitForExistence(timeout:5),"Paused checkpoint missing")
+        try waitUntil("Pause did not release the completed checkpoint"){app.buttons["從檢查點繼續處理"].isEnabled}
         let paused=try state(app);try check(paused["pendingCatchup"] as? Bool==true,"Pause discarded target")
         try check((paused["orders"] as? [String])?.isEmpty==true,"Catchup allowed order mutation")
         rapid(app.buttons["從檢查點繼續處理"])
