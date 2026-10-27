@@ -43,3 +43,20 @@ jobs:
           PROBE
           xcrun clang -Wall -Wextra -Werror "$RUNNER_TEMP/sqlite-archive-probe.c" -lsqlite3 -o "$RUNNER_TEMP/sqlite-archive-probe"
           "$RUNNER_TEMP/sqlite-archive-probe"
+  archive-core:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+      - name: Complete core and actual public source checks
+        run: bash scripts/test.sh
+      - name: Original T45 gate
+        run: bash scripts/test_stress.sh
+      - name: Preserve exact logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-archive-core-${{ github.sha }}
+          path: build/logs
+          if-no-files-found: error
