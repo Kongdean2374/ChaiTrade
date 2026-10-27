@@ -51,7 +51,7 @@ public enum Analytics {
             if let converted=try convert(event.receivable-event.payable,currency:event.currency){total=try total+converted}
         }
         for p in state.positions.values where p.quantity != .zero {
-            guard let instrument = state.instruments.first(where: { $0.id == p.id }), let q = state.quotes[p.id] else { missing.append("缺少 \(p.id) 估值價格"); continue }
+            guard let instrument = state.instruments.first(where: { $0.id == p.instrumentKey }), let q = state.quotes[p.instrumentKey] else { missing.append("缺少 \(p.id) 估值價格"); continue }
             let price = instrument.asset.derivative ? q.mark : q.last
             guard let price else { missing.append("缺少 \(p.id) 標記價"); continue }
             if q.quality != .realtime { missing.append("\(p.id) 使用最後已知價格（非即時）") }
@@ -68,8 +68,8 @@ public enum Analytics {
         let dangerous = !numeric && (value.trimmingCharacters(in: .whitespacesAndNewlines).first.map { "=+-@\t\r".contains($0) } ?? false)
         return "\"" + (dangerous ? "'" : "") + value.replacingOccurrences(of:"\"",with:"\"\"") + "\""
     }
-    public static let fillHeader=["模擬交易","accountID","mode","schema","exportedAt","fillID","instrument","side","quantity","price","fee","tax","time","estimatedExecution"]
-    public static func fillFields(_ f:Fill)->[String]{[f.id,f.instrumentID,f.side.rawValue,f.quantity.description,f.price.description,f.fee.description,f.tax.description,String(f.time),String(f.estimatedExecution)]}
+    public static let fillHeader=["模擬交易","accountID","mode","schema","exportedAt","fillID","instrument","side","quantity","price","fee","tax","time","estimatedExecution","multiplier","notional","positionKey","modelVersion","causalEventIDs"]
+    public static func fillFields(_ f:Fill)->[String]{[f.id,f.instrumentID,f.side.rawValue,f.quantity.description,f.price.description,f.fee.description,f.tax.description,String(f.time),String(f.estimatedExecution),f.multiplier?.description ?? "",f.notional?.description ?? "",f.positionKey ?? "",f.modelVersion,(f.causalEventIDs ?? []).joined(separator:";")]}
     public static func fillRow(_ f:Fill,account s:AccountState,time:Int64)->[String]{["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time)]+fillFields(f)}
     public static let orderHeader=["模擬交易","accountID","mode","schema","exportedAt","orderID","instrument","side","kind","status","quantity","filled","price","trigger","timeInForce","ruleVersion"]
     public static func orderRow(_ o:Order,account s:AccountState,time:Int64)->[String]{["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time),o.id,o.request.instrumentID,o.request.side.rawValue,o.request.kind.rawValue,o.status.rawValue,o.request.quantity.description,o.filled.description,o.request.price?.description ?? "",o.request.trigger?.description ?? "",o.request.timeInForce.rawValue,o.ruleVersion]}

@@ -148,6 +148,10 @@ public enum InstrumentCatalog {
                 rules.settlementBusinessDays=2
             }else if [.usStock,.etf].contains(asset){rules.timeZone="America/New_York";rules.weekdaysOnly=true;rules.openMinute=570;rules.closeMinute=960;rules.settlementBusinessDays=1}
             if asset == .crypto || asset == .perpetual{rules.fees.taker=try Amount("0.001");rules.fees.maker=try Amount("0.0005")}
+            if asset.derivative{
+                rules.riskTiers=[RiskTier(upperNotional:try Amount("50000"),initialRate:try Amount("0.05"),maintenanceRate:try Amount("0.005"),maxLeverage:20),RiskTier(upperNotional:try Amount("250000"),initialRate:try Amount("0.1"),maintenanceRate:try Amount("0.01"),maxLeverage:10),RiskTier(upperNotional:nil,initialRate:try Amount("0.2"),maintenanceRate:try Amount("0.025"),maxLeverage:5)]
+                rules.collateralFactor = .one
+            }
             if mode == .offline,asset == .perpetual{rules.carrySchedule=CarrySchedule(longRate:try Amount("0.0001"),shortRate:try Amount("-0.0001"))}
             if mode == .offline,asset == .forex{rules.weekdaysOnly=true;rules.carrySchedule=CarrySchedule(interval:86400,longRate:try Amount("0.00005"),shortRate:try Amount("0.00005"),kind:"interest")}
             if asset == .future{rules.expiry=entry.exchange=="CME" ? 1797604200:1794980700;if mode == .offline{rules.dailySettlementMinute=entry.exchange=="CME" ? 960:825};rules.timeZone=entry.exchange=="CME" ? "America/Chicago":"Asia/Taipei"}

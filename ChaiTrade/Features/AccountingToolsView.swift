@@ -93,7 +93,7 @@ struct MarginEditor: View {
     @State private var amount=""
     @State private var removing=false
     var body: some View {
-        Form{Picker("逐倉部位",selection:$id){ForEach((model.state?.positions.values.sorted{$0.id<$1.id} ?? []).filter{$0.quantity != .zero && $0.marginMode == .isolated && $0.margin > .zero}){p in Text(p.id).tag(p.id)}};TextField("調整金額",text:$amount).keyboardType(.decimalPad);Toggle("移除保證金",isOn:$removing);Button("確認調整"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let v=try Amount(amount);guard v > .zero else{throw TradeError.invalid("金額需大於零")};try await engine.adjustMargin(instrumentID:id,amount:removing ? v.negated:v,time:model.now,context:context)}}};Text("移除後須高於維持保證金；追加只凍結目前帳戶同幣別可用現金，不重複計入淨值。").font(.caption)}.navigationTitle("調整逐倉保證金")
+        Form{Picker("逐倉部位",selection:$id){ForEach((model.state?.positions.values.sorted{$0.id<$1.id} ?? []).filter{$0.quantity != .zero && $0.marginMode == .isolated && $0.margin > .zero}){p in Text(p.id).tag(p.id)}};TextField("調整金額",text:$amount).keyboardType(.decimalPad);Toggle("移除保證金",isOn:$removing);Button("確認調整"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let v=try Amount(amount);guard v > .zero else{throw TradeError.invalid("金額需大於零")};let position=model.state?.positions[id];try await engine.adjustMargin(instrumentID:position?.instrumentKey ?? id,amount:removing ? v.negated:v,time:model.now,positionSide:position?.side,context:context)}}};Text("移除後須高於維持保證金；追加只凍結目前帳戶同幣別可用現金，不重複計入淨值。").font(.caption)}.navigationTitle("調整逐倉保證金")
     }
 }
 struct RuleEditor: View {
@@ -124,6 +124,7 @@ struct RuleEditor: View {
         Form{
             Text("自訂模擬規則，不代表交易所已核驗制度。商品有持倉或未完成委託時禁止直接更改規格，避免回頭重寫歷史。").font(.footnote).foregroundStyle(.orange)
             Section("價格與數量"){TextField("最小跳動",text:$tick);TextField("數量級距",text:$step);TextField("合約乘數",text:$multiplier)}.keyboardType(.decimalPad)
+            if model.selected?.asset.derivative==true{NavigationLink("階梯保證金與抵押折扣"){ContractRiskRulesView()}}
             Section("每委託累計費用"){TextField("Maker 比例費率",text:$maker);TextField("Taker 比例費率",text:$taker);TextField("固定費",text:$fixed);TextField("最低手續費",text:$minimum);TextField("賣出稅率",text:$tax)}.keyboardType(.decimalPad)
             Section("交易日曆與交割"){
                 Picker("IANA 時區",selection:$zone){ForEach(["UTC","Asia/Taipei","America/New_York","Europe/London","Asia/Tokyo"],id:\.self){Text($0)}}

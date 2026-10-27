@@ -3,7 +3,7 @@ import XCTest
 @MainActor final class ProductExperienceTests:IsolatedUITestCase{
     private func onboard(_ app:XCUIApplication,online:Bool=false)throws{
         let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Fresh onboarding missing")
-        if online{let choice=app.buttons["A 真實行情・模擬交易"];if !choice.exists{app.swipeDown()};choice.tap()}
+        if online{let choice=app.buttons["A 真實行情"];if !choice.exists{app.swipeDown()};choice.tap()}
         try reveal(start,in:app);start.tap();try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Fresh account failed")
         let s=try state(app)
         try check(s["session"] as? String==session,"Wrong product test directory")

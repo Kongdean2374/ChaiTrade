@@ -46,7 +46,7 @@ struct ChartView: UIViewRepresentable {
         let drawings=(model.state?.drawings ?? []).filter{$0.instrumentID==model.selectedID}
         let drawingData=(try? JSONSerialization.jsonObject(with:JSONEncoder().encode(drawings))) as? [[String:Any]] ?? []
         var priceLines: [[String:Any]]=[]
-        if let p=model.state?.positions[model.selectedID],p.quantity != .zero {priceLines.append(["price":p.average.displayDouble,"title":"模擬成本","color":"#ffb454"])}
+        for p in model.state?.heldPositions(model.selectedID) ?? []{priceLines.append(["price":p.average.displayDouble,"title":(p.side?.label ?? "持倉")+"模擬成本","color":"#ffb454"])}
         for order in model.state?.orders.values.filter({$0.status.open && $0.request.instrumentID==model.selectedID}) ?? [] {
             if let p=order.request.price ?? order.request.trigger {priceLines.append(["id":order.id,"price":p.displayDouble,"title":order.request.kind.label,"color":"#82aaff"])}
         }
@@ -59,23 +59,26 @@ struct ChartView: UIViewRepresentable {
         init(model: AppModel){self.model=model}
         var ready=false
         var payload: [String:Any]=[:]
+        private var lastRendered:Data?
         func userContentController(_ userContentController: WKUserContentController,didReceive message: WKScriptMessage) {
             guard message.name=="intent",message.frameInfo.isMainFrame,let body=message.body as? [String:Any],body.count<=8,
                   body["type"] as? String=="amend",body["account"] as? String==model.context?.accountID,body["epoch"] as? String==model.context?.epoch.uuidString,
                   body["instrument"] as? String==model.selectedID,let id=body["orderID"] as? String,id.utf8.count<=128,
                   let price=body["price"] as? Double,price.isFinite,price>0,let order=model.state?.orders[id],order.status.open,order.request.instrumentID==model.selectedID,
-                  let tick=model.selected?.rules.tick else{return}
+                  let rules=model.selected?.rules else{return}
             do {
                 let raw=try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),price))
-                let quantized=try (raw/tick).rounded(0)*tick
+                let quantized=try rules.roundedPrice(raw,.plain)
                 model.chartAmendment=ChartAmendment(order:order,price:quantized)
             }catch{model.error=error.localizedDescription}
         }
         func webView(_ webView: WKWebView,didFinish navigation: WKNavigation!) {ready=true;render(webView)}
         func render(_ web: WKWebView) {
-            guard ready else{return}
+            guard ready,let encoded=try? JSONSerialization.data(withJSONObject:payload,options:.sortedKeys),encoded != lastRendered else{return}
+            lastRendered=encoded
+            let capturedContext=model.context,instrument=payload["id"] as? String
             web.callAsyncJavaScript("window.render(data)",arguments:["data":payload],in:nil,in:.page){[weak self] result in
-                if case .failure(let error)=result{let code=(error as NSError).code;Task{@MainActor in self?.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"}}
+                if case .failure(let error)=result{let code=(error as NSError).code;Task{@MainActor in guard let self,self.lastRendered==encoded,self.model.context==capturedContext,self.model.selectedID==instrument else{return};self.lastRendered=nil;self.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"}}
             }
         }
         func webView(_ webView: WKWebView,decidePolicyFor navigationAction: WKNavigationAction,decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy)->Void) {

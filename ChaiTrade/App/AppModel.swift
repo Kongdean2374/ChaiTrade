@@ -188,7 +188,7 @@ struct ChartAmendment: Identifiable {
     func select(_ instrument:Instrument){selectProduct(instrument)}
     func tick() async {
         guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil,catchupTarget == nil else { return }
-        marketClock=Int64(Date().timeIntervalSince1970)
+        if context.mode == .online{let clock=Int64(Date().timeIntervalSince1970);if marketClock != clock{marketClock=clock}}
         busy=true;defer{busy=false}
         let uptime=ProcessInfo.processInfo.systemUptime, elapsed=max(0,uptime-lastUptime);lastUptime=uptime
         do {
@@ -360,6 +360,17 @@ struct ChartAmendment: Identifiable {
         } catch is CancellationError {} catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
     }
     func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
+    func rebindRestoredAccount()async throws{
+        guard let previous=engine,let old=context else{throw TradeError.wrongAccount}
+        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel();browseSaveTask?.cancel();browsingDirty=[];summaryTask?.cancel()
+        await quoteScheduler.cancel(context:old);try await previous.retire(context:old)
+        let snapshot=await previous.snapshot(),next=AccountContext(mode:old.mode),root=self.root
+        do{
+            let replacement=try await Task.detached{try TradingEngine(context:next,repository:AccountRepository(root:root,mode:next.mode),initial:snapshot,wallClock:{Int64(Date().timeIntervalSince1970)})}.value
+            try await replacement.prepareProductExperience(context:next);try await replacement.initializeQuotes(context:next)
+            engine=replacement;context=next;state=await replacement.snapshot();clearChartCaches();restoreProductBrowsing();loadCredentialReadiness();stateRevision=UUID();restartStream()
+        }catch{engine=nil;context=nil;state=nil;booted=false;throw error}
+    }
     @discardableResult func submit(_ request: OrderRequest, oco: OrderRequest? = nil, expectedContext:AccountContext?=nil) async ->Bool {
         guard !interactionBlocked else{error="離線市場事件尚未處理完成，暫停新的委託";return false}
         guard let engine,let context else{error="帳戶尚未準備完成";return false}
@@ -439,10 +450,10 @@ struct ChartAmendment: Identifiable {
             let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
             try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
             try recovery.write(to:directory.appendingPathComponent("before-restore-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
-            try await engine.restore(restored,maintenanceToken:token,context:context);self.clearChartCaches();self.stateRevision=UUID();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
+            try await engine.restore(restored,maintenanceToken:token,context:context);try await self.rebindRestoredAccount();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
             }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }
-        try? await engine.prepareProductExperience(context:context);await refresh();restoreProductBrowsing();loadCredentialReadiness();await ensureQuoteService()
+        await refresh();await ensureQuoteService()
         await loadChart()
     }
     func recoverFailedAccount(_ url: URL,password: String) async {

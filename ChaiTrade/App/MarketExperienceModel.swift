@@ -10,7 +10,7 @@ extension AppModel {
     var visibleQuoteIDs:Set<String>{visibleOwners.values.reduce(into:Set<String>()){$0.formUnion($1)}}
     var protectedQuoteIDs:Set<String>{
         guard let state else{return []}
-        return state.watchlist.union(state.positions.values.filter{$0.quantity != .zero}.map(\.id)).union(state.orders.values.filter{$0.status.open}.map{$0.request.instrumentID}).union(state.alerts.filter{$0.firedAt==nil}.map(\.instrumentID))
+        return state.watchlist.union(state.positions.values.filter{$0.quantity != .zero}.map(\.instrumentKey)).union(state.orders.values.filter{$0.status.open}.map{$0.request.instrumentID}).union(state.alerts.filter{$0.firedAt==nil}.map(\.instrumentID))
     }
     var requiredQuoteIDs:Set<String>{visibleQuoteIDs.union(protectedQuoteIDs).union(selectedID.isEmpty ? []:[selectedID])}
     func restoreProductBrowsing(){

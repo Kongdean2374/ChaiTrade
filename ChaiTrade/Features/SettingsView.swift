@@ -46,6 +46,9 @@ struct TradingPreferencesView:View{
     @EnvironmentObject var model:AppModel
     var body:some View{Form{
             Section("交易與風險"){
+                Picker("合約持倉模式",selection:Binding(get:{model.state?.positionMode ?? .oneWay},set:{value in Task{guard let engine=model.engine,let context=model.context else{return};_ = await model.run{try await engine.setPositionMode(value,context:context)}}})){ForEach(PositionMode.allCases,id:\.self){Text($0.label)}}
+                Text("切換前須結束所有合約持倉與未結委託，避免自動合併部位；現貨維持買進／賣出。").font(.caption).foregroundStyle(.secondary)
+
                 Toggle("啟用槓桿／合約功能",isOn:Binding(get:{model.state?.leverageEnabled ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(leverageEnabled:v,context:context)}}}))
                 Text("啟用即表示了解虛擬合約可能強平及穿倉，負債會保留。現貨不自動借貸。").font(.caption).foregroundStyle(.orange)
                 if model.state?.mode == .online{

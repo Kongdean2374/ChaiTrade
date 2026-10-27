@@ -70,10 +70,13 @@ struct TradingView:View{
         }else if model.state?.mode == .online{Text("目前沒有可供撮合的可靠買賣盤。可查看既有部位、委託與歷史，也可撤銷本機委託。").font(.footnote).foregroundStyle(.secondary)}
     }
     @ViewBuilder private func holdingSection(_ i:Instrument)->some View{
-        if let position=model.state?.positions[i.id],position.quantity != .zero{MarketCard{
+        let positions=model.state?.heldPositions(i.id) ?? []
+        if !positions.isEmpty{MarketCard{
             MarketSectionTitle(title:"我的持倉")
-            HStack{Metric(title:"數量（\(i.quantityUnit)）",value:MarketText.number(position.quantity));Metric(title:"平均成本",value:MarketText.number(position.average))}
-            if i.asset.derivative{HStack{Metric(title:"保證金",value:MarketText.number(position.margin));Metric(title:"槓桿",value:"\(position.leverage)×")}}
+            ForEach(positions){position in
+                HStack{Metric(title:(position.side?.label ?? "數量")+"（\(i.quantityUnit)）",value:MarketText.number(position.quantity));Metric(title:"平均成本",value:MarketText.number(position.average))}
+                if i.asset.derivative{ContractPositionRiskView(position:position)}
+            }
             Button("查看資產與損益"){model.tab=4}
         }}
     }
@@ -126,6 +129,13 @@ struct BookSide:View{
     var color:Color
     var body:some View{VStack(spacing:9){HStack{Text(title);Spacer();Text("數量")}.font(.caption).foregroundStyle(.secondary);ForEach(Array(levels.prefix(5).enumerated()),id:\.offset){_,level in HStack{Text(MarketText.number(level.price)).foregroundStyle(color);Spacer();Text(MarketText.number(level.quantity))}.font(.system(.caption,design:.monospaced)).lineLimit(1).minimumScaleFactor(0.5)}}.frame(maxWidth:.infinity)}
 }
+private enum ContractAction:String,CaseIterable{
+    case openLong,openShort,closeLong,closeShort
+    var label:String{switch self{case .openLong:"開多";case .openShort:"開空";case .closeLong:"平多";case .closeShort:"平空"}}
+    var side:Side{self == .openLong || self == .closeShort ? .buy:.sell}
+    var positionSide:PositionSide{self == .openLong || self == .closeLong ? .long:.short}
+    var closes:Bool{self == .closeLong || self == .closeShort}
+}
 struct OrderForm:View{
     let instrument:Instrument
     let accountContext:AccountContext
@@ -135,6 +145,7 @@ struct OrderForm:View{
     @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
     @State private var side=Side.buy
+    @State private var contractAction=ContractAction.openLong
     @State private var kind=OrderKind.limit
     @State private var price=""
     @State private var quantity="1"
@@ -159,6 +170,11 @@ struct OrderForm:View{
     @State private var initialized=false
     @State private var requestID=UUID().uuidString
     @State private var ocoRequestID=UUID().uuidString
+    private var hedge:Bool{instrument.asset.derivative && model.state?.positionMode == .hedge}
+    private var effectiveSide:Side{hedge ? contractAction.side:side}
+    private var effectiveReduceOnly:Bool{hedge ? contractAction.closes:reduceOnly}
+    private var directionLabel:String{hedge ? contractAction.label:(side == .buy ? instrument.buyLabel:instrument.sellLabel)}
+    private var selectedPosition:Position?{guard let state=model.state else{return nil};return state.positions[state.positionKey(instrument:instrument,side:hedge ? contractAction.positionSide:nil)]}
     private var board:TradingBoard?{instrument.usesTaiwanBoards ? (unit == "張" ? .regular:.oddLot):nil}
     private var quote:Quote?{model.state?.quotes[instrument.quoteKey(board:board)]}
     private var isCurrent:Bool{model.context==accountContext}
@@ -172,26 +188,27 @@ struct OrderForm:View{
     }.disabled(sending).scrollDismissesKeyboard(.interactively).interactiveDismissDisabled(sending).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
-    }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"}}
+    }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"}}
         .onChange(of:unit){_,_ in if board == .oddLot{kind = .limit;tif = .DAY;postOnly=false;protection="無";model.changeBoard(.oddLot)}else if instrument.usesTaiwanBoards{model.changeBoard(.regular)}}
         .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text(confirmationText)}
     }
     private var availableKinds:[OrderKind]{if board == .oddLot{return [.limit]};return advanced ? OrderKind.allCases:[.market,.limit]}
     private var availableMoney:String{model.money(try? model.state.map{try TradingEngine.available($0,currency:instrument.currency)})}
     private var confirmationText:String{
-        let direction=side == .buy ? instrument.buyLabel:instrument.sellLabel
+        let direction=directionLabel
         return "\(instrument.name)（\(instrument.symbol)）\n\(direction) · \(MarketText.number(orderQuantity))\(instrument.quantityUnit)\n\(kind.label) · \(instrument.currency)\n不會向交易所傳送委託。"
     }
     private var basicSection:some View{
         Section(instrument.name+" · "+instrument.symbol){
             Text("本機模擬委託").font(.caption).foregroundStyle(.secondary)
-            Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)
+            if hedge{Picker("合約操作",selection:$contractAction){ForEach(ContractAction.allCases,id:\.self){Text($0.label)}}}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
             Picker("委託類型",selection:$kind){ForEach(availableKinds,id:\.self){Text($0.label)}}.accessibilityIdentifier("orderKind")
             if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad)}
             if instrument.usesTaiwanBoards{Picker("數量單位",selection:$unit){Text("股").tag("股");Text("張（1,000股）").tag("張")}.pickerStyle(.segmented)}
             TextField("數量（\(unit)）",text:$quantity).keyboardType(.decimalPad).accessibilityIdentifier("orderQuantity")
             HStack{ForEach([25,50,75,100],id:\.self){percent in Button("\(percent)%"){setProportion(percent)}.font(.caption).buttonStyle(.borderless)}}
             if !instrument.asset.derivative{LabeledContent("可賣數量（\(instrument.quantityUnit)）",value:MarketText.number(model.state?.positions[instrument.id]?.quantity ?? .zero))}
+            if instrument.asset.derivative{LabeledContent("可平數量（\(instrument.quantityUnit)）",value:MarketText.number(selectedPosition?.quantity.magnitude ?? .zero))}
             LabeledContent(instrument.currency+"可用",value:availableMoney)
         }
     }
@@ -210,7 +227,7 @@ struct OrderForm:View{
             Picker("有效期限",selection:$tif){ForEach(TimeInForce.allCases,id:\.self){Text($0.rawValue)}}
             if tif == .GTD{DatePicker("到期",selection:$expiry,in:Date()...)}
             Toggle("Post-only（僅掛單）",isOn:$postOnly)
-            if instrument.asset.derivative{Toggle("Reduce-only（僅減倉）",isOn:$reduceOnly)}
+            if instrument.asset.derivative && !hedge{Toggle("Reduce-only（僅減倉）",isOn:$reduceOnly)}
             Picker("條件保護",selection:$protection){Text("無").tag("無");Text("括號（成交後保護）").tag("括號");Text("OCO（兩張退出委託）").tag("OCO")}
             if protection != "無"{TextField("停利價",text:$profit).keyboardType(.decimalPad);TextField("停損價",text:$stop).keyboardType(.decimalPad)}
             Text("條件單只在引擎有有效資料並運作時監控。未監控期間不會補造A成交。").font(.caption).foregroundStyle(.secondary)
@@ -221,20 +238,23 @@ struct OrderForm:View{
             LabeledContent("商品",value:instrument.symbol+" · "+instrument.asset.label)
             LabeledContent("數量（\(instrument.quantityUnit)）",value:MarketText.number(orderQuantity))
             if let p=preview{LabeledContent("預估金額（\(instrument.currency)）",value:MarketText.number(p.0));LabeledContent("預估費用",value:MarketText.number(p.1));LabeledContent("預估交易稅",value:MarketText.number(p.3));if instrument.asset.derivative{LabeledContent("預估初始保證金",value:MarketText.number(p.2))}}
+            if instrument.asset.derivative{ProposedContractRiskView(request:riskDraft,price:(kind == .market ? quote?.last:(try? Amount(price))))}
             Text("金額為依目前價格的估計，實際依有效買賣盤、價格保護及累計費稅撮合；可能部分成交。所有交易與資金均為模擬。").font(.caption).foregroundStyle(.secondary)
         }
     }
     private var submitSection:some View{
         Section{Button(sending ? "送出中…":"檢查並送出模擬委託"){confirm=true}.font(.headline).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder")}    }
+    private var riskDraft:OrderRequest?{guard let size=orderQuantity else{return nil};var request=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:kind,quantity:size);request.positionSide=hedge ? contractAction.positionSide:nil;request.reduceOnly=effectiveReduceOnly;request.leverage=leverage;request.marginMode=margin;return request}
     private var preview:(Amount,Amount,Amount,Amount)?{
         guard let q=orderQuantity,let p=(kind == .market ? quote?.last:(try? Amount(price))),q > .zero else{return nil}
-        return try?{let notional=try q*p*instrument.rules.multiplier;return(notional,try instrument.rules.fees.cumulative(notional:notional,maker:postOnly),try notional/Amount(leverage),side == .sell ? try notional*instrument.rules.fees.sellTax:.zero)}()
+        return try?{let notional=try q*p*instrument.rules.multiplier;return(notional,try instrument.rules.fees.cumulative(notional:notional,maker:postOnly),effectiveReduceOnly ? .zero:try instrument.rules.initialMargin(notional:notional,leverage:leverage),effectiveSide == .sell ? try notional*instrument.rules.fees.sellTax:.zero)}()
     }
     private func setProportion(_ percent:Int){
         guard let s=model.state else{return}
         do{let ratio=try Amount(percent)/Amount(100),step=instrument.rules.quantityStep
             let raw:Amount
-            if side == .sell && !instrument.asset.derivative{raw=try max(.zero,s.positions[instrument.id]?.quantity ?? .zero)*ratio}
+            if effectiveReduceOnly{raw=try (selectedPosition?.quantity.magnitude ?? .zero)*ratio}
+            else if effectiveSide == .sell && !instrument.asset.derivative{raw=try max(.zero,s.positions[instrument.id]?.quantity ?? .zero)*ratio}
             else if let p=quote?.last,p > .zero{raw=try TradingEngine.available(s,currency:instrument.currency)*ratio/Amount("1.06")/p/instrument.rules.multiplier*Amount(instrument.asset.derivative ? leverage:1)}else{return}
             let units=try (raw/step).rounded(0,.down),size=try units*step
             quantity=try (size/Amount(unit == "張" ? (instrument.identity?.boardLot ?? 1000):1)).description
@@ -243,13 +263,13 @@ struct OrderForm:View{
     private func send()async{
         guard !sending,!submitted,!model.interactionBlocked,isCurrent else{return};sending=true;defer{sending=false}
         do{guard let size=orderQuantity else{throw TradeError.invalid("請填入正確數量")}
-            var r=OrderRequest(instrumentID:instrument.id,side:side,kind:kind,quantity:size,price:[.limit,.stopLimit].contains(kind) ? try Amount(price):nil,trigger:kind.conditional && kind != .trailing ? try Amount(trigger):nil)
-            r.board=board
-            r.requestID=requestID;r.timeInForce=tif;r.expiresAt=tif == .GTD ? Int64(expiry.timeIntervalSince1970):nil;r.postOnly=postOnly;r.reduceOnly=reduceOnly;r.leverage=leverage;r.marginMode=margin;r.triggerReference=reference
+            var r=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:kind,quantity:size,price:[.limit,.stopLimit].contains(kind) ? try Amount(price):nil,trigger:kind.conditional && kind != .trailing ? try Amount(trigger):nil)
+            r.board=board;r.positionSide=hedge ? contractAction.positionSide:nil
+            r.requestID=requestID;r.timeInForce=tif;r.expiresAt=tif == .GTD ? Int64(expiry.timeIntervalSince1970):nil;r.postOnly=postOnly;r.reduceOnly=effectiveReduceOnly;r.leverage=leverage;r.marginMode=margin;r.triggerReference=reference
             if kind == .trailing{r.trailingDistance=try Amount(distance);r.trailingPercent=trailingPercent}
             if protection == "括號"{r.bracketProfit=try Amount(profit);r.bracketStop=try Amount(stop)}
             let accepted:Bool
-            if protection == "OCO"{r.kind = .takeProfit;r.trigger=try Amount(profit);r.price=nil;r.reduceOnly=true;var second=OrderRequest(instrumentID:instrument.id,side:side,kind:.stopMarket,quantity:size,trigger:try Amount(stop));second.requestID=ocoRequestID;second.reduceOnly=true;second.leverage=leverage;second.marginMode=margin;accepted=await model.submit(r,oco:second,expectedContext:accountContext)}
+            if protection == "OCO"{r.kind = .takeProfit;r.trigger=try Amount(profit);r.price=nil;r.reduceOnly=true;var second=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:.stopMarket,quantity:size,trigger:try Amount(stop));second.positionSide=r.positionSide;second.requestID=ocoRequestID;second.reduceOnly=true;second.leverage=leverage;second.marginMode=margin;accepted=await model.submit(r,oco:second,expectedContext:accountContext)}
             else{accepted=await model.submit(r,expectedContext:accountContext)}
             if accepted{submitted=true;onSubmitted()}
         }catch{model.error=error.localizedDescription}

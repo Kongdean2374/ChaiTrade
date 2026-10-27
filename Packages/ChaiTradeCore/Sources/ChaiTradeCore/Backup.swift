@@ -10,7 +10,7 @@ import COpenSSL
 
 public struct BackupEnvelope: Codable, Sendable {
     public var format = "ChaiTrade 模擬交易備份"
-    public var version = 1
+    public var version = 2
     public var mode: Mode
     public var createdAt: Int64
     public var algorithm: String
@@ -120,7 +120,7 @@ public enum BackupService {
     }
     public static func export(_ state: AccountState, password: String?, time: Int64) throws -> Data {
         try AccountRepository.validate(state,mode:state.mode)
-        guard state.history.map({$0.fills==0 && $0.ledger==0 && $0.events==0 && ($0.equityOffset ?? 0)==0}) ?? true else{throw TradeError.invalid("備份必須先取得完整歷史，不可匯出分頁投影")}
+        guard state.history.map({$0.fills==0 && $0.ledger==0 && $0.events==0 && ($0.equityOffset ?? 0)==0 && ($0.financialFlowOffset ?? 0)==0}) ?? true else{throw TradeError.invalid("備份必須先取得完整歷史，不可匯出分頁投影")}
         var clean = state
         clean.history=nil
         // Provider data/cache and credentials are never exported. Offline state is the owned synthetic world.
@@ -142,7 +142,7 @@ public enum BackupService {
     public static func validate(_ data: Data, expectedMode: Mode, password: String?) throws -> AccountState {
         guard data.count <= 50_000_000 else { throw TradeError.corrupt("備份超過 50 MB 安全限制") }
         let e = try JSONDecoder().decode(BackupEnvelope.self,from:data)
-        guard e.format == "ChaiTrade 模擬交易備份", e.version == 1, e.mode == expectedMode, e.payload.count <= 32_000_000 else { throw TradeError.corrupt("備份版本、模式或大小不符") }
+        guard e.format == "ChaiTrade 模擬交易備份", (1...2).contains(e.version), e.mode == expectedMode, e.payload.count <= 32_000_000 else { throw TradeError.corrupt("備份版本、模式或大小不符") }
         var payload = e.payload
         if e.algorithm != "none" {
             guard e.algorithm == "AES-256-GCM/PBKDF2-HMAC-SHA256",e.nonce.count == 12,e.tag.count == 16,let password else { throw TradeError.corrupt("請輸入密碼，或備份加密版本不相容") }

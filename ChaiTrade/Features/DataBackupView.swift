@@ -44,7 +44,7 @@ struct AccountResetView:View{
             try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
             try backup.write(to:dir.appendingPathComponent("before-reset-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
             let fresh=try TradingEngine.initial(mode:context.mode,baseCurrency:current.baseCurrency,capital:Amount("1000000"),time:model.now)
-            try await engine.restore(fresh,maintenanceToken:token,context:context);try await engine.initializeQuotes(context:context)
+            try await engine.restore(fresh,maintenanceToken:token,context:context);try await model.rebindRestoredAccount()
             model.clearChartCaches();model.stateRevision=UUID();resetStage=false;resetText="";model.notice="目前帳戶已重設；原資料有本機恢復點"
             }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }

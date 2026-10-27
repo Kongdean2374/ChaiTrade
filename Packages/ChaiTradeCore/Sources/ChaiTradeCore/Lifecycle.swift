@@ -50,6 +50,7 @@ public struct CarryEvent: Codable, Identifiable, Sendable {
     public var kind: String
     public var source: String
     public var calculationModel:String?
+    public var positionKey:String?
 }
 public struct LifecycleState: Codable, Sendable {
     public var settlements: [SettlementEvent] = []

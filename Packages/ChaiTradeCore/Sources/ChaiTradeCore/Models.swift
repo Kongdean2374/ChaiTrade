@@ -42,6 +42,8 @@ public struct FeeRule: Codable, Sendable, Equatable {
     }
 }
 public struct RulePack: Codable, Sendable, Equatable {
+    public var riskTiers:[RiskTier]?
+    public var collateralFactor:Amount?
     public var version = "custom-sim-1"
     public var source = "ChaiTrade 自訂模擬規則；非交易所已核驗規則"
     public var effectiveFrom: Int64 = 1_761_523_200
@@ -162,6 +164,7 @@ public enum OrderStatus: String, Codable, Sendable { case working, partiallyFill
 public enum MarginMode: String, Codable, CaseIterable, Sendable { case isolated, cross }
 public enum TriggerReference: String, Codable, CaseIterable, Sendable { case last, mark, bidAsk }
 public struct OrderRequest: Codable, Sendable {
+    public var positionSide:PositionSide?
     public var requestID: String = UUID().uuidString
     public var instrumentID: String
     public var side: Side
@@ -225,10 +228,16 @@ public struct Fill: Codable, Identifiable, Sendable {
     public var modelVersion = "shadow-depth-1"
     public var liquidityEventID: String
     public var causalEventIDs:[String]?
+    public var multiplier:Amount?
+    public var notional:Amount?
+    public var positionKey:String?
+    public var timelineSequence:Int64?
     public var ruleVersion: String
     public var realized: Amount
 }
 public struct Position: Codable, Identifiable, Sendable {
+    public var instrumentID:String?
+    public var side:PositionSide?
     public var id: String
     public var quantity: Amount = .zero
     public var average: Amount = .zero
@@ -311,17 +320,20 @@ public struct HistoryWindow: Codable, Sendable {
     public var totals: [String: FillTotals]?
     public var equityOffset:Int?
     public var equityMetrics:EquityMetrics?
+    public var financialFlowOffset:Int?
     public init() {}
 }
 public struct FillTotals: Codable, Sendable {
     public var count = 0
     public var notional = Amount.zero
     public var realized = Amount.zero
+    public var notionalComplete:Bool?
     public var fees = Amount.zero
     public var taxes = Amount.zero
     public init() {}
     public mutating func include(_ fill:Fill)throws {
-        count += 1;notional=try notional+fill.quantity*fill.price
+        count += 1;notional=try notional+(fill.notional ?? fill.quantity*fill.price)
+        notionalComplete=(notionalComplete ?? true) && fill.notional != nil
         realized=try realized+fill.realized;fees=try fees+fill.fee;taxes=try taxes+fill.tax
     }
 }
@@ -330,12 +342,14 @@ public struct AccountState: Codable, Sendable {
     public var accountID: String
     public var mode: Mode
     public var baseCurrency: String
+    public var positionMode:PositionMode?
     public var cash: [String: Amount] = [:]
     public var netFlows: [String: Amount] = [:]
     public var orders: [String: Order] = [:]
     public var positions: [String: Position] = [:]
     public var fills: [Fill] = []
     public var ledger: [LedgerEntry] = []
+    public var financialFlows:[FinancialFlow]?
     public var events: [AuditEvent] = []
     public var history: HistoryWindow?
     @CanonicalStringSet public var appliedEvents: Set<String> = []

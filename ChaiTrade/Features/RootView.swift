@@ -76,36 +76,35 @@ struct RootView: View {
     }
 }
 
-struct OnboardingView: View {
-    @EnvironmentObject var model: AppModel
+struct OnboardingView:View{
+    @EnvironmentObject var model:AppModel
     @State private var mode=Mode.offline
     @State private var online="1000000"
     @State private var offline="1000000"
     @State private var currency="TWD"
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Image(systemName:"chart.xyaxis.line").font(.system(size:48)).foregroundStyle(.orange).frame(maxWidth:.infinity).padding(.top)
-                    Text("ChaiTrade").font(.largeTitle.bold()).frame(maxWidth:.infinity)
-                    Text("練習判斷，掌握自己的節奏。\n所有資金與成交都是模擬。").multilineTextAlignment(.center).frame(maxWidth:.infinity).foregroundStyle(.secondary)
-                }.listRowBackground(Color.clear)
-                Section("選擇本次市場") {
-                    Picker("運作模式",selection:$mode){ForEach(Mode.allCases,id:\.self){Text($0.label).tag($0)}}.pickerStyle(.inline)
-                    Text(mode == .offline ? "完全離線，首次開啟就能操作。不要求帳號或 API Key。":"使用真實行情；成交仍由本機引擎處理。部分來源需自己的行情權限。").font(.caption)
-                }
-                Section("兩個帳戶獨立本金") {
-                    TextField("A 初始虛擬本金",text:$online).keyboardType(.decimalPad).accessibilityIdentifier("onlineCapital")
-                    TextField("B 初始虛擬本金",text:$offline).keyboardType(.decimalPad).accessibilityIdentifier("offlineCapital")
-                    Picker("基準幣別",selection:$currency){Text("TWD").tag("TWD");Text("USD").tag("USD")}
-                }
-                Section {
-                    Text("模式變更於下次完整關閉並啟動時生效。\n離線市場預設在重開時補算離開期間，沒有常駐背景交易。\n行情、合約及費率有來源與模型限制。").font(.footnote).foregroundStyle(.secondary)
-                    Button("建立獨立帳戶並開始"){Task{await model.onboard(mode:mode,online:online,offline:offline,currency:currency)}}.font(.headline).accessibilityIdentifier("startTrading")
-                }
-            }.navigationTitle("歡迎使用")
+    @State private var starting=false
+    var body:some View{NavigationStack{Form{
+        Section{
+            HStack(spacing:14){Image(systemName:"chart.xyaxis.line").font(.system(size:30)).foregroundStyle(.orange);VStack(alignment:.leading,spacing:6){Text("ChaiTrade").font(.title.bold());Text("練習判斷，掌握自己的節奏。").font(.subheadline).foregroundStyle(.secondary)}}
+            Text("所有資金與成交均為本機模擬。你可以先離線體驗完整市場，再設定真實行情。").font(.footnote).foregroundStyle(.secondary)
+        }.listRowBackground(Color.clear).listRowSeparator(.hidden)
+        Section("選擇啟動帳戶"){
+            Picker("啟動帳戶",selection:$mode){Text("A 真實行情").tag(Mode.online);Text("B 離線模擬").tag(Mode.offline)}.pickerStyle(.segmented)
+            Text(mode == .offline ? "B完全離線，內建多市場商品與模擬新聞，不需要API Key。":"A使用真實行情；所有委託只在本機模擬。部分來源需要自己的行情權限。").font(.footnote)
         }
-    }
+        Section("兩個帳戶各自的虛擬本金"){
+            LabeledContent("A本金"){TextField("A初始虛擬本金",text:$online).keyboardType(.decimalPad).multilineTextAlignment(.trailing).accessibilityIdentifier("onlineCapital")}
+            LabeledContent("B本金"){TextField("B初始虛擬本金",text:$offline).keyboardType(.decimalPad).multilineTextAlignment(.trailing).accessibilityIdentifier("offlineCapital")}
+            Picker("基準幣別",selection:$currency){Text("TWD").tag("TWD");Text("USD").tag("USD")}
+            Text("A／B資金與歷史完全隔離。股票／加密則是帳戶內的瀏覽分類，不會另開帳戶。").font(.caption).foregroundStyle(.secondary)
+        }
+        Section{Text("A／B切換於完整關閉再啟動時生效。B重開會按設定補算離開期間；沒有常駐背景交易。來源及模型限制可隨時查看。").font(.caption).foregroundStyle(.secondary)}
+    }.scrollDismissesKeyboard(.interactively).navigationTitle("歡迎使用").navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge:.bottom){Button(starting ? "建立帳戶中…":"建立獨立帳戶並開始"){
+            guard !starting else{return};starting=true
+            Task{await model.onboard(mode:mode,online:online,offline:offline,currency:currency);starting=false}
+        }.font(.headline).frame(maxWidth:.infinity,minHeight:48).buttonStyle(.borderedProminent).disabled(starting).accessibilityIdentifier("startTrading").padding(.horizontal,18).padding(.vertical,10).background(.bar)}
+    }}
 }
 
 struct Metric: View {
