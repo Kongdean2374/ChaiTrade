@@ -1,7 +1,7 @@
 name: SQLite archive platform diagnostics
 on:
   push:
-    branches: [diagnose-sqlite-archive-20261027, validate-fugle-history-20261027]
+    branches: [diagnose-sqlite-archive-20261027, validate-fugle-history-20261027, catalog-metadata-20261027]
 permissions:
   contents: read
 jobs:

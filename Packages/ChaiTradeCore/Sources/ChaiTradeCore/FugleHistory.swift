@@ -20,9 +20,10 @@ enum FugleContract {
     static func resolve(_ instrument: Instrument) throws -> (product: String, month: String) {
         guard instrument.asset == .future else { throw MarketDataFailure(.unsupported) }
         let source = instrument.sourceSymbol ?? instrument.symbol
-        if instrument.symbol.range(of: #"^[A-Z]{3}20[0-9]{2}(0[1-9]|1[0-2])$"#, options: .regularExpression) != nil {
-            let product = String(instrument.symbol.prefix(3)), month = String(instrument.symbol.suffix(6))
-            guard aliasMatches(source, month: month), source.hasPrefix(product) else { throw MarketDataFailure(.invalidData) }
+        if instrument.symbol.range(of: #"^[A-Z]{2,3}20[0-9]{2}(0[1-9]|1[0-2])$"#, options: .regularExpression) != nil {
+            let canonicalRoot=String(instrument.symbol.dropLast(6)), month=String(instrument.symbol.suffix(6))
+            let product=["TE":"EXF","TF":"FXF"][canonicalRoot] ?? canonicalRoot
+            guard product.count==3,aliasMatches(source, month: month), String(source.prefix(3))==product else { throw MarketDataFailure(.invalidData) }
             return (product, month)
         }
         if let month = instrument.sourceContractMonth, validMonth(month), aliasMatches(source, month: month) {

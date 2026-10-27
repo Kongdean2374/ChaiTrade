@@ -47,7 +47,7 @@ public enum NetworkPolicy {
         case "api.exchange.coinbase.com":
             return path == "/products" || path == "/time" || path.range(of: #"^/products/[A-Z0-9-]+/(ticker|book|candles|trades|stats)$"#, options: .regularExpression) != nil
         case "api.fugle.tw":
-            return path.range(of: #"^/marketdata/v1\.0/(stock|futopt)/(intraday/(quote|candles|trades|volumes)|historical/candles)/[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil || path.range(of:#"^/marketdata/v1\.0/(stock|futopt)/intraday/tickers$"#,options:.regularExpression) != nil
+            return path.range(of: #"^/marketdata/v1\.0/(stock|futopt)/(intraday/(ticker|quote|candles|trades|volumes)|historical/candles)/[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil || path.range(of:#"^/marketdata/v1\.0/(stock|futopt)/intraday/tickers$"#,options:.regularExpression) != nil
         case "www.nasdaqtrader.com":return ["/dynamic/SymDir/nasdaqlisted.txt","/dynamic/SymDir/otherlisted.txt"].contains(path)
         case "www.federalreserve.gov":return ["/feeds/press_all.xml","/feeds/press_monetary.xml"].contains(path)
         case "data.alpaca.markets":
