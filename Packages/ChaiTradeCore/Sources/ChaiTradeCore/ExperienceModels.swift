@@ -25,6 +25,7 @@ public struct InstrumentIdentity:Codable,Equatable,Sendable {
     public var sector:String
     public var catalogVersion:Int=1
     public var legacy:Bool=false
+    public var segment:String?
     public init(exchange:String,market:MarketDomain,baseAsset:String,unit:String,boardLot:Int=1,sector:String="綜合") {
         self.exchange=exchange;self.market=market;self.baseAsset=baseAsset;self.unit=unit;self.boardLot=boardLot;self.sector=sector
     }
@@ -82,10 +83,10 @@ public struct QuoteSummary:Codable,Equatable,Sendable {
 public enum MarketIssueKind:String,Codable,Sendable {
     case loading,missingKey,unauthorized,unsupported,rateLimited,connectionFailed,maintenance,closed,delayed,stale,referenceOnly,halted,regionRestricted,auction,invalidData,missingRiskPrice,rulesUnverified,ready
     public var label:String {
-        switch self {case .loading:"行情載入中";case .missingKey:"尚未設定行情金鑰";case .unauthorized:"沒有此行情權限";case .unsupported:"來源不支援此商品";case .rateLimited:"已達來源請求限制";case .connectionFailed:"行情連線失敗";case .maintenance:"行情服務維護中";case .closed:"市場休市";case .delayed:"延遲行情";case .stale:"行情已過期";case .referenceOnly:"僅提供參考價";case .halted:"暫停交易";case .regionRestricted:"來源有地區限制";case .auction:"集合競價／試撮";case .invalidData:"來源買賣盤格式異常";case .missingRiskPrice:"缺少有效合約風險價";case .rulesUnverified:"合約規格待核對";case .ready:"行情已更新"}
+        switch self {case .loading:"行情載入中";case .missingKey:"尚未設定行情金鑰";case .unauthorized:"沒有此行情權限";case .unsupported:"來源不支援此商品";case .rateLimited:"已達來源請求限制";case .connectionFailed:"行情連線失敗";case .maintenance:"行情服務維護中";case .closed:"市場休市";case .delayed:"延遲行情";case .stale:"行情已過期";case .referenceOnly:"僅提供參考價";case .halted:"暫停交易";case .regionRestricted:"來源有地區限制";case .auction:"集合競價／試撮";case .invalidData:"來源買賣盤格式異常";case .missingRiskPrice:"缺少有效合約風險價";case .rulesUnverified:"商品規則待核對";case .ready:"行情已更新"}
     }
     public var nextStep:String {
-        switch self {case .loading:"正在依可見商品與來源配額安排更新。";case .missingKey:"前往行情連線，加入自己的合法行情權限。";case .unauthorized:"檢查來源方案與商品授權；既有帳務與撤單仍可使用。";case .unsupported:"更新商品目錄或選擇此來源支援的商品。";case .rateLimited:"等候來源指定時間後自動重試，可減少同時追蹤商品。";case .connectionFailed:"確認網路後重試；最後已知價格僅供查看。";case .maintenance:"來源恢復後將重新取得快照。";case .closed:"可瀏覽有效收盤資料；等待對應交易時段再送出新委託。";case .delayed:"目前資料不供即時撮合，請確認即時行情授權。";case .stale:"重新取得有效報價後才恢復成交。";case .referenceOnly:"沒有可靠可成交買賣盤；目前僅供瀏覽，不以參考價補造五檔。";case .halted:"商品目前暫停撮合；委託、部位與撤單保留。";case .regionRestricted:"此來源目前不提供所在環境服務；請選擇當地合法可用來源。";case .auction:"目前是試撮或延後開收盤，等待正式有效行情後才恢復撮合。";case .invalidData:"重新取得有效買賣盤；不使用零價、負數或交叉買賣盤成交。";case .missingRiskPrice:"來源未提供有效標記價；可檢查行情權限，或在進階設定明確選用本機參考風險價模型。";case .rulesUnverified:"先在商品規格核對合約乘數、到期日與交易規則，再啟用本機模擬。";case .ready:"所有委託僅在本機模擬。"}
+        switch self {case .loading:"正在依可見商品與來源配額安排更新。";case .missingKey:"前往行情連線，加入自己的合法行情權限。";case .unauthorized:"檢查來源方案與商品授權；既有帳務與撤單仍可使用。";case .unsupported:"更新商品目錄或選擇此來源支援的商品。";case .rateLimited:"等候來源指定時間後自動重試，可減少同時追蹤商品。";case .connectionFailed:"確認網路後重試；最後已知價格僅供查看。";case .maintenance:"來源恢復後將重新取得快照。";case .closed:"可瀏覽有效收盤資料；等待對應交易時段再送出新委託。";case .delayed:"目前資料不供即時撮合，請確認即時行情授權。";case .stale:"重新取得有效報價後才恢復成交。";case .referenceOnly:"沒有可靠可成交買賣盤；目前僅供瀏覽，不以參考價補造五檔。";case .halted:"商品目前暫停撮合；委託、部位與撤單保留。";case .regionRestricted:"此來源目前不提供所在環境服務；請選擇當地合法可用來源。";case .auction:"目前是試撮或延後開收盤，等待正式有效行情後才恢復撮合。";case .invalidData:"重新取得有效買賣盤；不使用零價、負數或交叉買賣盤成交。";case .missingRiskPrice:"來源未提供有效標記價；可檢查行情權限，或在進階設定明確選用本機參考風險價模型。";case .rulesUnverified:"先核對交易單位、價格級距與費稅；期貨另須乘數與到期日，再啟用本機模擬。";case .ready:"所有委託僅在本機模擬。"}
     }
 }
 public struct MarketDataFailure:Error,LocalizedError,Sendable {
@@ -109,7 +110,7 @@ public extension RulePack {
 }
 
 public extension Instrument{
-    var usesTaiwanBoards:Bool{isTaiwanEquity && (identity?.catalogVersion ?? 0)>=1 && identity?.legacy != true && [.taiwanStock,.etf].contains(asset)}
+    var usesTaiwanBoards:Bool{isTaiwanEquity && identity?.segment != "ESB" && (identity?.catalogVersion ?? 0)>=1 && identity?.legacy != true && [.taiwanStock,.etf].contains(asset)}
     func board(for request:OrderRequest)->TradingBoard?{guard usesTaiwanBoards else{return nil};return request.board ?? (request.quantity.decimal < Decimal(identity?.boardLot ?? 1000) ? .oddLot:.regular)}
     func quoteKey(board:TradingBoard?)->String{board == .oddLot ? id+"::oddLot":id}
     func boardIsOpen(_ board:TradingBoard?,at time:Int64)->Bool{

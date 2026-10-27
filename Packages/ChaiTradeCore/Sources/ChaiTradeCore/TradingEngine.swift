@@ -162,13 +162,13 @@ public actor TradingEngine {
     private static func validate(_ r: OrderRequest, in s: AccountState, time: Int64, excluding: String? = nil) throws -> (Instrument, Amount, Amount) {
         let i = try instrument(s, r.instrumentID)
         guard i.asset != .index, !i.halted else { throw TradeError.invalid("此商品目前不可交易（指數只供參考）") }
-        guard i.requiresRuleConfirmation != true else{throw TradeError.invalid("請先核對並保存此合約的乘數、到期日與自訂模擬規則，再建立部位")}
+        guard i.requiresRuleConfirmation != true else{throw TradeError.invalid("請先核對並保存商品的交易單位、級距與費稅；期貨另須乘數與到期日，再建立部位")}
         guard i.rules.expiry == nil || time < i.rules.expiry! else { throw TradeError.invalid("合約已到期") }
         let board=i.board(for:r)
         if let board{
             let lot=try Amount(i.identity?.boardLot ?? 1000)
             if board == .regular{guard try r.quantity.isMultiple(of:lot) else{throw TradeError.invalid("整股數量須為每張交易單位的整數倍；零股請選盤中零股")}}
-            else{guard r.quantity > .zero,r.quantity<lot,try r.quantity.isMultiple(of:.one) else{throw TradeError.invalid("盤中零股數量須為1至999股")}
+            else{guard r.quantity > .zero,r.quantity<lot,try r.quantity.isMultiple(of:.one) else{throw TradeError.invalid("盤中零股數量須小於一張（\(lot.description)股）且為正整數")}
                 guard r.kind == .limit,r.timeInForce == .DAY,!r.postOnly else{throw TradeError.invalid("盤中零股採當日有效限價委託；市價、跨日與立即成交指令不適用")}
             }
         }
@@ -765,7 +765,7 @@ public actor TradingEngine {
         try transaction { s in s.instruments.append(i); if let sim = s.simulation { s.quotes[i.id] = try Simulation.quote(i, state: sim) } }
     }
     public func importOnlineInstruments(_ instruments: [Instrument],context: AccountContext) throws {
-        try check(context)
+        try check(context);try Task.checkCancellation()
         guard context.mode == .online,instruments.count<=2000,instruments.allSatisfy({$0.provider != nil && !$0.id.hasPrefix("SIM:") && $0.rules.tick > .zero && $0.rules.quantityStep > .zero}) else{throw TradeError.invalid("來源商品不合法或數量過多")}
         try transaction{s in for i in instruments where !s.instruments.contains(where:{$0.id==i.id}){s.instruments.append(i)};s.audit("catalogImported","匯入來源商品 \(instruments.count) 個；既有商品規格與持倉不改寫",time:Int64(Date().timeIntervalSince1970))}
     }

@@ -145,7 +145,7 @@ public struct MarketDataProvider: Sendable {
             let time = try Self.timestamp(j["lastUpdated"])
             if let reported=j["symbol"].string,reported != symbol{throw MarketDataFailure(.unsupported)}
             // Regular TWSE/TPEx lots are normalized to account shares. Odd-lot/ESB and futures stay in native units.
-            let factor:Amount = id == .fugle && [.taiwanStock,.etf].contains(instrument.asset) && board != .oddLot && j["market"].string != "ESB" ? try Amount(1000):.one
+            let factor:Amount = id == .fugle && [.taiwanStock,.etf].contains(instrument.asset) && board != .oddLot && j["market"].string != "ESB" ? try Amount(instrument.identity?.boardLot ?? 1000):.one
             let bids = try j["bids"].array.map { try Level($0["price"].amount(), $0["size"].amount()*factor) }
             let asks = try j["asks"].array.map { try Level($0["price"].amount(), $0["size"].amount()*factor) }
             q = Quote(instrumentID: instrument.id, source: id.label, time: time, sequence: j["lastUpdated"].integer ?? time, last: try j["lastPrice"].amount(), bids: bids, asks: asks, grade: bids.isEmpty || asks.isEmpty ? .E3 : .E1, coverage: instrument.asset.derivative ? "依 Fugle 期貨授權與實際合約；數量單位為口":"依 Fugle 股票授權及交易盤；數量以股保存，整股張數已換算", receivedAt: now)
@@ -201,12 +201,17 @@ public struct MarketDataProvider: Sendable {
             return MarketNewsStory(id:"alpaca-news-"+identity,title:title,summary:String((row["summary"].string ?? "請查看來源原文。").prefix(4000)),publishedAt:time,source:row["source"].string ?? "Alpaca 授權新聞",origin:.real,url:url,markets:[.stocks],instrumentIDs:ids,sector:nil,kind:"companyNews",endsAt:nil,logPriceImpact:nil,volumeMultiplier:nil,liquidityMultiplier:nil)
         }.sorted{$0.publishedAt>$1.publishedAt}
     }
-    public func products() async throws -> [Instrument] {
+    public func products(stockMarket:String="TSE") async throws -> [Instrument] {
+        if id == .fugle,!["TSE","OTC","ESB","TIB"].contains(stockMarket){throw MarketDataFailure(.unsupported)}
         let json: JSONValue,rows: [JSONValue]
         switch id {
         case .coinbase: json=try await fetch(path:"/products");rows=json.array
         case .binance: json=try await fetch(path:"/fapi/v1/exchangeInfo");rows=json["symbols"].array.filter{$0["contractType"].string=="PERPETUAL" && $0["status"].string=="TRADING"}
-        case .fugle:json=try await fetch(path:"/marketdata/v1.0/stock/intraday/tickers",query:["type":"EQUITY","exchange":"TWSE","market":"TSE"]);rows=json["data"].array
+        case .fugle:
+            let exchange=["OTC","ESB"].contains(stockMarket) ? "TPEx":"TWSE"
+            json=try await fetch(path:"/marketdata/v1.0/stock/intraday/tickers",query:["type":"EQUITY","exchange":exchange,"market":stockMarket])
+            if let reported=json["exchange"].string,reported != exchange{throw MarketDataFailure(.invalidData)}
+            rows=json["data"].array
         case .fugleFutures:json=try await fetch(path:"/marketdata/v1.0/futopt/intraday/tickers",query:["type":"FUTURE","exchange":"TAIFEX"]);rows=json["data"].array
         case .twelveData:json=try await fetch(path:"/forex_pairs",requiresCredentials:false);rows=json["data"].array
         case .alpaca:throw TradeError.unavailable("Alpaca 資產目錄屬於另一個 API 邊界；請從公開 Nasdaq Trader 商品搜尋挑選，行情仍只讀取 data.alpaca.markets")
@@ -235,9 +240,12 @@ public struct MarketDataProvider: Sendable {
             case .alpaca:continue
             }
             rules.source="\(id.label) 商品目錄；精度依可用欄位，其餘為未核驗的自訂模擬規則"
-            var instrument=Instrument(id:"\(id.rawValue):\(symbol)",symbol:symbol,name:name,asset:asset,currency:currency,rules:rules,initialPrice:.zero,provider:id)
-            instrument.identity=InstrumentIdentity(exchange:id == .coinbase ? "Coinbase Exchange":id == .fugle ? (row["exchange"].string ?? "TWSE"):id == .binance ? "Binance USDⓈ-M":id == .fugleFutures ? "TAIFEX":"參考匯率",market:[.crypto,.perpetual].contains(asset) ? .crypto:[.forex,.future].contains(asset) ? .other:.stocks,baseAsset:row["base_currency"].string ?? row["baseAsset"].string ?? symbol,unit:asset == .crypto || asset == .perpetual ? (row["base_currency"].string ?? row["baseAsset"].string ?? symbol):asset == .future ? "口":"股",boardLot:id == .fugle ? 1000:1)
+            let stockExchange=["OTC","ESB"].contains(stockMarket) ? "TPEx":"TWSE"
+            let identifier=id == .fugle && stockExchange != "TWSE" ? "\(id.rawValue):\(stockExchange):\(symbol)":"\(id.rawValue):\(symbol)"
+            var instrument=Instrument(id:identifier,symbol:symbol,name:name,asset:asset,currency:currency,rules:rules,initialPrice:.zero,provider:id)
+            instrument.identity=InstrumentIdentity(exchange:id == .coinbase ? "Coinbase Exchange":id == .fugle ? (row["exchange"].string ?? stockExchange):id == .binance ? "Binance USDⓈ-M":id == .fugleFutures ? "TAIFEX":"參考匯率",market:[.crypto,.perpetual].contains(asset) ? .crypto:[.forex,.future].contains(asset) ? .other:.stocks,baseAsset:row["base_currency"].string ?? row["baseAsset"].string ?? symbol,unit:asset == .crypto || asset == .perpetual ? (row["base_currency"].string ?? row["baseAsset"].string ?? symbol):asset == .future ? "口":"股",boardLot:id == .fugle ? 1000:1)
             if id == .coinbase {if case .bool(true)=row["trading_disabled"]{instrument.halted=true};if let status=row["status"].string,status != "online"{instrument.halted=true}}
+            if id == .fugle{instrument.requiresRuleConfirmation=true;instrument.identity?.segment=stockMarket}
             if asset == .future {
                 instrument.requiresRuleConfirmation=true
                 // Preserve the imported source symbol/ID. Only a full source settlement date

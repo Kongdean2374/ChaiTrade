@@ -6,7 +6,6 @@ struct MarketsView:View {
     let domain:MarketDomain
     @State private var pageSize=40
     @FocusState private var searching:Bool
-    @State private var catalog=false
     @State private var groups=false
     @State private var custom=false
     private var preferences:MarketBrowsingState{model.browsing[domain] ?? MarketBrowsingState()}
@@ -46,7 +45,7 @@ struct MarketsView:View {
         ScrollView{
             LazyVStack(alignment:.leading,spacing:14){
                 VStack(alignment:.leading,spacing:12){
-                    if !searching{HStack{Text(domain.label).font(.largeTitle.bold());Spacer();Button{catalog=true}label:{Label("商品目錄",systemImage:"books.vertical")}.accessibilityIdentifier("openCatalog")}}
+                    if !searching{HStack{Text(domain.label).font(.largeTitle.bold());Spacer();Button{model.catalogVisible=true}label:{Label("商品目錄",systemImage:"books.vertical")}.accessibilityIdentifier("openCatalog")}}
                     HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField("代碼或名稱，例如 BTC、ETH、2330",text:search).textInputAutocapitalization(.never).autocorrectionDisabled().focused($searching).submitLabel(.search).onSubmit{searching=false}.accessibilityIdentifier("marketSearch");if !search.wrappedValue.isEmpty{Button{searching=false;search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
                         .padding(12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12))
                     ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(categories,id:\.self){category in Button(category){searching=false;model.editBrowsing(domain){$0.category=category;$0.scrollID=nil};pageSize=40}.buttonStyle(.bordered).tint(preferences.category==category || (domain == .crypto && preferences.category == "全部" && category == "現貨") ? .orange:.gray)}}}
@@ -72,7 +71,7 @@ struct MarketsView:View {
             }.scrollTargetLayout().padding(16).padding(.bottom,20)
         }.scrollPosition(id:scroll,anchor:.top).scrollDismissesKeyboard(.immediately).background(Color(.systemGroupedBackground)).navigationTitle("行情").navigationBarTitleDisplayMode(.inline)
             .toolbar{ToolbarItemGroup(placement:.keyboard){Spacer();Button("完成搜尋"){searching=false}}}
-            .sheet(isPresented:$catalog){NavigationStack{ProductCatalogView()}}
+            .sheet(isPresented:$model.catalogVisible){NavigationStack{ProductCatalogView()}}
             .sheet(isPresented:$groups){NavigationStack{WatchGroupsView()}}
             .task(id:domain){if let id=preferences.scrollID,let index=products.firstIndex(where:{$0.id==id}){pageSize=max(40,(index/40+1)*40)};await model.ensureQuoteService()}
             .onChange(of:model.tab){_,tab in if tab != 1{searching=false}}
@@ -94,7 +93,7 @@ struct ProductCatalogView:View{
         }
         if model.state?.mode == .online{Section("從來源更新商品目錄"){
             NavigationLink("搜尋官方美股／ETF目錄"){USStockDiscoveryView()}
-            ForEach(ProviderID.allCases,id:\.self){id in NavigationLink(id.label){ProviderSettings(id:id)}}
+            ForEach(ProviderID.allCases,id:\.self){id in NavigationLink(id.label){SourceProductDiscoveryView(id:id)}}
             Text("來源頁會說明支援市場、權限與限制。更新採加入及核對身份；不改寫既有部位成別的商品。").font(.caption)
         }}else{Section{NavigationLink("自訂離線商品"){CustomInstrumentView()};NavigationLink("舊版自訂商品"){LegacyProductsView()}}}
         Section("尋找商品"){Text("關閉此頁後，在行情頁搜尋 BTC、ETH、2330 或 0050。可依市場、分類、自選及分組篩選。").font(.subheadline)}

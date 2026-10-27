@@ -45,6 +45,7 @@ struct RootView: View {
         .sheet(isPresented:$recovery){NavigationStack{RecoveryView()}}
         .sheet(item:$model.chartAmendment){intent in NavigationStack{ChartAmendConfirm(intent:intent)}}
         .sheet(item:$model.openedNotice){destination in NavigationStack{NoticeDetailView(destination:destination)}.modifier(UITestVisualEnvironment())}
+        .onChange(of:model.catalogNavigationRevision){_,_ in settings=false}
         .onReceive(NoticeTapMailbox.shared.$pending.compactMap{$0}){link in NoticeTapMailbox.shared.pending=nil;Task{await model.handleNoticeLink(link)}}
         .confirmationDialog("這則通知屬於另一個獨立帳戶",isPresented:Binding(get:{model.requestedAccountNotice != nil},set:{if !$0{model.requestedAccountNotice=nil}}),titleVisibility:.visible){
             if let link=model.requestedAccountNotice{Button("下次完整啟動切換至 "+link.mode.label){model.queueNoticeAccountSwitch(link)}}

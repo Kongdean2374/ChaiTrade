@@ -38,6 +38,7 @@ public struct FugleSecurityMetadata: Codable, Equatable, Sendable {
     public var isSuspended: Bool { securityStatus == "SUSPENDED" || securityStatus == "TERMINATED" }
     public var restriction: String? {
         if isSuspended { return "來源標示暫停或終止交易；僅供查看" }
+        if market == "ESB" { return "興櫃為議價市場，目前僅供行情與基本資料瀏覽" }
         if classification.assetClass == nil { return "此證券類型尚不支援本機交易；不當成普通股票或 ETF" }
         if isDisposition == true || (matchingInterval ?? 0) > 0 { return "來源標示處置或分盤撮合，須核對相應市場規則" }
         return nil
@@ -49,8 +50,9 @@ public struct FugleSecurityMetadata: Codable, Equatable, Sendable {
               let asset = classification.assetClass else { throw MarketDataFailure(.unsupported) }
         if let existing=source.identity?.exchange,["TWSE","TPEx"].contains(existing),existing != exchange { throw MarketDataFailure(.invalidData) }
         var result=source
-        result.name=name;result.asset=asset;result.currency=currency;result.halted=isSuspended
+        result.name=name;result.asset=asset;result.currency=currency;result.halted=restriction != nil
         result.identity=InstrumentIdentity(exchange:exchange,market:.stocks,baseAsset:symbol,unit:asset == .index ? "點":"股",boardLot:boardLot,sector:source.identity?.sector ?? "綜合")
+        result.identity?.segment=market
         // Metadata contains no tick schedule, broker fee or tax authority. It must
         // not silently certify the temporary catalog's trading rules.
         result.requiresRuleConfirmation=asset != .index

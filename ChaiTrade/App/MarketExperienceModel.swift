@@ -192,6 +192,10 @@ extension AppModel {
         guard self.context==context,!Task.isCancelled else{return}
         marketNews=Dictionary(stories.map{($0.id,$0)},uniquingKeysWith:{_,new in new}).values.sorted{$0.publishedAt>$1.publishedAt};newsIssue=issues.isEmpty ? nil:issues.joined(separator:"\n")
     }
+    @discardableResult func showCatalogInstrument(_ id:String,expectedContext:AccountContext)->Bool{
+        guard context==expectedContext,expectedContext.mode == .online,let instrument=state?.instruments.first(where:{$0.id==id}) else{return false}
+        catalogVisible=false;select(instrument);catalogNavigationRevision=UUID();return true
+    }
     func refreshCatalog(_ providerID:ProviderID)async{
         guard context?.mode == .online,!catalogLoading,let engine,let context else{return}
         catalogLoading=true;defer{catalogLoading=false}

@@ -43,7 +43,7 @@ struct ProviderSettings:View{
             }
             Section("3 · 測試與更新"){
                 Button(testing ? "測試中…":"測試此來源行情"){Task{await test()}}.disabled(testing)
-                if id != .alpaca{Button(model.catalogLoading ? "更新商品中…":"更新此來源商品目錄"){Task{await model.refreshCatalog(id)}}.disabled(model.catalogLoading)}
+                if id != .alpaca{NavigationLink("瀏覽／更新來源商品目錄"){SourceProductDiscoveryView(id:id)}}
                 else{NavigationLink("搜尋官方美股／ETF目錄"){USStockDiscoveryView()}}
                 if !result.isEmpty{Text(result).font(.subheadline).accessibilityIdentifier("connectionResult")}
                 if let issue=model.catalogIssue{Text(issue).font(.caption)}
@@ -95,5 +95,112 @@ struct USStockDiscoveryView:View{
     private func add(_ instrument:Instrument)async{
         guard !loading,let engine=model.engine,let context=model.context,context.mode == .online else{return};loading=true;defer{loading=false}
         do{try await engine.importOnlineInstruments([instrument],context:context);guard model.context==context else{return};await model.refresh();message="已加入 "+instrument.symbol+" · "+instrument.name+"。行情將依來源權限載入。"}catch{message=error.localizedDescription}
+    }
+}
+
+struct SourceProductDiscoveryView:View{
+    @EnvironmentObject var model:AppModel
+    let id:ProviderID
+    @State private var query=""
+    @State private var stockMarket="TSE"
+    @State private var entries:[Instrument]=[]
+    @State private var page=0
+    @State private var loading=false
+    @State private var addingID:String?
+    @State private var message=""
+    @State private var generation=UUID()
+    @State private var selectionGeneration=UUID()
+    @State private var reloadTask:Task<Void,Never>?
+    @State private var selectionTask:Task<Void,Never>?
+    private var filtered:[Instrument]{
+        let text=query.trimmingCharacters(in:.whitespacesAndNewlines)
+        return entries.filter{text.isEmpty || $0.symbol.localizedCaseInsensitiveContains(text) || $0.name.localizedCaseInsensitiveContains(text)}
+            .sorted{($0.symbol,$0.id)<($1.symbol,$1.id)}
+    }
+    private var visible:[Instrument]{Array(filtered.dropFirst(page*40).prefix(40))}
+    var body:some View{List{
+        Section{
+            Text("先搜尋來源商品，再查核身份並加入行情。整份目錄不會直接塞入帳戶，也不代表所有商品都有可成交行情。").font(.footnote)
+            if id == .fugle{
+                Picker("台灣市場",selection:$stockMarket){Text("上市").tag("TSE");Text("上櫃").tag("OTC");Text("興櫃").tag("ESB");Text("創新板").tag("TIB")}.disabled(addingID != nil)
+            }
+            TextField("代碼或商品名稱",text:$query).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("sourceCatalogSearch")
+            if id == .alpaca{NavigationLink("搜尋官方美股／ETF目錄"){USStockDiscoveryView()}}
+            else{Button(loading ? "更新目錄中…":"更新此來源商品目錄"){reloadTask=Task{await load()}}.disabled(loading || addingID != nil).accessibilityIdentifier("reloadSourceCatalog")}
+            NavigationLink("行情連線與權限"){ProviderSettings(id:id)}
+            if !message.isEmpty{Text(message).font(.subheadline).accessibilityIdentifier("sourceCatalogMessage")}
+            if loading{ProgressView("依來源配額取得商品身份…")}
+        }
+        if !entries.isEmpty{
+            Section("符合 \(filtered.count) 個商品；每頁 40 個"){
+                ForEach(visible){instrument in
+                    Button{beginAdd(instrument)}label:{VStack(alignment:.leading,spacing:6){
+                        Text(instrument.symbol+" · "+instrument.name).foregroundStyle(.primary)
+                        Text((instrument.identity?.exchange ?? "")+" · "+rowScope(instrument)).font(.caption).foregroundStyle(.secondary)
+                        if addingID==instrument.id{ProgressView("核對商品身份…")}
+                    }}.disabled(loading || addingID != nil).accessibilityIdentifier("discover-"+instrument.id)
+                }
+                HStack{if page>0{Button("上一頁"){page-=1}};Spacer();if (page+1)*40<filtered.count{Button("下一頁"){page+=1}}}.disabled(addingID != nil)
+            }
+        }
+        Section("可用範圍"){
+            Text(id == .fugle ? "列表未包含完整證券類型與幣別；點選時會另查官方基本資料。ETF 不以產業 00 猜測，股／張依來源交易單位。未核驗費稅與級距的商品先保留交易限制。":id == .fugleFutures ? "每個契約保持獨立年月。尚無已核驗幣別、乘數與到期規格的合約，僅供目錄瀏覽，不以近月合約替代。":"身份、交易精度與可成交權限分開確認；加入後才依可見商品排程讀取價格。").font(.caption).foregroundStyle(.secondary)
+        }
+    }.navigationTitle("探索"+id.label).navigationBarTitleDisplayMode(.inline)
+        .task(id:stockMarket){await load()}
+        .onChange(of:query){_,_ in page=0}
+        .onChange(of:stockMarket){_,_ in page=0;entries=[];message="";reloadTask?.cancel()}
+        .onDisappear{generation=UUID();selectionGeneration=UUID();reloadTask?.cancel();selectionTask?.cancel()}
+    }
+    private func rowScope(_ instrument:Instrument)->String{
+        if instrument.halted{return "來源暫停此商品"}
+        if id == .fugle{return "證券類型與幣別於加入前查核"}
+        if id == .fugleFutures{return "契約身份與規格於加入前查核"}
+        return instrument.asset.label+" · "+instrument.currency
+    }
+    private func load()async{
+        guard model.context?.mode == .online,id != .alpaca,let context=model.context else{return}
+        let token=UUID(),market=stockMarket;generation=token;loading=true;message="";entries=[]
+        defer{if generation==token{loading=false}}
+        do{
+            let result=try await model.provider(id).products(stockMarket:market)
+            try Task.checkCancellation()
+            guard model.context==context,generation==token,stockMarket==market else{return}
+            entries=result;page=0;message="已取得 \(result.count) 個來源商品；點選查核並加入行情。"
+        }catch is CancellationError{}catch{if model.context==context,generation==token{message=error.localizedDescription;entries=[]}}
+    }
+    private func beginAdd(_ instrument:Instrument){
+        guard addingID==nil,!loading,let engine=model.engine,let context=model.context,context.mode == .online else{return}
+        addingID=instrument.id;let token=UUID();selectionGeneration=token
+        selectionTask=Task{
+            defer{if selectionGeneration==token{addingID=nil}}
+            do{
+                var candidate=instrument
+                if id == .fugle{
+                    let metadata=try await model.provider(id).securityMetadata(instrument,now:model.now)
+                    guard metadata.classification.assetClass != nil else{message="已核對證券別 "+metadata.securityType+"；此類型目前只供來源目錄瀏覽，不當成普通股票或 ETF。";return}
+                    candidate=try metadata.resolvedCandidate(instrument)
+                }else if id == .fugleFutures{
+                    let known=try InstrumentCatalog.builtIn(mode:.online).first{$0.provider==id && ($0.sourceSymbol ?? $0.symbol)==instrument.symbol}
+                    guard let known,let month=instrument.sourceContractMonth,month.count==6,known.symbol.hasSuffix(month) else{
+                        message="已找到來源契約；尚缺已核驗的結算幣別、乘數或契約年月。目前只供目錄瀏覽，不以近月或預設幣別建立部位。";return
+                    }
+                    candidate=known
+                }
+                try Task.checkCancellation()
+                guard model.context==context,selectionGeneration==token else{return}
+                if let existing=model.state?.instruments.first(where:{$0.id==candidate.id}){
+                    guard existing.provider==candidate.provider,existing.symbol==candidate.symbol,existing.currency==candidate.currency,existing.asset==candidate.asset,
+                          existing.identity?.exchange==candidate.identity?.exchange,existing.identity?.boardLot==candidate.identity?.boardLot else{
+                        message="來源基本資料與既有商品身份不同，原持倉及歷史已保留；不會直接改寫幣別、類型或交易單位。";return
+                    }
+                }else{try await engine.importOnlineInstruments([candidate],context:context)}
+                try Task.checkCancellation()
+                guard model.context==context,selectionGeneration==token else{return}
+                await model.refresh()
+                guard model.context==context,selectionGeneration==token else{return}
+                _=model.showCatalogInstrument(candidate.id,expectedContext:context)
+            }catch is CancellationError{}catch{if model.context==context,selectionGeneration==token{message=error.localizedDescription}}
+        }
     }
 }

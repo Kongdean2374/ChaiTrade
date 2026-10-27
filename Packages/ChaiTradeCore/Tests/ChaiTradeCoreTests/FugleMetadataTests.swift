@@ -26,6 +26,7 @@ private actor MetadataTransport: MarketTransport {
         case "badDate":data["date"]="2026-02-30"
         case "suspended":data["securityStatus"]="SUSPENDED"
         case "disposition":data["isDisposition"]=true;data["matchingInterval"]=300
+        case "esb":data["exchange"]="TPEx";data["market"]="ESB";data["boardLot"]=1
         case "badLimits":data["limitDownPrice"]=120
         default:break
         }
@@ -86,4 +87,47 @@ func fugleMalformedOrMismatchedMetadataIsRejectedBeforeAccountChanges(variant:St
         if instrument.symbol=="TE202611"{#expect(resolved.product=="EXF")}
         if instrument.symbol=="TF202611"{#expect(resolved.product=="FXF")}
     }
+}
+
+private struct MetadataCatalogTransport:MarketTransport{
+    func get(_ url:URL,headers:[String:String])async throws->Data{
+        let query=Dictionary(uniqueKeysWithValues:(URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems ?? []).map{($0.name,$0.value ?? "")})
+        let exchange=query["exchange"] ?? "TWSE"
+        return try JSONSerialization.data(withJSONObject:["exchange":exchange,"market":query["market"] ?? "TSE","type":"EQUITY","data":[["symbol":"2330","name":"合成來源身份測試","industry":"00"]]])
+    }
+}
+@Test func sourceCatalogKeepsExchangeNamespacesAndLeavesUnverifiedRowsRestricted()async throws{
+    let provider=MarketDataProvider(id:.fugle,credentials:ProviderCredentials(key:"synthetic-fixture-not-a-key"),transport:MetadataCatalogTransport())
+    let listed=try #require(try await provider.products(stockMarket:"TSE").first),otc=try #require(try await provider.products(stockMarket:"OTC").first)
+    #expect(listed.id != otc.id && listed.symbol==otc.symbol)
+    #expect(listed.identity?.exchange=="TWSE" && otc.identity?.exchange=="TPEx")
+    #expect(listed.identity?.segment=="TSE" && otc.identity?.segment=="OTC")
+    #expect(listed.requiresRuleConfirmation==true && otc.requiresRuleConfirmation==true)
+    #expect(listed.asset == .taiwanStock)
+}
+@Test func esbMetadataDoesNotEnableRegularOrOddLotStockTrading()async throws{
+    var stock=try metadataStock();stock.identity?.exchange="TPEx"
+    let metadata=try await metadataProvider(MetadataTransport(variant:"esb")).securityMetadata(stock,now:metadataNow)
+    let candidate=try metadata.resolvedCandidate(stock)
+    #expect(candidate.identity?.segment=="ESB" && candidate.identity?.boardLot==1)
+    #expect(!candidate.usesTaiwanBoards && candidate.halted && metadata.restriction != nil)
+}
+
+private actor CatalogImportGate{
+    private var continuation:CheckedContinuation<Void,Never>?
+    var isWaiting:Bool{continuation != nil}
+    func wait()async{await withCheckedContinuation{continuation=$0}}
+    func release(){continuation?.resume();continuation=nil}
+}
+@Test func cancelledCatalogSelectionCannotImportAfterItsScreenHasClosed()async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),context=AccountContext(mode:.online)
+    let initial=try TradingEngine.initial(mode:.online,capital:Amount(1000),time:1000)
+    let engine=try TradingEngine(context:context,repository:AccountRepository(root:root,mode:.online),initial:initial)
+    var candidate=try metadataStock();candidate.id="fugle:synthetic-cancelled-identity";candidate.symbol="SYNTHETIC"
+    let gate=CatalogImportGate()
+    let task=Task{await gate.wait();try await engine.importOnlineInstruments([candidate],context:context)}
+    while !(await gate.isWaiting){await Task.yield()}
+    task.cancel();await gate.release()
+    do{try await task.value;Issue.record("cancelled screen imported a late result")}catch is CancellationError{}
+    #expect(try AccountRepository.encode(await engine.snapshot())==AccountRepository.encode(initial))
 }

@@ -123,7 +123,7 @@ extension MarketDataProvider {
                reported.lowercased() != session { throw MarketDataFailure(.invalidData) }
         }
         let factor: Amount = id == .fugle && interval < 86400 && board != .oddLot &&
-            [.taiwanStock, .etf].contains(instrument.asset) && json["market"].string != "ESB" ? try Amount(1000) : .one
+            [.taiwanStock, .etf].contains(instrument.asset) && json["market"].string != "ESB" ? try Amount(instrument.identity?.boardLot ?? 1000) : .one
         var result: [Candle] = []
         for row in json["data"].array {
             try Task.checkCancellation()

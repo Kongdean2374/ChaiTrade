@@ -54,3 +54,12 @@ func declaredSourceSessionStatesNeverFillButLocalCancellationRemainsAvailable(fl
     #expect(await engine.snapshot().orders[order.requestID]?.status == .cancelled)
     #expect(try await engine.snapshot().cash["TWD"]==Amount("1000000"))
 }
+
+@Test func sourceVerifiedBoardLotControlsQuoteAndMinuteShareNormalization()async throws{
+    var stock=try #require(InstrumentCatalog.builtIn(mode:.online).first{$0.symbol=="2330"});stock.identity?.boardLot=100
+    let provider=MarketDataProvider(id:.fugle,credentials:ProviderCredentials(key:"synthetic-fixture-not-a-key"),transport:UnitTransport())
+    let quote=try await provider.quote(stock,now:1_793_064_600,board:.regular)
+    #expect(try quote.asks.first?.quantity==Amount(300));#expect(try quote.summary?.volume==Amount(700))
+    let minute=try await provider.candles(stock,interval:60,now:1_793_064_600),daily=try await provider.candles(stock,interval:86400,now:1_793_064_600)
+    #expect(minute.first?.volume==700 && daily.first?.volume==7)
+}

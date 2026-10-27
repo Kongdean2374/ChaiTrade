@@ -46,6 +46,8 @@ import XCTest
                 // Follow its real frame back toward the visible middle instead of
                 // continuing to scroll past it. The original seven-gesture bound stays.
                 let frame=element.frame,screen=app.frame,up=frame.midY>screen.midY
+                if frame.minY>screen.maxY+screen.height/2{app.swipeUp();continue}
+                if frame.maxY<screen.minY-screen.height/2{app.swipeDown();continue}
                 let start=app.coordinate(withNormalizedOffset:CGVector(dx:0.85,dy:up ? 0.65:0.35))
                 let end=app.coordinate(withNormalizedOffset:CGVector(dx:0.85,dy:up ? 0.40:0.60))
                 start.press(forDuration:0.1,thenDragTo:end)

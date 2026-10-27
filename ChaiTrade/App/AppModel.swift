@@ -83,6 +83,8 @@ struct ChartAmendment: Identifiable {
     @Published var candles: [Candle]=[]
     @Published var chartError: String?
     @Published var chartLimitation: String?
+    @Published var catalogVisible=false
+    @Published var catalogNavigationRevision=UUID()
     @Published var journalScreenshot: Data?
     weak var chartWebView:WKWebView?
     @Published var interval: Int64=60
