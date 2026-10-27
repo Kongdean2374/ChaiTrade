@@ -1,0 +1,70 @@
+name: Product before screenshots
+on:
+  push:
+    branches: [product-before-20261027]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 515b7da9b6645edc490a8f41ec2baf4a2051185f
+      - name: Add isolated evidence capture only
+        run: |
+          cat > ChaiTradeUITests/BeforeProductScreenshots.swift <<'SWIFT'
+          import XCTest
+          @MainActor final class BeforeProductScreenshots:IsolatedUITestCase {
+            func photo(_ name:String){
+              let a=XCTAttachment(screenshot:XCUIScreen.main.screenshot());a.name="BEFORE_"+name;a.lifetime = .keepAlways;add(a)
+            }
+            func testCaptureActualBaselineProductPages()throws{
+              let app=launchClean();defer{finish()}
+              let start=app.buttons["startTrading"];try reveal(start,in:app);start.tap()
+              try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Baseline onboarding failed")
+              photo("01_B_overview");app.swipeUp();photo("02_B_overview_bottom")
+              app.tabBars.buttons["行情"].tap();photo("03_B_markets");app.swipeUp();photo("04_B_markets_scrolled")
+              app.tabBars.buttons["交易"].tap();try check(app.buttons["openOrder"].waitForExistence(timeout:10),"Baseline trade missing")
+              photo("05_B_product_chart");let open=app.buttons["openOrder"];try reveal(open,in:app);photo("06_B_product_book");open.tap()
+              photo("07_B_order_form");app.swipeUp();photo("08_B_order_advanced");app.buttons["完成"].tap()
+              app.tabBars.buttons["委託"].tap();photo("09_B_orders")
+              app.tabBars.buttons["資產"].tap();photo("10_B_assets");app.swipeUp();photo("11_B_assets_tools")
+              try journal(app);photo("12_B_journal");app.buttons["完成"].tap()
+              app.buttons["設定"].tap();photo("13_B_settings_top")
+              for n in 1...4{app.swipeUp();photo("14_B_settings_"+String(n))}
+              for _ in 0..<6{app.swipeDown()}
+              let online=app.buttons["A 真實行情・模擬交易"];try check(online.isHittable,"Baseline mode switch missing");online.tap();app.buttons["完成"].tap()
+              app.terminate();app.launch();try check(app.staticTexts["activeModeBanner"].waitForExistence(timeout:30),"Baseline online launch failed")
+              photo("15_A_overview");app.swipeUp();photo("16_A_overview_bottom")
+              app.tabBars.buttons["行情"].tap();photo("17_A_markets");app.swipeUp();photo("18_A_markets_bottom")
+              app.tabBars.buttons["交易"].tap();photo("19_A_product_chart")
+              try reveal(app.buttons["openOrder"],in:app);photo("20_A_product_book")
+              app.tabBars.buttons["委託"].tap();photo("21_A_orders")
+              app.tabBars.buttons["資產"].tap();photo("22_A_assets")
+            }
+          }
+          SWIFT
+          python3 scripts/generate_project.py
+      - name: Build and capture unchanged baseline UI
+        run: |
+          set -euo pipefail
+          mkdir -p build/logs
+          simulator_id=$(python3 scripts/prepare_simulator.py)
+          xcodebuild test -project ChaiTrade.xcodeproj -scheme ChaiTrade -destination "platform=iOS Simulator,id=$simulator_id,arch=$(uname -m)" -derivedDataPath build/BeforeSimulator -resultBundlePath build/BeforeProduct.xcresult CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='' ONLY_ACTIVE_ARCH=YES "ARCHS=$(uname -m)" -only-testing:ChaiTradeUITests/BeforeProductScreenshots/testCaptureActualBaselineProductPages -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 900 2>&1 | tee build/logs/before-capture.log
+          git rev-parse HEAD > build/logs/before-source-commit.txt
+      - name: Export actual screenshot evidence
+        if: always()
+        run: |
+          xcrun xcresulttool export attachments --path build/BeforeProduct.xcresult --output-path build/logs/before-images || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ChaiTrade-product-before-screenshots
+          path: |
+            build/logs/
+            build/BeforeProduct.xcresult
+          retention-days: 7
