@@ -1,59 +1,57 @@
 # 測試報告
 
-2026-10-27。最新程式版本 `d9dcb046fd27178f3997168531c94999889f7258` 的 [Actions 40481713600](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600) 已成功。計劃書與驗收門檻保留；本報告不代表全部 48 項驗收完成。
+2026-10-27。程式版本 `998a2274f16bde9f6d76056d1e19e7b9c98c74ba` 的 [Actions 40517887202](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202) 已成功。互動專項包含兩次下單專測，再完整執行九案例各兩次，**20 次全部通過、零 UI 跳過、20 個獨立 UUID 資料目錄**。這不代表整份計劃書或實機驗收完成。
 
-## 完整回歸與 IPA
+[最新版未簽名 IPA、checksum、build-info 與測試日誌](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12742124659) · [完整 xcresult、畫面、狀態及資料庫證據](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12743565956)。產物到期 `2026-11-03T14:45:18Z`；IPA SHA-256：`90d701b977efba1750c40c903b1a296d11cd72a2606a708f64882c73a2c9826c`。下載後仍需有效簽署才可安裝。
 
-- 本地 Swift 6.1.3 Release：`CHAI_STRESS=1 CHAI_LIVE=1`，67 項核心測試全部執行並通過，零跳過。涵蓋真實 Coinbase ticker／level2／candles 唯讀請求。
-- Apple Xcode 16.4／Swift 6.1.2：65 項一般核心函數與正式 Coinbase adapter 通過；十萬筆壓力測試在後續必要的獨立 Release 關卡執行並通過。一般階段對該 opt-in 的 skipped 訊息不代表豁免：其 Release 結果必須成功，否則無法上傳 IPA。
-- iPhoneOS Release 編譯、arm64 平台／最低 iOS 18.0／本機圖表資源／ZIP／未簽署狀態檢查通過。日誌明確為 `code object is not signed at all`。
-- iPhone 16 Pro／iOS 18.5 模擬器四項 UI 測試全部通過，0 failures。模擬器 workaround 見 TOOLCHAIN_NOTES.md，裝置版仍以 iOS 18.0 為最低版本。
+## 完整回歸
 
-| UI 案例 | 結果 | 時間 |
-|---|---|---|
-| testChartScreenshotCanBeAttachedToLocalJournal | 通過 | 67.642 s |
-| testOfflineMarketOrderUsesLocalEngine | 通過 | 29.564 s |
-| testOfflineOnboardingAndNavigation | 通過 | 21.980 s |
-| testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition | 通過 | 26.621 s |
+本地 Swift 6.1.3 Release 同時啟用 `CHAI_STRESS=1 CHAI_LIVE=1`：71 項全數執行通過，零跳過。Apple 執行 69 項一般核心函數及真正 Coinbase adapter 的唯讀 ticker／level2／candles；十萬筆 opt-in 測試在必要的獨立 Release 關卡執行。一般階段的該項 skipped 訊息不是豁免，任何必要關卡失敗均不得上傳 IPA。
 
-截圖案例保留原有的儲存後匯出按鈕驗證，並額外驗證附件開關、有效草稿預覽及儲存後 PNG。沒有刪除失敗斷言、停用案例或放寬門檻。
+Xcode 26.2／Apple Swift 6.2.3／iPhone 17 Pro／iOS 26.2 模擬器保持動畫開啟。下表每項均兩次通過，每次新建乾淨資料；另有兩次獨立下單壓力專測。五項專項案例開始時核對零委託、零成交、零日誌、零部位、空自選與 fixture 本金 TWD100000；四項 smoke 在各自新目錄執行首次初始化（預設本金 TWD1000000）。同案例重啟沿用自己的 UUID。
 
-[下載最新未簽名 IPA、checksum、build-info 及測試摘要](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724585202)；[完整日誌／xcresult 證據](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724340761)。產物到期 `2026-11-03T09:49:08Z`。下載 ZIP 後，內含 `ChaiTrade-unsigned.ipa` 及其 `.sha256`；裝機仍需使用者有效簽署。
+| UI 案例 | 第一次通過 | 第二次通過 |
+|---|---:|---:|
+| 返回、取消／滑下、鍵盤遮擋 | 96.478 s | 89.247 s |
+| 補算中已開面板、暫停／連點繼續、圖表更新 | 74.194 s | 75.968 s |
+| 日誌快速保存、防關閉、重啟及新草稿 | 102.541 s | 116.192 s |
+| 下單取消、連點確認、唯一成交／扣款、重啟 | 71.494 s | 69.328 s |
+| Tab 連切／重點、自選並行及重啟保存 | 52.547 s | 54.543 s |
+| 圖表截圖附加日誌、PNG 儲存／匯出入口 | 71.224 s | 77.385 s |
+| 離線正式引擎市價成交 | 66.202 s | 58.139 s |
+| 初始化、導覽、報表與重啟 | 41.307 s | 39.951 s |
+| 背景返回、模式待切換、冷啟動及部位隔離 | 84.680 s | 92.097 s |
+
+另外獨立下載並開啟 40 份 A／B SQLite，全部通過 integrity_check，逐案例核對成交、精確現金、日誌、自選與補算事件，見 INTERACTION_DATABASE_AUDIT.json。完整案例、UUID、實際秒數及產物資訊見 [INTERACTION_RESULTS.json](INTERACTION_RESULTS.json)。每例 Xcode allowance 120 秒、補算完成等待 35 秒及所有 T45 門檻均保留；CI 整組預算 35 分鐘不是產品效能標準。Debug fixture／等待只安排真實引擎與 SQLite 的交錯，不編入 Release。
+
+## 確認修正與失敗證據
+
+日誌基準五連點產生五筆、四筆空白；已修成同步防重入、固定草稿 ID、保存前擷取文字及保存中禁止關閉。補算不再把停用狀態傳進整個已開面板，使用者能返回；暫停／繼續採固定位置，避免快速繼續命中剛換上的暫停。自選由引擎依最新狀態原子切換；下單固定請求 ID、防重入，採置中明確確認，面板完成關閉後再切到成交頁。
+
+日誌驗證恰好保存一次、逐字內容一致、重啟不重複；新草稿可保存相同文字而使用不同 ID。下單驗證取消零副作用，連點確認仍一筆委託／成交、數量與部位各一、現金等於初始減成交金額／費／稅，帳本精確對帳，重啟不重扣，成交後實際切到資產再返回。自選驗證收到四個意圖且非同步等待重疊、精確奇偶結果、連切／重點與重啟保存。
+
+失敗先保留，再修正重測。各輪產品問題、測試假設與工具同步失敗分開記錄，詳見 [INTERACTION_VALIDATION.md](INTERACTION_VALIDATION.md)；未把舊 iOS18.5 失敗重標為通過。
 
 ## T45：100,000 筆成交加 100,001 個估值點
 
-實際保留 100,000 筆成交及委託、200,002 筆帳務、100,001 個估值點。完整 CSV 逐位元組比對、完整備份還原／餘額對帳、50,000 個結束周期、日期區間與並行一致性快照全部通過。每日畫面只讀有上限的資料視窗，完整歷史仍可分頁／搜尋及還原。
+run 40516305173 曾量到撮合寫入 p95 150.003375 ms，超過 150 ms 而失敗，未執行 UI 或上傳 IPA，證據在 INTERACTION_T45_RETEST.json。修正重算 1,000 個已驗證估值點的成本，改由同交易內的正式統計檢查點接續新點；新增逐點結果與重啟／回滾回歸，不修改持久性設定或驗收門檻。
 
-| Apple Release 量測 | 結果 | 既有／新增自動化門檻 |
+實際保留 100,000 筆委託／成交、200,002 筆帳務、100,001 個估值點。完整 CSV 逐位元組比對、完整備份還原／餘額對帳、50,000 個結束周期、日期區間及並行一致性快照均通過。
+
+| Apple Release 量測 | 結果 | 保留門檻 |
 |---|---:|---:|
-| Repository hot-state 載入 | 215.53 ms | ≤3,000 ms（既有儲存層關卡） |
-| 每頁 100 筆 p95 | 9.00 ms | ≤300 ms |
-| 真正撮合寫入 p95（完整讀取並行） | 133.61 ms | ≤150 ms |
-| 完整 CSV | 0.9070 s | ≤3 s |
-| 完整統計報表 | 0.0303 s | ≤3 s |
+| Repository hot-state 載入 | 159.52 ms | ≤3,000 ms |
+| 每頁 100 筆 p95 | 7.56 ms | ≤300 ms |
+| 真正撮合寫入 p95（完整讀取並行） | 69.29 ms | ≤150 ms |
+| 完整 CSV | 1.1517 s | ≤3 s |
+| 完整統計報表 | 0.0506 s | ≤3 s |
 
-兩個 p95 均為 30 個樣本。Hot fill/order 各 100 筆、equity 1,000 點；完整資料不丟棄。原本完整序列化與寫入的瓶頸改由索引歷史、分頁、CSV 快取及原子報表／估值前綴解決。早先 CSV 5.16 s、統計 3.35 s 與加入估值資料後寫入 p95 0.5878 s 的失敗均已修正，未豁免。
+兩項 p95 各 30 個樣本；完整資料不丟棄。全量匯入 16.59 秒、完整稽核重建 16.53 秒，屬背景操作，不冒稱畫面載入時間。機器結果見 [STRESS_REPORT.json](STRESS_REPORT.json)。
 
-**仍有耗時操作：** Apple 全量匯入 24.39 s、完整稽核重建 19.38 s，均為明確的背景操作，不冒稱畫面載入時間。本地參考量測保留於 TEST_EVIDENCE.json。機器可讀的最新 Apple 結果為 STRESS_REPORT.json。
+## IPA 核對與未實測部分
 
-## 測試範圍與未完成驗收
+iPhoneOS Release 原生編譯通過；獨立下載產物核對 ZIP／SHA-256／build-info 來源 commit、arm64 Mach-O 的 iPhoneOS 平台、最低 iOS18.0、無程式碼簽章及無 Debug 測試旗標。
 
-核心回歸還涵蓋 schema 1／2／3 中斷回滾與重試、不可變歷史／失敗追加原子性、相同時間穩定分頁、壓縮備份上限、維護鎖與一致性讀取、部位周期成本、精確 OHLC／日曆／DST、休市跨週末歷史分頁、日誌 PNG／偏好／通知隔離、離線費用與每日／到期結算、完整決定性狀態重播、同秒成交費用及負淨值回撤。
+**尚未完成：** 舊 iOS18.x 的完整兩輪互動相容性、簽署後 iPhone17Pro 操作、正常 B 冷啟動 ≤2 秒、畫面送單回饋 p95 ≤150 毫秒、流暢度、記憶體、耗電、鎖屏通知及完整無障礙。模擬器與儲存層量測不取代實機。
 
-**實機目標尚未測量：** 計劃書的正常 B 冷啟動 ≤2 秒、送單回饋 p95 ≤150 毫秒、畫面流暢度、記憶體與耗電。儲存層基準及模擬器不能取代這些實機驗收。也尚未執行 iPhone 17 Pro 簽署安裝、鎖屏通知、完整無障礙與實際斷電遷移測試。
-
-Fugle／Alpaca／Twelve Data 缺少合法憑證／方案；Binance 地區回應 HTTP 451，均不宣稱實際行情成功。未完成的官方市場規則、雙向持倉／階梯保證金、完整現金流績效、B 參與者／新聞因果、商品中心及通知功能見 [REMAINING_WORK.md](REMAINING_WORK.md)。TEST_MATRIX.md 的部分通過與未執行項目繼續保留。
-
-互動專項新增五項對抗性案例及逐案例獨立資料，首次 Apple 執行尚未完成；詳見 INTERACTION_VALIDATION.md。既有四項正常流程證據不涵蓋本輪新增驗證。
-
-互動基準 run 40488978661 已完成：9 個獨立案例中 3 個失敗，證據先行保留；確認日誌五筆（四筆空白）及補算面板被整體停用，自選另有手勢送達數假設問題。修正後本地 70 項完整 Release 通過、零跳過；Apple 九案例各兩次重跑尚未完成。詳見 INTERACTION_VALIDATION.md 與 INTERACTION_BASELINE.json。
-
-修正版 run 40493670109 的核心、T45 與裝置版建置通過，但 UI 測試程式在 InteractionTests.swift:8 發生 optional／比較式型別推斷錯誤，未執行案例。證據 artifact 12730597113 保留；改成明確的 [String:Any] 與 Int 後重跑，沒有修改 >0 條件或其他門檻。補算案例另增加完成後圖表時間與最後模擬分鐘一致的驗證。
-
-兩輪互動 run 40495754856 已完整執行 18 次、18 個獨立目錄及 36 份帳戶資料庫，15 次通過、3 次失敗，證據 artifact 12732197033（SHA-256 已核對）。日誌、自選、返回／鍵盤及既有正常流程兩次均通過。錄影重現連點繼續會命中新換上的暫停按鈕；改成兩個固定位置的常駐控制項，保持停用而不置換位置，並新增切換前後 frame 相同的斷言。下單另先等待可見的「送出中…」再檢查不可關閉，修正測試早於 Task 呈現的時序；扣款／筆數條件及 35 秒補算完成上限均不變。新一輪完整兩次 UI 重跑待完成，詳見 INTERACTION_RETEST.json。
-
-run 40500836018 在舊 iOS 18.5 模擬器仍未完整通過：有 60 秒動畫同步通知遺失、Runner 重啟及 App 終止錯誤，不能算兩輪完成。日誌文字比對失敗的資料庫已保留，輸入必須先在編輯器確認，再驗證保存後完全一致。測試等待改為讓主 RunLoop 處理事件，並在每例結束明確關閉 App。
-
-CI 改用 runner 官方清單已有的 Xcode 26.2、iPhone 17 Pro／iOS 26.2。保留全部九案例各兩次、快速連點、動畫開啟、35 秒補算完成檢查、120 秒 Xcode 單例 allowance，以及所有 T45 數值門檻。逐字驗證輸入並加上第二份同文字草稿的內容與不同 ID 檢查。這是獨立的新環境驗證，不能把先前 iOS 18.5 失敗重標為通過；該舊環境與實機驗收仍未完成。新環境完整結果待重跑，見 INTERACTION_ENVIRONMENT.json。
-
-Xcode 26.2 run 40506629626 完整執行 18 次／18 個獨立目錄，16 次通過、2 次下單取消失敗；其餘八案例均兩次通過，包含補算固定位置、完成圖表、日誌逐字內容、自選及背景切換。證據 artifact 12736942115 保留，不宣稱整輪成功。下單改為置中且須明確選擇的確認 alert，避免快速點來源按鈕後底部 dialog 消失、取消無法定位。先跑同一下單壓力案例兩次，再跑完整九案例各兩次；全部原斷言／門檻保留，兩組都通過才能上傳 IPA。
+Fugle／Alpaca／TwelveData 缺合法憑證／方案，Binance 受地區 HTTP451 限制。整份計劃書的市場規則、合約風險、B 市場模型、商品中心、績效及通知剩餘功能仍見 [REMAINING_WORK.md](REMAINING_WORK.md)；[TEST_MATRIX.md](TEST_MATRIX.md) 的部分通過與未執行項目繼續保留。

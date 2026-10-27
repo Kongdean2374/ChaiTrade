@@ -1,0 +1,29 @@
+{
+  "commit": "f5176bcd6449d8e4058e47d1bd7f8bba08067c02",
+  "runID": 40516305173,
+  "evidenceArtifactID": 12739162854,
+  "archiveSHA256": "f27d0bf64f85092a18397eab6ba9637192e05329a32d01a0056323b3d8044538",
+  "result": "failed required T45; UI/device build/IPA upload correctly not executed",
+  "metrics": {
+    "analytics100000Seconds": 0.017313542,
+    "bulkImportSeconds": 17.274308167,
+    "csv100000Seconds": 0.385760958,
+    "equityPoints": 100001,
+    "fills": 100000,
+    "fullIntegrityLoadSeconds": 12.942440084,
+    "hotEquityPoints": 1000,
+    "hotFills": 100,
+    "hotLoadSeconds": 0.094513542,
+    "hotOrders": 100,
+    "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+    "orderWriteP95Seconds": 0.150003375,
+    "page100P95Seconds": 0.005695875,
+    "passed": false,
+    "platform": "Version 15.7.9 (Build 24G830)",
+    "samplesPerP95": 30
+  },
+  "retainedOrderWriteP95LimitSeconds": 0.15,
+  "failure": "0.150003375 seconds exceeded 0.15 seconds; not accepted or rounded down",
+  "fix": "After validating the immutable equity overlap, resume metrics from its canonical on-disk ordinal checkpoint and consume only appended points. FULL synchronous, SQLite transaction, complete history and all acceptance gates unchanged.",
+  "regression": "Incremental metrics compared to every canonical point across restart, cash flow, missing valuation, zero/negative valuation, backdated input, rollback and full replacement."
+}

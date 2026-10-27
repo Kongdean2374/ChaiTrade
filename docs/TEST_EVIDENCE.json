@@ -1,15 +1,16 @@
 {
   "date": "2026-10-27",
-  "toolchain": "Swift 6.1.3 Linux; Xcode 16.4 / Swift 6.1.2 Apple",
+  "toolchain": "Swift 6.1.3 Linux; Xcode 26.2 / Apple Swift 6.2.3, Swift 6 complete strict concurrency",
   "sourceSHA256": {
-    ".github/workflows/build-unsigned-ipa.yml": "b887ef028b3f66740764d6b17b4ba21899d8e3c37695a90e2e0268dbaa170eea",
-    ".github/workflows/ci.yml": "2b8eaf66b5103eb9f580267d9c656b2d62fdf8bd04c404b1e6275a9081c6cfbb",
-    "ChaiTrade.xcodeproj/project.pbxproj": "f1d9eed705b8d0a15602090e570d8b497c01365925a2a035b0cf8aec90eb5048",
+    ".github/workflows/build-unsigned-ipa.yml": "d3c5ab086f948643202e7ba7af19a8323b769c1ccab8a3bd4f8d5d2035540942",
+    ".github/workflows/ci.yml": "9f63004a98c6797dff99d6005a8704c9fa046d3a6fc8988127ec19663cb28aa1",
+    "ChaiTrade.xcodeproj/project.pbxproj": "58d65eb7c2d95a94509326fc8f345d3c2453803d9d092f5d2ed52e2f68c6f023",
     "ChaiTrade.xcodeproj/xcshareddata/xcschemes/ChaiTrade.xcscheme": "51a823166077ee0966eee418896964fc464b1e3180515d2c196d26cf45ada2e7",
-    "ChaiTrade/App/AppModel.swift": "f97684d65b7b69c77c81f107364a2884e0001d0c7adee616e6029f58aff42a35",
+    "ChaiTrade/App/AppModel.swift": "d12d057a1c5b05ef237d4c46ee9cee2842341c6a4f3accf2dcb5b32bbb472a64",
     "ChaiTrade/App/ChaiTradeApp.swift": "167084643bbb595c2c820bec8655da0a00d7c817ed8664186ccb1c61e2f8594e",
     "ChaiTrade/App/ChartView.swift": "d60f5f0cc28d908b632bc33011e0797e5ff85e5bdef9dca72935191ae691e9cd",
     "ChaiTrade/App/LocalNotifications.swift": "ae857d8c6970490112cd7f9e4903c6df49fb12ad7d4c9310df3c04bdc169286d",
+    "ChaiTrade/App/UITestSupport.swift": "305059f040ff91338d8aecf521c8862d939f87e07afd6b9d1bd5b6c67ab44c02",
     "ChaiTrade/Assets.xcassets/AccentColor.colorset/Contents.json": "a09e1baad9d2805ca8de6581ebb048801e6b107444fc93b2f1f1b46c63580fa3",
     "ChaiTrade/Assets.xcassets/AppIcon.appiconset/AppIcon.png": "4edd6cd11397ac3838f77683138bcd2e2ee2c4b41b98fa65a7af41d0de80b461",
     "ChaiTrade/Assets.xcassets/AppIcon.appiconset/Contents.json": "7fabe422016637940be57a7db1e4fe18fae7500a250f6ada4e7b84bcfcb3b7c3",
@@ -17,11 +18,11 @@
     "ChaiTrade/Features/AccountingToolsView.swift": "b55714d006fa50a9ad0071a95a0ab9a7f56d5a6505aba6bca42ae72352c2fc0b",
     "ChaiTrade/Features/ChartAmendConfirm.swift": "8e45a2bcf06e3a68430d0dcce7f1dcfa1729023e38e4f00c541c8cd2a6444d32",
     "ChaiTrade/Features/Editors.swift": "22c8fdfbff2ff77f1d3aafa919bcac01cfa338a6f3c19b8ab082abfcf02d63c0",
-    "ChaiTrade/Features/PortfolioView.swift": "e580b8389e3f7988b063fe7abe7c37fa0aa0796991760b901830119d090fbc0b",
+    "ChaiTrade/Features/PortfolioView.swift": "05522ff911f69b7dff67fa8aa0a962af6d54113f695e5e5149e5c677bced5706",
     "ChaiTrade/Features/RecoveryView.swift": "846f87ef1d02416fe909516a264d222fc18199891edc6b5050a054700364e035",
-    "ChaiTrade/Features/RootView.swift": "33cdb7d91b60deb6255a9643c28e8f7e14d5bfac38f3a42ceca0be0bcd82681d",
+    "ChaiTrade/Features/RootView.swift": "31c3f437a6ddeb1f23c670221e90bcb8dfad040b8003d3b0c39c8c1d023f3e11",
     "ChaiTrade/Features/SettingsView.swift": "438f1b4ba7ee29587d6a383513c14b31f54bd0a885a8bde85cfdb4f31c01898f",
-    "ChaiTrade/Features/TradingView.swift": "a722bc298d7c15c30b2d3bb67cee5471acb139545afc678a611b5c97d3ce1d56",
+    "ChaiTrade/Features/TradingView.swift": "45f015e13e9bfbddbcc81b3fb997a8b4850cc7c991959cabb5347a24cfd85774",
     "ChaiTrade/Info.plist": "a8f327fe0b42245c2258c233c566c77aaa733e1ec71ece7d5d7b5a0ee68e3fe7",
     "ChaiTrade/Resources/ChartWeb/chart.js": "67a9fb96294fd23dc4fd6052f9a67ab6dc5736ac029c62e795a349d9970e8798",
     "ChaiTrade/Resources/ChartWeb/dependency-lock.json": "a4d63d2591a286bea52c1d063cd18dcf8cef2bf68e3ac89d93cd8e55c9d2933e",
@@ -29,7 +30,9 @@
     "ChaiTrade/Resources/ChartWeb/lightweight-charts.js": "bcdca2a528db7c9b386918c99c544bde3eda3f0204ec2d23a64411d4cb4686c9",
     "ChaiTrade/Resources/ChartWeb/style.css": "3ce5da26d15a3babba92edcecf3dbaef00ffd595e95cc1532526cb72daef0593",
     "ChaiTrade/Resources/Licenses/LightweightCharts-LICENSE": "70c9d5382506dd184465425c08a99ad9bd6d9ac1313c252968ba0b585e5ef823",
-    "ChaiTradeUITests/SmokeTests.swift": "186cbd783bec570b6fdef93cfee231cbdcc24662a7f50f0cdcefba4e584c8d42",
+    "ChaiTradeUITests/InteractionTests.swift": "f56b28431b90b174e5f8abae6ffe0d4600bfa8a7076a3bce1ae09e2b1091a5cb",
+    "ChaiTradeUITests/IsolatedUITestCase.swift": "5da5127b352aee55981aa7f38f2225911909a44151c63d9f75826d92bf9ee1aa",
+    "ChaiTradeUITests/SmokeTests.swift": "84e87639f7df8698034d24f69795a97cd03c7c4f382158e4432a50b3d31e2068",
     "Packages/ChaiTradeCore/Package.swift": "30cdae3ac2ac244690951b78ffcc5ab2d64fddd0853fbdf46c68775d21daa847",
     "Packages/ChaiTradeCore/Sources/COpenSSL/module.modulemap": "78a26ecb67525675930828e31eb3522e4d3bb771d96da4eb8b82174830cf8668",
     "Packages/ChaiTradeCore/Sources/COpenSSL/shim.h": "3648a50a0fab5284a94e38e41929218364c95340c94d9ebfdb3f72e2886033f4",
@@ -47,13 +50,14 @@
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketStream.swift": "3cc2a2f150dda7aae31a762ebfb489d9e20b6362d651c1c85976a06fdd74ff01",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Models.swift": "ac3994a7fdd422e4ca67b631f363f8e6455fa2737b6d70d1e1c6cc386c2f556e",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Performance.swift": "27604b9d6afadc8bf7a48b518eba48db99034aa21f825cea3deb2eb8daab39ab",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Persistence.swift": "d5a6572aabfac58de00e37c3cb624eaccfad592b8aa956c428124278264bf032",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Persistence.swift": "ab3b3baa72e6aea4ee897c22127c983ac424ef07ef3062544c82c18ca9f456f3",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Simulation.swift": "0d913cced2e2fe8a18eb07250292187bc7daaf7600b9677962d0107814e5d49f",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "094a1accbd0cd7dbe7185e185a59b9da79e1e88b9bd8cf3b15b4c6bb7c3ef358",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "4364b04bec8e3e0ca4ee7128ff2490927be362b5e1fcf3c1e2034070d1b1d660",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/ChartTests.swift": "bd1b5a88e6aa14358be2499921e1821d9948355d8bfb080fb574f1b58fe285eb",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "bd605573ef1305e86072f23c687fdb7f978e26958d0394c5760b47642a77339e",
-    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/EquityHistoryTests.swift": "c1a78b7287779f05900b842063e22cc48b25b4e1e897c19700c348e07dfa6ec1",
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/EquityHistoryTests.swift": "55b15fdc013e6e7bec220fb85e061f2e22b735691185c245626acb77785e300a",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/FeatureTests.swift": "30a18ecc6d2848e7e5692a65353623e6804572324c87c029b770642c045bb1bc",
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/InteractionInvariantTests.swift": "c3b62ea4b7c2588a10c0f5dfe1b77106f1ca1ec5b0d80866ed566e26714965ee",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/LiveTests.swift": "45e88767940cac60383d03e8e9ee145c60502dc142df3999334d9ebcec1d7f30",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/PerformanceTests.swift": "9bdc6ef0317a79cd71bd804dac867029c8ca4547060bbcdfe841fdeda4e563e7",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/PersistenceTests.swift": "902b943dab574889478e396b4fe3630ca09f0b798d09e13075018c924077b7cb",
@@ -61,102 +65,128 @@
     "scripts/SwiftTests.Dockerfile": "ca52f669a0477dfdadfced23bbb79b31a59f564fe11dc5cd62fe2a3b3dd51216",
     "scripts/build_info.py": "6aba0fc3a87ac8d00aeb8b41bf46dbc0476ee941d5ca0fdf0dc54be50f0dbe4a",
     "scripts/build_unsigned_ipa.sh": "1587e9ad02aaec06269e8b118cc59ee0f600b510a59e05af7b2b673ac0748c32",
-    "scripts/collect_diagnostics.py": "5a1f778b52f954dda44a7164efede1258f02b17ff53333ec92f0d522fe32ac75",
+    "scripts/collect_diagnostics.py": "db09b0244a6e8e3b21c0f070a774a246d92a05cd1c91fd814bb57cd291622851",
     "scripts/generate_project.py": "a9d49805e9364d24deb73c24be77adecf65bcc5d879fdd0a309d254a9aa875c8",
-    "scripts/preflight.sh": "c7d36d3fd60e7222933eda4c9ddaa8e85a3fe71d63547e902d146877100847d6",
-    "scripts/prepare_simulator.py": "e0f2fd7f18ffef49fc9ee8ddee5f3e05ee7d2c905fd2cd99579a8b8e7a1f4eb7",
+    "scripts/preflight.sh": "5d1e1b118334a0e6b7af61e0550f380896ad1c75e9bba0db5ecb42c3c7e3bf9e",
+    "scripts/prepare_simulator.py": "a4f3df41a9350b00a39c1ec77624b9e3bbd32476ea5e376d8b29086420f25944",
     "scripts/probe_public_market.py": "5eaa7a347541d96fc9c71920345802d472e8f9f725af5f0346c227f3baec4794",
     "scripts/security_scan.py": "1ea27409a54a6c3d21f4167c35ef0221b458c53a22c0dd884d28181b86a1c41f",
     "scripts/test.sh": "99d12c440e8570ba52d864ba85b453aee4dd15023aa3c7b1f94f53d07910fd5b",
     "scripts/test_stress.sh": "8c3597f3c293f9b477f0c9466f539f0ac760d172513d044b71c16182c0a1d018",
-    "scripts/test_ui.sh": "ccb6647275e6c1a25b89cd370746568feffe95d26918d24374176f676ccf53fd",
+    "scripts/test_ui.sh": "a062957681df11c2ebbfa08545069f5556a04629a0e5c2661a79cff1b55c0cc3",
     "scripts/verify_artifact.sh": "7051d77d09c923fb70dd8fce8a13352f1a3d1e2ab6cce138af1261ab54234b6c",
     "scripts/verify_resources.py": "2e45e3be637effcd1a215351821c321f6c73164ac9e5c7837014faf511849f5d"
   },
   "githubVerification": {
-    "commit": "d9dcb046fd27178f3997168531c94999889f7258",
-    "runID": 40481713600,
-    "url": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600",
+    "commit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
+    "runID": 40517887202,
+    "url": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202",
     "conclusion": "success",
     "coreSuite": {
-      "ordinaryFunctions": 65,
+      "ordinaryFunctions": 69,
       "productionCoinbase": "passed actual ticker, level2 snapshot and candles",
-      "stress": "passed mandatory separate Release gate; the ordinary-stage opt-in skip is executed here, not waived"
+      "stress": "passed mandatory separate Release gate; ordinary-stage opt-in skip executed here"
     },
     "uiTests": {
-      "testChartScreenshotCanBeAttachedToLocalJournal": {
-        "result": "passed",
-        "seconds": 67.642
-      },
-      "testOfflineMarketOrderUsesLocalEngine": {
-        "result": "passed",
-        "seconds": 29.564
-      },
-      "testOfflineOnboardingAndNavigation": {
-        "result": "passed",
-        "seconds": 21.98
-      },
-      "testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": {
-        "result": "passed",
-        "seconds": 26.621
-      }
+      "InteractionTests.testBackNavigationSheetCancelSwipeAndKeyboard": [
+        96.478,
+        89.247
+      ],
+      "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": [
+        74.194,
+        75.968
+      ],
+      "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": [
+        102.541,
+        116.192
+      ],
+      "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": [
+        71.494,
+        69.328
+      ],
+      "InteractionTests.testRapidTabsReselectAndFavoritesPersist": [
+        52.547,
+        54.543
+      ],
+      "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": [
+        71.224,
+        77.385
+      ],
+      "SmokeTests.testOfflineMarketOrderUsesLocalEngine": [
+        66.202,
+        58.139
+      ],
+      "SmokeTests.testOfflineOnboardingAndNavigation": [
+        41.307,
+        39.951
+      ],
+      "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": [
+        84.68,
+        92.097
+      ]
     },
-    "unsignedDeviceIPA": "passed build, arm64 iPhoneOS platform, iOS 18.0 minimum, resource, zip and unsigned-state validation",
-    "ipaArtifactID": 12724585202,
-    "ipaArtifactURL": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724585202",
-    "evidenceArtifactID": 12724340761,
-    "evidenceArtifactURL": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724340761",
-    "artifactExpiresAt": "2026-11-03T09:49:08Z",
-    "artifactArchiveSHA256": "sha256:03c62cf65e54eead82e004c961a532d32fd914650f7daadbb2a2770be66b9023",
+    "focusedOrderExecutions": 2,
+    "fullUIExecutions": 18,
+    "uniqueTestDirectories": 20,
+    "unsignedDeviceIPA": "independently verified checksum, arm64 iPhoneOS, iOS18 minimum, no code signature and no DEBUG UI control flags",
+    "ipaSHA256": "90d701b977efba1750c40c903b1a296d11cd72a2606a708f64882c73a2c9826c",
+    "ipaArtifactID": 12742124659,
+    "ipaArtifactURL": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12742124659",
+    "evidenceArtifactID": 12743565956,
+    "evidenceArtifactURL": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12743565956",
+    "artifactExpiresAt": "2026-11-03T14:45:18Z",
+    "artifactArchiveSHA256": "sha256:e136390826c066744c3628b2c08bc6a0339a3f26c7be30432858851956f9aeba",
     "deviceSignedAcceptance": "not executed",
-    "scope": "Latest code batch including schema-4 full equity history, screenshot journal and closed-session history paging"
+    "scope": "Interaction bug fixes and full regression; full plan remains incomplete"
   },
   "latestLocalT45": {
-    "analytics100000Seconds": 0.015300293,
-    "bulkImportSeconds": 12.019782924,
-    "csv100000Seconds": 0.119590461,
+    "analytics100000Seconds": 0.015214434,
+    "bulkImportSeconds": 12.479357609000001,
+    "csv100000Seconds": 0.130149577,
     "equityPoints": 100001,
     "fills": 100000,
-    "fullIntegrityLoadSeconds": 9.434363834,
+    "fullIntegrityLoadSeconds": 9.540527056,
     "hotEquityPoints": 1000,
     "hotFills": 100,
-    "hotLoadSeconds": 0.04624807,
+    "hotLoadSeconds": 0.046036828,
     "hotOrders": 100,
     "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
-    "orderWriteP95Seconds": 0.043239231,
-    "page100P95Seconds": 0.002472232,
+    "orderWriteP95Seconds": 0.047721083,
+    "page100P95Seconds": 0.002498352,
     "passed": true,
     "platform": "Debian GNU/Linux 12 (bookworm)",
     "samplesPerP95": 30
   },
-  "currentBatchAppleVerification": "passed all required workflow stages and all four UI tests; physical-device acceptance remains unexecuted",
+  "currentBatchAppleVerification": "passed core/live, mandatory unchanged Release T45, unsigned device compilation, focused order x2 and nine UI cases x2; physical-device acceptance unexecuted",
   "fullRelease": {
     "allTestsEnabled": true,
     "stressEnabled": true,
     "liveEnabled": true,
-    "summaryTests": 67,
+    "summaryTests": 71,
     "skipped": 0,
     "result": "passed",
     "platform": "Swift 6.1.3 Linux",
     "coinbaseActualReads": "ticker, level2 snapshot, candles; values not retained"
   },
   "latestAppleT45": {
+    "analytics100000Seconds": 0.050596167,
+    "bulkImportSeconds": 16.588195,
+    "csv100000Seconds": 1.151704334,
     "equityPoints": 100001,
-    "hotEquityPoints": 1000,
-    "samplesPerP95": 30,
     "fills": 100000,
-    "csv100000Seconds": 0.906969667,
-    "orderWriteP95Seconds": 0.133608667,
+    "fullIntegrityLoadSeconds": 16.527838708,
+    "hotEquityPoints": 1000,
     "hotFills": 100,
-    "bulkImportSeconds": 24.391183958,
+    "hotLoadSeconds": 0.159517917,
     "hotOrders": 100,
     "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
-    "page100P95Seconds": 0.0089995,
+    "orderWriteP95Seconds": 0.069291125,
+    "page100P95Seconds": 0.007560166,
     "passed": true,
     "platform": "Version 15.7.9 (Build 24G830)",
-    "fullIntegrityLoadSeconds": 19.380502792,
-    "analytics100000Seconds": 0.030337041,
-    "hotLoadSeconds": 0.21553275
+    "samplesPerP95": 30,
+    "sourceCommit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
+    "workflowRunID": 40517887202
   },
   "planPerformanceAcceptance": {
     "normalBColdLaunch2Seconds": "not measured on physical device",
@@ -241,30 +271,31 @@
     }
   },
   "interactionFixedLocal": {
-    "summaryTests": 70,
+    "summaryTests": 71,
     "skipped": 0,
     "stressEnabled": true,
     "liveEnabled": true,
     "result": "passed",
-    "sourceStatus": "working correction batch; Apple rerun pending",
+    "sourceStatus": "Complete local Release after canonical equity checkpoint optimization; latest native changes accepted in linked Apple run",
     "T45": {
-      "analytics100000Seconds": 0.016836651,
-      "bulkImportSeconds": 11.705088368,
-      "csv100000Seconds": 0.12463521,
+      "analytics100000Seconds": 0.015214434,
+      "bulkImportSeconds": 12.479357609000001,
+      "csv100000Seconds": 0.130149577,
       "equityPoints": 100001,
       "fills": 100000,
-      "fullIntegrityLoadSeconds": 9.292566089,
+      "fullIntegrityLoadSeconds": 9.540527056,
       "hotEquityPoints": 1000,
       "hotFills": 100,
-      "hotLoadSeconds": 0.046959535,
+      "hotLoadSeconds": 0.046036828,
       "hotOrders": 100,
       "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
-      "orderWriteP95Seconds": 0.046970226,
-      "page100P95Seconds": 0.002931751,
+      "orderWriteP95Seconds": 0.047721083,
+      "page100P95Seconds": 0.002498352,
       "passed": true,
       "platform": "Debian GNU/Linux 12 (bookworm)",
       "samplesPerP95": 30
-    }
+    },
+    "logSHA256": "f3ad4ad0649d6acd4338041e88d644e242706e416b6d6c39d8be4f02a4c08a5a"
   },
   "interactionCompileAttempt": {
     "commit": "292ba4f552ee07b51a2f90f7814aa330d5e6524a",
@@ -604,5 +635,331 @@
     },
     "failure": "Order test cannot find cancel after rapid taps on source presentation button; replace moving bottom confirmation dialog with centered explicit two-action alert. All same assertions retained.",
     "nextRun": "Two focused order repetitions must pass before the full mandatory nine cases x two repetitions. No IPA without both."
+  },
+  "previousSuccessfulVerification": {
+    "commit": "d9dcb046fd27178f3997168531c94999889f7258",
+    "runID": 40481713600,
+    "url": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600",
+    "conclusion": "success",
+    "coreSuite": {
+      "ordinaryFunctions": 65,
+      "productionCoinbase": "passed actual ticker, level2 snapshot and candles",
+      "stress": "passed mandatory separate Release gate; the ordinary-stage opt-in skip is executed here, not waived"
+    },
+    "uiTests": {
+      "testChartScreenshotCanBeAttachedToLocalJournal": {
+        "result": "passed",
+        "seconds": 67.642
+      },
+      "testOfflineMarketOrderUsesLocalEngine": {
+        "result": "passed",
+        "seconds": 29.564
+      },
+      "testOfflineOnboardingAndNavigation": {
+        "result": "passed",
+        "seconds": 21.98
+      },
+      "testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": {
+        "result": "passed",
+        "seconds": 26.621
+      }
+    },
+    "unsignedDeviceIPA": "passed build, arm64 iPhoneOS platform, iOS 18.0 minimum, resource, zip and unsigned-state validation",
+    "ipaArtifactID": 12724585202,
+    "ipaArtifactURL": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724585202",
+    "evidenceArtifactID": 12724340761,
+    "evidenceArtifactURL": "https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724340761",
+    "artifactExpiresAt": "2026-11-03T09:49:08Z",
+    "artifactArchiveSHA256": "sha256:03c62cf65e54eead82e004c961a532d32fd914650f7daadbb2a2770be66b9023",
+    "deviceSignedAcceptance": "not executed",
+    "scope": "Latest code batch including schema-4 full equity history, screenshot journal and closed-session history paging"
+  },
+  "previousInteractionFixedLocal": {
+    "summaryTests": 70,
+    "skipped": 0,
+    "stressEnabled": true,
+    "liveEnabled": true,
+    "result": "passed",
+    "sourceStatus": "working correction batch; Apple rerun pending",
+    "T45": {
+      "analytics100000Seconds": 0.016836651,
+      "bulkImportSeconds": 11.705088368,
+      "csv100000Seconds": 0.12463521,
+      "equityPoints": 100001,
+      "fills": 100000,
+      "fullIntegrityLoadSeconds": 9.292566089,
+      "hotEquityPoints": 1000,
+      "hotFills": 100,
+      "hotLoadSeconds": 0.046959535,
+      "hotOrders": 100,
+      "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+      "orderWriteP95Seconds": 0.046970226,
+      "page100P95Seconds": 0.002931751,
+      "passed": true,
+      "platform": "Debian GNU/Linux 12 (bookworm)",
+      "samplesPerP95": 30
+    }
+  },
+  "interactionOrderFocusedFailure": {
+    "commit": "6b86e104a64dabf3e8188db19331c199f8563949",
+    "runID": 40512460115,
+    "evidenceArtifactID": 12739490698,
+    "archiveSHA256": "1df7e501291ab641e9aada23c97232cf6ac0b1708d3ab4dcf0ed128e6fda112b",
+    "environment": "Xcode 26.2 / iPhone 17 Pro / iOS 26.2",
+    "focusedExecutions": 2,
+    "passed": 1,
+    "failed": 1,
+    "fullSuiteExecuted": false,
+    "failedSession": "5D58C2EC-308E-4911-9C20-530B7975834C",
+    "evidenceFinding": "Failure waited for selected order tab isHittable, while hierarchy already showed receipt page without order sheet and probe tab=3. Both independent databases contain exactly one order/fill and TWD99962.8629. No duplicate debit demonstrated.",
+    "fix": "Defer tab change until order sheet onDismiss; assert receipt page and closed order panel, navigate to assets and back, keep all original exact cash/fill/quantity/relaunch checks and 12-second completion gate.",
+    "databaseSummary": [
+      {
+        "session": "10303B21-E7D9-42D8-9387-B6E3D28E1CD4",
+        "account": "account-offline",
+        "journals": 0,
+        "journalIDs": [],
+        "watchlist": [],
+        "orders": 1,
+        "fills": 1,
+        "cash": {
+          "TWD": "99962.8629"
+        }
+      },
+      {
+        "session": "10303B21-E7D9-42D8-9387-B6E3D28E1CD4",
+        "account": "account-online",
+        "journals": 0,
+        "journalIDs": [],
+        "watchlist": [],
+        "orders": 0,
+        "fills": 0,
+        "cash": {
+          "TWD": "100000"
+        }
+      },
+      {
+        "session": "5D58C2EC-308E-4911-9C20-530B7975834C",
+        "account": "account-offline",
+        "journals": 0,
+        "journalIDs": [],
+        "watchlist": [],
+        "orders": 1,
+        "fills": 1,
+        "cash": {
+          "TWD": "99962.8629"
+        }
+      },
+      {
+        "session": "5D58C2EC-308E-4911-9C20-530B7975834C",
+        "account": "account-online",
+        "journals": 0,
+        "journalIDs": [],
+        "watchlist": [],
+        "orders": 0,
+        "fills": 0,
+        "cash": {
+          "TWD": "100000"
+        }
+      }
+    ]
+  },
+  "localMissingCAAttempt": {
+    "result": "failed local live adapter; core and stress passed",
+    "reason": "runtime CA bundle omitted from Docker invocation, fixed by readonly combined system CA mount; TLS verification retained",
+    "logSHA256": "12a7ee4a181683bd13420de81c8890cc0a4a129b399f0e63a5585f26b7b34d5d",
+    "followup": "full 71 tests passed, zero skipped"
+  },
+  "interactionT45Failure": {
+    "commit": "f5176bcd6449d8e4058e47d1bd7f8bba08067c02",
+    "runID": 40516305173,
+    "evidenceArtifactID": 12739162854,
+    "archiveSHA256": "f27d0bf64f85092a18397eab6ba9637192e05329a32d01a0056323b3d8044538",
+    "result": "failed required T45; UI/device build/IPA upload correctly not executed",
+    "metrics": {
+      "analytics100000Seconds": 0.017313542,
+      "bulkImportSeconds": 17.274308167,
+      "csv100000Seconds": 0.385760958,
+      "equityPoints": 100001,
+      "fills": 100000,
+      "fullIntegrityLoadSeconds": 12.942440084,
+      "hotEquityPoints": 1000,
+      "hotFills": 100,
+      "hotLoadSeconds": 0.094513542,
+      "hotOrders": 100,
+      "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+      "orderWriteP95Seconds": 0.150003375,
+      "page100P95Seconds": 0.005695875,
+      "passed": false,
+      "platform": "Version 15.7.9 (Build 24G830)",
+      "samplesPerP95": 30
+    },
+    "retainedOrderWriteP95LimitSeconds": 0.15,
+    "failure": "0.150003375 seconds exceeded 0.15 seconds; not accepted or rounded down",
+    "fix": "After validating the immutable equity overlap, resume metrics from its canonical on-disk ordinal checkpoint and consume only appended points. FULL synchronous, SQLite transaction, complete history and all acceptance gates unchanged.",
+    "regression": "Incremental metrics compared to every canonical point across restart, cash flow, missing valuation, zero/negative valuation, backdated input, rollback and full replacement."
+  },
+  "interactionFinal": {
+    "commit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
+    "ipaSHA256": "90d701b977efba1750c40c903b1a296d11cd72a2606a708f64882c73a2c9826c",
+    "unsignedArm64iPhoneOS": true,
+    "releaseTestControlsAbsent": true,
+    "uniqueUICases": 9,
+    "executions": 18,
+    "uniqueTestDirectories": 20,
+    "focusedOrderExecutions": 2,
+    "uiPassCounts": {
+      "InteractionTests testBackNavigationSheetCancelSwipeAndKeyboard": 2,
+      "InteractionTests testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": 2,
+      "InteractionTests testRapidJournalSavePersistsExactlyOneEntry": 2,
+      "InteractionTests testRapidOrderConfirmationAndCancelDebitExactlyOnce": 2,
+      "InteractionTests testRapidTabsReselectAndFavoritesPersist": 2,
+      "SmokeTests testChartScreenshotCanBeAttachedToLocalJournal": 2,
+      "SmokeTests testOfflineMarketOrderUsesLocalEngine": 2,
+      "SmokeTests testOfflineOnboardingAndNavigation": 2,
+      "SmokeTests testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": 2
+    },
+    "T45": {
+      "analytics100000Seconds": 0.050596167,
+      "bulkImportSeconds": 16.588195,
+      "csv100000Seconds": 1.151704334,
+      "equityPoints": 100001,
+      "fills": 100000,
+      "fullIntegrityLoadSeconds": 16.527838708,
+      "hotEquityPoints": 1000,
+      "hotFills": 100,
+      "hotLoadSeconds": 0.159517917,
+      "hotOrders": 100,
+      "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+      "orderWriteP95Seconds": 0.069291125,
+      "page100P95Seconds": 0.007560166,
+      "passed": true,
+      "platform": "Version 15.7.9 (Build 24G830)",
+      "samplesPerP95": 30,
+      "sourceCommit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
+      "workflowRunID": 40517887202
+    },
+    "focusedOrderSeconds": [
+      98.841,
+      86.364
+    ],
+    "databaseAudit": {
+      "passed": true,
+      "sessionDirectories": 20,
+      "accountDatabases": 40,
+      "report": "INTERACTION_DATABASE_AUDIT.json"
+    },
+    "runID": 40517887202,
+    "environment": "Xcode 26.2 / iPhone 17 Pro / iOS 26.2 simulator",
+    "conclusion": "success",
+    "caseSeconds": {
+      "InteractionTests.testBackNavigationSheetCancelSwipeAndKeyboard": [
+        96.478,
+        89.247
+      ],
+      "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": [
+        74.194,
+        75.968
+      ],
+      "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": [
+        102.541,
+        116.192
+      ],
+      "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": [
+        71.494,
+        69.328
+      ],
+      "InteractionTests.testRapidTabsReselectAndFavoritesPersist": [
+        52.547,
+        54.543
+      ],
+      "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": [
+        71.224,
+        77.385
+      ],
+      "SmokeTests.testOfflineMarketOrderUsesLocalEngine": [
+        66.202,
+        58.139
+      ],
+      "SmokeTests.testOfflineOnboardingAndNavigation": [
+        41.307,
+        39.951
+      ],
+      "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": [
+        84.68,
+        92.097
+      ]
+    },
+    "sessions": [
+      "CA98DD45-5DB6-4AE2-B47A-BCAA62356FC1",
+      "310AD14D-CE19-4020-B33D-AE7CD53A92B9",
+      "C3DCE94A-9C87-49DD-81AD-33A9165CC0C0",
+      "81B0E23B-B716-47F0-B51A-3C0A96880427",
+      "8E04563A-2932-457D-B4A9-CB8987D08904",
+      "91F60E41-DC2A-47A6-8459-1228B409FD47",
+      "BF3F0EA9-E0F0-40D1-9E35-67BE657E51E5",
+      "F744E336-306E-477C-BB47-ED4E90DF507C",
+      "97665E2C-BA63-43F7-86E0-2901C193E996",
+      "6691389B-BBA0-4569-AFC7-301819FBEBC2",
+      "390ACD9B-4293-4712-95B6-3A6A035F401A",
+      "C93BEA01-567E-4C23-8A72-0DA9F246E95A",
+      "DC62417A-9A7E-406F-B5C9-ADC051C5D884",
+      "9111EA0A-6C1D-43DB-B2AD-0853F258DC81",
+      "7EC07C6C-58C3-429D-BECF-EC4FFB096D5F",
+      "18B9D9CD-3B3F-4306-B769-09E6FDC5B8DD",
+      "8A5926A3-2CA7-4CFC-8582-3FF66B5D0FDA",
+      "4BC8BA9A-B9C0-4077-A12C-E58746479498",
+      "E51C8A63-6093-4A5F-8E93-EFD2C01EAA8F",
+      "8DAB100C-96FD-444C-A223-1B215150E191"
+    ],
+    "artifacts": {
+      "runID": 40517887202,
+      "ipa": {
+        "id": 12742124659,
+        "name": "ChaiTrade-unsigned-ipa",
+        "size_in_bytes": 1667770,
+        "url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12742124659",
+        "archive_download_url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12742124659/zip",
+        "expired": false,
+        "created_at": "2026-10-27T14:45:20Z",
+        "expires_at": "2026-11-03T14:45:18Z",
+        "updated_at": "2026-10-27T14:45:20Z",
+        "digest": "sha256:e136390826c066744c3628b2c08bc6a0339a3f26c7be30432858851956f9aeba",
+        "workflow_run": {
+          "id": 40517887202,
+          "repository_id": 1435185508,
+          "head_repository_id": 1435185508,
+          "head_branch": "main",
+          "head_sha": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba"
+        }
+      },
+      "evidence": {
+        "id": 12743565956,
+        "name": "ChaiTrade-test-evidence",
+        "size_in_bytes": 31536914,
+        "url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12743565956",
+        "archive_download_url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12743565956/zip",
+        "expired": false,
+        "created_at": "2026-10-27T14:46:33Z",
+        "expires_at": "2026-11-03T14:46:29Z",
+        "updated_at": "2026-10-27T14:46:33Z",
+        "digest": "sha256:671be8de49681e05bf3cdc7eff9888512f5d40846856e3c9a37046b0a3075c00",
+        "workflow_run": {
+          "id": 40517887202,
+          "repository_id": 1435185508,
+          "head_repository_id": 1435185508,
+          "head_branch": "main",
+          "head_sha": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba"
+        }
+      }
+    },
+    "gates": {
+      "xcodeTestAllowanceSeconds": 120,
+      "catchupCompletionSeconds": 35,
+      "animationsEnabled": true,
+      "T45": "unchanged"
+    },
+    "physicalDevice": "not executed",
+    "olderIOS18Runtime": "full two-round interaction acceptance not passed"
   }
 }

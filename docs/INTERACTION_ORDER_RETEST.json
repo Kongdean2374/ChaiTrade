@@ -1,0 +1,64 @@
+{
+  "commit": "6b86e104a64dabf3e8188db19331c199f8563949",
+  "runID": 40512460115,
+  "evidenceArtifactID": 12739490698,
+  "archiveSHA256": "1df7e501291ab641e9aada23c97232cf6ac0b1708d3ab4dcf0ed128e6fda112b",
+  "environment": "Xcode 26.2 / iPhone 17 Pro / iOS 26.2",
+  "focusedExecutions": 2,
+  "passed": 1,
+  "failed": 1,
+  "fullSuiteExecuted": false,
+  "failedSession": "5D58C2EC-308E-4911-9C20-530B7975834C",
+  "evidenceFinding": "Failure waited for selected order tab isHittable, while hierarchy already showed receipt page without order sheet and probe tab=3. Both independent databases contain exactly one order/fill and TWD99962.8629. No duplicate debit demonstrated.",
+  "fix": "Defer tab change until order sheet onDismiss; assert receipt page and closed order panel, navigate to assets and back, keep all original exact cash/fill/quantity/relaunch checks and 12-second completion gate.",
+  "databaseSummary": [
+    {
+      "session": "10303B21-E7D9-42D8-9387-B6E3D28E1CD4",
+      "account": "account-offline",
+      "journals": 0,
+      "journalIDs": [],
+      "watchlist": [],
+      "orders": 1,
+      "fills": 1,
+      "cash": {
+        "TWD": "99962.8629"
+      }
+    },
+    {
+      "session": "10303B21-E7D9-42D8-9387-B6E3D28E1CD4",
+      "account": "account-online",
+      "journals": 0,
+      "journalIDs": [],
+      "watchlist": [],
+      "orders": 0,
+      "fills": 0,
+      "cash": {
+        "TWD": "100000"
+      }
+    },
+    {
+      "session": "5D58C2EC-308E-4911-9C20-530B7975834C",
+      "account": "account-offline",
+      "journals": 0,
+      "journalIDs": [],
+      "watchlist": [],
+      "orders": 1,
+      "fills": 1,
+      "cash": {
+        "TWD": "99962.8629"
+      }
+    },
+    {
+      "session": "5D58C2EC-308E-4911-9C20-530B7975834C",
+      "account": "account-online",
+      "journals": 0,
+      "journalIDs": [],
+      "watchlist": [],
+      "orders": 0,
+      "fills": 0,
+      "cash": {
+        "TWD": "100000"
+      }
+    }
+  ]
+}

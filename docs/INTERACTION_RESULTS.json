@@ -1,0 +1,163 @@
+{
+  "commit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
+  "ipaSHA256": "90d701b977efba1750c40c903b1a296d11cd72a2606a708f64882c73a2c9826c",
+  "unsignedArm64iPhoneOS": true,
+  "releaseTestControlsAbsent": true,
+  "uniqueUICases": 9,
+  "executions": 18,
+  "uniqueTestDirectories": 20,
+  "focusedOrderExecutions": 2,
+  "uiPassCounts": {
+    "InteractionTests testBackNavigationSheetCancelSwipeAndKeyboard": 2,
+    "InteractionTests testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": 2,
+    "InteractionTests testRapidJournalSavePersistsExactlyOneEntry": 2,
+    "InteractionTests testRapidOrderConfirmationAndCancelDebitExactlyOnce": 2,
+    "InteractionTests testRapidTabsReselectAndFavoritesPersist": 2,
+    "SmokeTests testChartScreenshotCanBeAttachedToLocalJournal": 2,
+    "SmokeTests testOfflineMarketOrderUsesLocalEngine": 2,
+    "SmokeTests testOfflineOnboardingAndNavigation": 2,
+    "SmokeTests testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": 2
+  },
+  "T45": {
+    "analytics100000Seconds": 0.050596167,
+    "bulkImportSeconds": 16.588195,
+    "csv100000Seconds": 1.151704334,
+    "equityPoints": 100001,
+    "fills": 100000,
+    "fullIntegrityLoadSeconds": 16.527838708,
+    "hotEquityPoints": 1000,
+    "hotFills": 100,
+    "hotLoadSeconds": 0.159517917,
+    "hotOrders": 100,
+    "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+    "orderWriteP95Seconds": 0.069291125,
+    "page100P95Seconds": 0.007560166,
+    "passed": true,
+    "platform": "Version 15.7.9 (Build 24G830)",
+    "samplesPerP95": 30,
+    "sourceCommit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
+    "workflowRunID": 40517887202
+  },
+  "focusedOrderSeconds": [
+    98.841,
+    86.364
+  ],
+  "databaseAudit": {
+    "passed": true,
+    "sessionDirectories": 20,
+    "accountDatabases": 40,
+    "report": "INTERACTION_DATABASE_AUDIT.json"
+  },
+  "runID": 40517887202,
+  "environment": "Xcode 26.2 / iPhone 17 Pro / iOS 26.2 simulator",
+  "conclusion": "success",
+  "caseSeconds": {
+    "InteractionTests.testBackNavigationSheetCancelSwipeAndKeyboard": [
+      96.478,
+      89.247
+    ],
+    "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": [
+      74.194,
+      75.968
+    ],
+    "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": [
+      102.541,
+      116.192
+    ],
+    "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": [
+      71.494,
+      69.328
+    ],
+    "InteractionTests.testRapidTabsReselectAndFavoritesPersist": [
+      52.547,
+      54.543
+    ],
+    "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": [
+      71.224,
+      77.385
+    ],
+    "SmokeTests.testOfflineMarketOrderUsesLocalEngine": [
+      66.202,
+      58.139
+    ],
+    "SmokeTests.testOfflineOnboardingAndNavigation": [
+      41.307,
+      39.951
+    ],
+    "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": [
+      84.68,
+      92.097
+    ]
+  },
+  "sessions": [
+    "CA98DD45-5DB6-4AE2-B47A-BCAA62356FC1",
+    "310AD14D-CE19-4020-B33D-AE7CD53A92B9",
+    "C3DCE94A-9C87-49DD-81AD-33A9165CC0C0",
+    "81B0E23B-B716-47F0-B51A-3C0A96880427",
+    "8E04563A-2932-457D-B4A9-CB8987D08904",
+    "91F60E41-DC2A-47A6-8459-1228B409FD47",
+    "BF3F0EA9-E0F0-40D1-9E35-67BE657E51E5",
+    "F744E336-306E-477C-BB47-ED4E90DF507C",
+    "97665E2C-BA63-43F7-86E0-2901C193E996",
+    "6691389B-BBA0-4569-AFC7-301819FBEBC2",
+    "390ACD9B-4293-4712-95B6-3A6A035F401A",
+    "C93BEA01-567E-4C23-8A72-0DA9F246E95A",
+    "DC62417A-9A7E-406F-B5C9-ADC051C5D884",
+    "9111EA0A-6C1D-43DB-B2AD-0853F258DC81",
+    "7EC07C6C-58C3-429D-BECF-EC4FFB096D5F",
+    "18B9D9CD-3B3F-4306-B769-09E6FDC5B8DD",
+    "8A5926A3-2CA7-4CFC-8582-3FF66B5D0FDA",
+    "4BC8BA9A-B9C0-4077-A12C-E58746479498",
+    "E51C8A63-6093-4A5F-8E93-EFD2C01EAA8F",
+    "8DAB100C-96FD-444C-A223-1B215150E191"
+  ],
+  "artifacts": {
+    "runID": 40517887202,
+    "ipa": {
+      "id": 12742124659,
+      "name": "ChaiTrade-unsigned-ipa",
+      "size_in_bytes": 1667770,
+      "url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12742124659",
+      "archive_download_url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12742124659/zip",
+      "expired": false,
+      "created_at": "2026-10-27T14:45:20Z",
+      "expires_at": "2026-11-03T14:45:18Z",
+      "updated_at": "2026-10-27T14:45:20Z",
+      "digest": "sha256:e136390826c066744c3628b2c08bc6a0339a3f26c7be30432858851956f9aeba",
+      "workflow_run": {
+        "id": 40517887202,
+        "repository_id": 1435185508,
+        "head_repository_id": 1435185508,
+        "head_branch": "main",
+        "head_sha": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba"
+      }
+    },
+    "evidence": {
+      "id": 12743565956,
+      "name": "ChaiTrade-test-evidence",
+      "size_in_bytes": 31536914,
+      "url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12743565956",
+      "archive_download_url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12743565956/zip",
+      "expired": false,
+      "created_at": "2026-10-27T14:46:33Z",
+      "expires_at": "2026-11-03T14:46:29Z",
+      "updated_at": "2026-10-27T14:46:33Z",
+      "digest": "sha256:671be8de49681e05bf3cdc7eff9888512f5d40846856e3c9a37046b0a3075c00",
+      "workflow_run": {
+        "id": 40517887202,
+        "repository_id": 1435185508,
+        "head_repository_id": 1435185508,
+        "head_branch": "main",
+        "head_sha": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba"
+      }
+    }
+  },
+  "gates": {
+    "xcodeTestAllowanceSeconds": 120,
+    "catchupCompletionSeconds": 35,
+    "animationsEnabled": true,
+    "T45": "unchanged"
+  },
+  "physicalDevice": "not executed",
+  "olderIOS18Runtime": "full two-round interaction acceptance not passed"
+}

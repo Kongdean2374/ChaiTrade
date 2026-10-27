@@ -9,7 +9,7 @@
 
 目前開發與驗證狀態見 [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md) 及 [未完成與無法實測項目](docs/REMAINING_WORK.md)。**建置成功不代表計劃書全部功能或實機驗收已完成。**
 
-最新交付（2026-10-27）：[未簽名 IPA](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724585202) · [完整測試報告](docs/TEST_REPORT.md) · [Actions 40481713600](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600)。67 項核心測試跨必要關卡執行，四項 UI 測試通過；實機驗收及計劃書剩餘缺口仍未完成。
+最新交付（2026-10-27）：[未簽名 IPA](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12742124659) · [完整測試報告](docs/TEST_REPORT.md) · [Actions 40517887202](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202)。71 項核心測試跨必要關卡執行，九項 UI 各兩次及額外下單專測兩次全數通過，20 個獨立資料目錄；實機、舊 iOS18.x 完整互動及計劃書剩餘缺口仍未完成。
 
 ## 不需要 Mac 的建置方式
 
