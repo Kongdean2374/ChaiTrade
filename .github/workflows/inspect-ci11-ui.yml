@@ -1,0 +1,42 @@
+name: Inspect retained UI control geometry
+on:
+  push:
+    branches: [inspect-ci11-ui-20261027]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  control-geometry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Kongdean2374/ChaiTrade
+          run-id: 40587436896
+          github-token: ${{ github.token }}
+          name: product-visual-1
+          path: evidence
+      - name: Report only known control identifiers and numeric rectangles
+        shell: python
+        run: |
+          # Safer alternative to the rejected screenshot-to-public-log operation:
+          # never read, encode, copy or print any screenshot or arbitrary UI text.
+          # These are existing clean XCTest artifacts, not the user's 21 photos.
+          import pathlib,re,json
+          controls=("openOrder","orderQuantity","submitOrder","openJournal","journalText","saveJournal","activeModeBanner")
+          root=pathlib.Path("evidence")
+          count=0
+          for path in root.rglob("*.txt"):
+              if "attachments" not in str(path.parent): continue
+              text=path.read_text(errors="replace")
+              if not ("Application," in text and "frame=" in text): continue
+              matches=[]
+              for line in text.splitlines():
+                  for control in controls:
+                      if ("identifier: '"+control+"'") not in line: continue
+                      rect=re.search(r"frame=(\{\{[-0-9., ]+\}, \{[-0-9., ]+\}\})",line)
+                      matches.append({"control":control,"rect":rect.group(1) if rect else None})
+              count+=1
+              print("CONTROL_GEOMETRY",count,json.dumps(matches))
+          print("HIERARCHY_COUNT",count)
