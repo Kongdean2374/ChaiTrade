@@ -6,6 +6,7 @@ private struct OrderDraft:Identifiable{
     let instrument:Instrument
     let context:AccountContext
     let side:Side
+    let board:TradingBoard
 }
 struct TradingView:View{
     @EnvironmentObject var model:AppModel
@@ -25,9 +26,10 @@ struct TradingView:View{
             if let i=model.selected{
                 VStack(alignment:.leading,spacing:20){
                     productHeader(i)
+                    if i.usesTaiwanBoards{Picker("台股交易盤別",selection:Binding(get:{model.selectedBoard},set:{model.changeBoard($0)})){ForEach(TradingBoard.allCases,id:\.self){Text($0.label)}}.pickerStyle(.segmented)}
                     chartSection
                     if model.state?.simulation != nil{SimulationControls();if !i.rules.isOpen(at:model.now){Button("順序推進至下一交易時段"){Task{await model.nextSession()}}.buttonStyle(.bordered)}}
-                    if model.status(for:i) != .ready{MarketCard{QuoteStatusLabel(status:model.status(for:i));Text(model.status(for:i).nextStep).font(.subheadline).foregroundStyle(.secondary);if model.state?.mode == .online{HStack{Button("重試行情"){Task{await model.fetchQuotes()}};Button("行情連線"){connections=true}}}}}
+                    if model.status(for:i,board:i.usesTaiwanBoards ? model.selectedBoard:nil) != .ready{MarketCard{QuoteStatusLabel(status:model.status(for:i,board:i.usesTaiwanBoards ? model.selectedBoard:nil));Text(model.status(for:i,board:i.usesTaiwanBoards ? model.selectedBoard:nil).nextStep).font(.subheadline).foregroundStyle(.secondary);if model.state?.mode == .online{HStack{Button("重試行情"){Task{await model.fetchQuotes()}};Button("行情連線"){connections=true}}}}}
                     if let q=model.quote,q.valid,[ExecutionGrade.E1,.E2].contains(q.grade),!q.bids.isEmpty,!q.asks.isEmpty{
                         MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:model.state?.mode == .offline ? "本機模擬對手盤；數量依商品單位":"來源提供的買賣盤；本機成交會消耗可用流動性");HStack(alignment:.top,spacing:18){BookSide(title:"買盤",levels:q.bids,color:.green);BookSide(title:"賣盤",levels:q.asks,color:.red)}}
                     }else if model.state?.mode == .online{Text("目前沒有可供撮合的可靠買賣盤。可查看既有部位、委託與歷史，也可撤銷本機委託。").font(.footnote).foregroundStyle(.secondary)}
@@ -44,7 +46,7 @@ struct TradingView:View{
             }else{ContentUnavailableView("先選擇商品",systemImage:"chart.xyaxis.line",description:Text("前往行情頁搜尋代碼或名稱"));Button("探索行情"){model.tab=1}}
         }.background(Color(.systemGroupedBackground)).navigationTitle("商品詳情").navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge:.bottom){tradeBar}
-            .sheet(item:$draft,onDismiss:{if showOrdersAfterDismiss{showOrdersAfterDismiss=false;model.tab=3}}){intent in NavigationStack{OrderForm(instrument:intent.instrument,accountContext:intent.context,initialSide:intent.side,onSubmitted:{showOrdersAfterDismiss=true;draft=nil})}}
+            .sheet(item:$draft,onDismiss:{if showOrdersAfterDismiss{showOrdersAfterDismiss=false;model.tab=3}}){intent in NavigationStack{OrderForm(instrument:intent.instrument,accountContext:intent.context,initialSide:intent.side,initialBoard:intent.board,onSubmitted:{showOrdersAfterDismiss=true;draft=nil})}}
             .sheet(isPresented:$details){NavigationStack{InstrumentDetails()}}
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
@@ -59,7 +61,7 @@ struct TradingView:View{
             HStack(alignment:.top){VStack(alignment:.leading,spacing:5){Text(i.name).font(.title2.bold());Text(i.symbol+" · "+(i.identity?.exchange ?? i.asset.label)+" · "+i.currency).font(.caption).foregroundStyle(.secondary)};Spacer();Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id)==true ? "star.fill":"star").frame(minWidth:36,minHeight:44)}.accessibilityLabel("切換自選").disabled(model.interactionBlocked).accessibilityIdentifier("toggleWatch").accessibilityValue(model.state?.watchlist.contains(i.id)==true ? "已加入":"未加入");Button{details=true}label:{Image(systemName:"info.circle").frame(minWidth:30,minHeight:44)}.accessibilityLabel("商品規格")}
             Text(MarketText.number(model.quote?.last)).font(.system(size:34,weight:.bold,design:.rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.5)
             if let change=MarketText.change(model.quote,summary:model.summary(for:i)){Text(change.0).font(.subheadline.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.taiwanColors ? Color.red:Color.green):(model.settings.taiwanColors ? Color.green:Color.red))}
-            HStack{QuoteStatusLabel(status:model.status(for:i));Spacer();if let q=model.quote{Text(Date(timeIntervalSince1970:TimeInterval(q.time)).formatted(date:.abbreviated,time:.shortened)).font(.caption2).foregroundStyle(.secondary)}}
+            HStack{QuoteStatusLabel(status:model.status(for:i,board:i.usesTaiwanBoards ? model.selectedBoard:nil));Spacer();if let q=model.quote{Text(Date(timeIntervalSince1970:TimeInterval(q.time)).formatted(date:.abbreviated,time:.shortened)).font(.caption2).foregroundStyle(.secondary)}}
             if let summary=model.summary(for:i){HStack{Metric(title:summary.window+"量",value:MarketText.number(summary.volume));if let high=summary.high{Metric(title:"最高",value:MarketText.number(high))};if let low=summary.low{Metric(title:"最低",value:MarketText.number(low))}}}
             if model.state?.mode == .offline{Text("價格、成交與事件均為離線模擬").font(.caption).foregroundStyle(.orange)}
         }
@@ -75,7 +77,7 @@ struct TradingView:View{
     private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption)}
     private var chartTools:some View{HStack{indicatorPicker;chartActions}}
     @ViewBuilder private var tradeBar:some View{
-        if let i=model.selected,i.asset != .index,model.canTrade(i),let context=model.context{HStack(spacing:12){Button(i.buyLabel){draft=OrderDraft(instrument:i,context:context,side:.buy)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){draft=OrderDraft(instrument:i,context:context,side:.sell)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(.bar)}
+        if let i=model.selected,i.asset != .index,model.canTrade(i),let context=model.context{HStack(spacing:12){Button(i.buyLabel){draft=OrderDraft(instrument:i,context:context,side:.buy,board:model.selectedBoard)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){draft=OrderDraft(instrument:i,context:context,side:.sell,board:model.selectedBoard)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(.bar)}
         else if let i=model.selected{HStack{Image(systemName:"info.circle");Text(i.asset == .index ? "指數僅供參考；請選擇相關ETF或期貨。":model.interactionBlocked ? "市場補算中，暫停新委託":"目前行情或規則不符合新委託條件").font(.caption);Spacer();Button("查看委託"){model.tab=3}}.padding(12).background(.bar)}
     }
 }
@@ -89,6 +91,7 @@ struct OrderForm:View{
     let instrument:Instrument
     let accountContext:AccountContext
     var initialSide=Side.buy
+    var initialBoard=TradingBoard.regular
     let onSubmitted:@MainActor ()->Void
     @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
@@ -117,16 +120,17 @@ struct OrderForm:View{
     @State private var initialized=false
     @State private var requestID=UUID().uuidString
     @State private var ocoRequestID=UUID().uuidString
-    private var quote:Quote?{model.state?.quotes[instrument.id]}
+    private var board:TradingBoard?{instrument.usesTaiwanBoards ? (unit == "張" ? .regular:.oddLot):nil}
+    private var quote:Quote?{model.state?.quotes[instrument.quoteKey(board:board)]}
     private var isCurrent:Bool{model.context==accountContext}
     private var orderQuantity:Amount?{guard let raw=try? Amount(quantity) else{return nil};return try? raw*Amount(unit == "張" ? (instrument.identity?.boardLot ?? 1000):1)}
     var body:some View{Form{
         Section(instrument.name+" · "+instrument.symbol){
             Text("本機模擬委託").font(.caption).foregroundStyle(.secondary)
             Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)
-            Picker("委託類型",selection:$kind){ForEach(advanced ? OrderKind.allCases:[.market,.limit],id:\.self){Text($0.label)}}.accessibilityIdentifier("orderKind")
+            Picker("委託類型",selection:$kind){ForEach(board == .oddLot ? [.limit]:advanced ? OrderKind.allCases:[.market,.limit],id:\.self){Text($0.label)}}.accessibilityIdentifier("orderKind")
             if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad)}
-            if instrument.isTaiwanEquity{Picker("數量單位",selection:$unit){Text("股").tag("股");Text("張（1,000股）").tag("張")}.pickerStyle(.segmented)}
+            if instrument.usesTaiwanBoards{Picker("數量單位",selection:$unit){Text("股").tag("股");Text("張（1,000股）").tag("張")}.pickerStyle(.segmented)}
             TextField("數量（\(unit)）",text:$quantity).keyboardType(.decimalPad).accessibilityIdentifier("orderQuantity")
             HStack{ForEach([25,50,75,100],id:\.self){percent in Button("\(percent)%"){setProportion(percent)}.font(.caption).buttonStyle(.borderless)}}
             if !instrument.asset.derivative{LabeledContent("可賣數量（\(instrument.quantityUnit)）",value:MarketText.number(model.state?.positions[instrument.id]?.quantity ?? .zero))}
@@ -137,7 +141,7 @@ struct OrderForm:View{
             Picker("保證金模式",selection:$margin){Text("逐倉").tag(MarginMode.isolated);Text("全倉（同幣別）").tag(MarginMode.cross)}
             Text("虛擬合約可能強平及穿倉；全倉僅共用同帳戶、同結算幣別抵押品。").font(.caption).foregroundStyle(.orange)
         }}
-        Section{DisclosureGroup("進階委託與保護",isExpanded:$advanced){
+        if board != .oddLot{Section{DisclosureGroup("進階委託與保護",isExpanded:$advanced){
             if kind.conditional && kind != .trailing{TextField("觸發價",text:$trigger).keyboardType(.decimalPad)}
             if kind == .trailing{TextField("距離／比例（0.05＝5%）",text:$distance).keyboardType(.decimalPad);Toggle("使用百分比",isOn:$trailingPercent)}
             if kind.conditional{Picker("觸發依據",selection:$reference){ForEach(TriggerReference.allCases,id:\.self){Text($0.rawValue)}}}
@@ -148,18 +152,19 @@ struct OrderForm:View{
             Picker("條件保護",selection:$protection){Text("無").tag("無");Text("括號（成交後保護）").tag("括號");Text("OCO（兩張退出委託）").tag("OCO")}
             if protection != "無"{TextField("停利價",text:$profit).keyboardType(.decimalPad);TextField("停損價",text:$stop).keyboardType(.decimalPad)}
             Text("條件單只在引擎有有效資料並運作時監控。未監控期間不會補造A成交。").font(.caption).foregroundStyle(.secondary)
-        }}
+        }}}else{Section{Text("盤中零股採當日有效限價，獨立買賣盤與交易時段；不支援市價、跨日、IOC／FOK與Post-only。").font(.caption)}}
         Section("委託摘要"){
             LabeledContent("商品",value:instrument.symbol+" · "+instrument.asset.label)
             LabeledContent("數量（\(instrument.quantityUnit)）",value:MarketText.number(orderQuantity))
             if let p=preview{LabeledContent("預估金額（\(instrument.currency)）",value:MarketText.number(p.0));LabeledContent("預估費用",value:MarketText.number(p.1));LabeledContent("預估交易稅",value:MarketText.number(p.3));if instrument.asset.derivative{LabeledContent("預估初始保證金",value:MarketText.number(p.2))}}
             Text("金額為依目前價格的估計，實際依有效買賣盤、價格保護及累計費稅撮合；可能部分成交。所有交易與資金均為模擬。").font(.caption).foregroundStyle(.secondary)
         }
-        Section{Button(sending ? "送出中…":"檢查並送出模擬委託"){confirm=true}.font(.headline).disabled(sending || submitted || model.interactionBlocked || !isCurrent).accessibilityIdentifier("submitOrder")}
+        Section{Button(sending ? "送出中…":"檢查並送出模擬委託"){confirm=true}.font(.headline).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder")}
     }.disabled(sending).scrollDismissesKeyboard(.interactively).interactiveDismissDisabled(sending).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
-    }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;unit=instrument.quantityUnit;if instrument.asset == .crypto{quantity="0.001"}}
+    }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"}}
+        .onChange(of:unit){_,_ in if board == .oddLot{kind = .limit;tif = .DAY;postOnly=false;protection="無";model.changeBoard(.oddLot)}else if instrument.usesTaiwanBoards{model.changeBoard(.regular)}}
         .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text(instrument.name+"（"+instrument.symbol+"）\n"+(side == .buy ? instrument.buyLabel:instrument.sellLabel)+" · "+MarketText.number(orderQuantity)+instrument.quantityUnit+"\n"+kind.label+" · "+instrument.currency+"\n不會向交易所傳送委託。")}
     }
     private var preview:(Amount,Amount,Amount,Amount)?{
@@ -180,6 +185,7 @@ struct OrderForm:View{
         guard !sending,!submitted,!model.interactionBlocked,isCurrent else{return};sending=true;defer{sending=false}
         do{guard let size=orderQuantity else{throw TradeError.invalid("請填入正確數量")}
             var r=OrderRequest(instrumentID:instrument.id,side:side,kind:kind,quantity:size,price:[.limit,.stopLimit].contains(kind) ? try Amount(price):nil,trigger:kind.conditional && kind != .trailing ? try Amount(trigger):nil)
+            r.board=board
             r.requestID=requestID;r.timeInForce=tif;r.expiresAt=tif == .GTD ? Int64(expiry.timeIntervalSince1970):nil;r.postOnly=postOnly;r.reduceOnly=reduceOnly;r.leverage=leverage;r.marginMode=margin;r.triggerReference=reference
             if kind == .trailing{r.trailingDistance=try Amount(distance);r.trailingPercent=trailingPercent}
             if protection == "括號"{r.bracketProfit=try Amount(profit);r.bracketStop=try Amount(stop)}

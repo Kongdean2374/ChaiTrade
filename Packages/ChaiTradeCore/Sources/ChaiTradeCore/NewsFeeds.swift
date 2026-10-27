@@ -14,6 +14,8 @@ public enum PublicNewsFeed {
     }
     public static func parseFederalReserve(_ data:Data,now:Int64)throws->[MarketNewsStory]{
         guard data.count<=2_000_000 else{throw TradeError.unavailable("新聞摘要回應過大")}
+        let prefix=String(decoding:data,as:UTF8.self).uppercased()
+        guard !prefix.contains("<!DOCTYPE"),!prefix.contains("<!ENTITY") else{throw TradeError.unavailable("新聞摘要含不支援的實體宣告")}
         let delegate=RSSSummaryParser(),parser=XMLParser(data:data);parser.shouldResolveExternalEntities=false;parser.delegate=delegate
         guard parser.parse() else{throw TradeError.unavailable("官方新聞摘要格式已變更，請稍後重試")}
         return delegate.items.prefix(100).compactMap{item in

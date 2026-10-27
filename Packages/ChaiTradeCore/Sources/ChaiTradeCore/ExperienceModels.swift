@@ -106,3 +106,19 @@ public extension RulePack {
         let unit=tick(at:price);return try (price/unit).rounded(0,direction)*unit
     }
 }
+
+public extension Instrument{
+    var usesTaiwanBoards:Bool{isTaiwanEquity && identity?.legacy != true && [.taiwanStock,.etf].contains(asset)}
+    func board(for request:OrderRequest)->TradingBoard?{guard usesTaiwanBoards else{return nil};return request.board ?? (request.quantity.decimal < Decimal(identity?.boardLot ?? 1000) ? .oddLot:.regular)}
+    func quoteKey(board:TradingBoard?)->String{board == .oddLot ? id+"::oddLot":id}
+    func boardIsOpen(_ board:TradingBoard?,at time:Int64)->Bool{
+        guard rules.isOpen(at:time) else{return false}
+        guard usesTaiwanBoards,board == .oddLot else{return true}
+        var calendar=Calendar(identifier:.gregorian);calendar.timeZone=TimeZone(identifier:rules.timeZone) ?? .gmt
+        let parts=calendar.dateComponents([.year,.month,.day,.hour,.minute],from:Date(timeIntervalSince1970:TimeInterval(time)))
+        // TWSE/TPEx 2026-12-07 reform is an effective-dated rule, not applied retroactively.
+        let revised=(parts.year ?? 0)>2026 || ((parts.year ?? 0)==2026 && ((parts.month ?? 0)>12 || ((parts.month ?? 0)==12 && (parts.day ?? 0)>=7)))
+        return (parts.hour ?? 0)*60+(parts.minute ?? 0) >= (revised ? 540:550)
+    }
+}
+public extension Quote{var storageKey:String{board == .oddLot ? instrumentID+"::oddLot":instrumentID}}

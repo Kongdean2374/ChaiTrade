@@ -234,7 +234,7 @@ public struct MarketDataProvider: Sendable {
         return try timestamp(value)
     }
     /// Bounded read-only paging, then upward aggregation. Never expands daily bars into minutes.
-    public func history(_ instrument:Instrument,interval:Int64,count:Int=160,now:Int64,before:Int64?=nil)async throws->[Candle]{
+    public func history(_ instrument:Instrument,interval:Int64,count:Int=160,now:Int64,before:Int64?=nil,board:TradingBoard?=nil)async throws->[Candle]{
         guard count>0,count<=1000,interval>=60 else{throw TradeError.invalid("歷史範圍超過上限")}
         let native:Int64
         if interval>=86400{native=86400}
@@ -243,7 +243,7 @@ public struct MarketDataProvider: Sendable {
         else{native=interval}
         var cursor=before,all:[Int64:Candle]=[:],result:[Candle]=[]
         for _ in 0..<20{
-            let page=try await candles(instrument,interval:native,now:now,before:cursor).filter{$0.time<=(cursor ?? now)}
+            let page=try await candles(instrument,interval:native,now:now,before:cursor,board:board).filter{$0.time<=(cursor ?? now)}
             guard let oldest=page.map(\.time).min() else{break}
             for c in page{all[c.time]=c}
             result=CandleCalendar.aggregate(Array(all.values),interval:interval,zone:instrument.rules.timeZone,now:now)
@@ -257,8 +257,9 @@ public struct MarketDataProvider: Sendable {
         let end=before ?? now
         return Array(result.filter{$0.time<=end}.suffix(count))
     }
-    public func candles(_ instrument: Instrument, interval: Int64, now: Int64,before:Int64?=nil) async throws -> [Candle] {
+    public func candles(_ instrument: Instrument, interval: Int64, now: Int64,before:Int64?=nil,board:TradingBoard?=nil) async throws -> [Candle] {
         let symbol = instrument.symbol
+        if id == .fugle,board == .oddLot,interval>=86400{throw TradeError.unavailable("來源未提供零股日K，請切回整股查看日線；不以整股資料冒充零股")}
         let j: JSONValue
         switch id {
         case .coinbase:
@@ -271,7 +272,7 @@ public struct MarketDataProvider: Sendable {
                 j=try await fetch(path:"/marketdata/v1.0/\(family)/historical/candles/\(symbol)",query:["timeframe":"D","from":String(Self.iso((before ?? now)-299*86400).prefix(10)),"to":String(Self.iso(before ?? now).prefix(10))])
             }else{
                 guard [60,300,900,1800,3600].contains(interval),before==nil else{throw TradeError.unavailable("此 Fugle 分鐘介面只提供當日日內資料；較早歷史需來源授權的歷史介面")}
-                j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/candles/\(symbol)", query: ["timeframe":String(interval/60)])
+                j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/candles/\(symbol)", query: ["timeframe":String(interval/60)].merging(id == .fugle && board == .oddLot ? ["type":"oddlot"]:[:]){_,new in new})
             }
         case .alpaca:
             let tf = interval < 3600 ? "\(interval/60)Min" : interval < 86400 ? "\(interval/3600)Hour" : "1Day"

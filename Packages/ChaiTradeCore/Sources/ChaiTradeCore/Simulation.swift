@@ -78,7 +78,7 @@ public enum Simulation {
     public static func price(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Amount {
         try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),priceValue(instrument,at:time,state:state)))
     }
-    public static func quote(_ instrument: Instrument, state: SimulationState) throws -> Quote {
+    public static func quote(_ instrument: Instrument, state: SimulationState,board:TradingBoard?=nil) throws -> Quote {
         let time = state.time, price = try price(instrument, at: time, state: state)
         let active=SimulationNews.active(instrument,at:time,state:state)
         let tick=instrument.rules.tick(at:price)
@@ -90,14 +90,17 @@ public enum Simulation {
         var bids: [Level] = [], asks: [Level] = []
         for level in 1...8 {
             let delta = try spread * Amount(level)
-            let size = try instrument.rules.quantityStep * Amount(max(1, count / level))
+            var size = try instrument.rules.quantityStep * Amount(max(1, count / level))
+            if instrument.usesTaiwanBoards,board != .oddLot{let lot=try Amount(instrument.identity?.boardLot ?? 1000);size=try max(.one,(size/lot).rounded(0,.down))*lot}
+            if instrument.usesTaiwanBoards,board == .oddLot{size=min(try Amount("999"),size)}
             bids.append(Level(try instrument.rules.roundedPrice(max(tick,try price-delta),.down),size))
             asks.append(Level(try instrument.rules.roundedPrice(price+delta,.up),size))
         }
         var q = Quote(instrumentID: instrument.id, source: "B 決定性離線市場", time: time, sequence: time / step, last: price, bids: bids, asks: asks)
+        q.board=instrument.usesTaiwanBoards ? (board ?? .regular):nil
         if instrument.asset.derivative { q.mark = price }
         q.causalEventIDs=active.map(\.id)
-        if active.contains(where:{$0.kind=="halt"}){q.valid=false;q.coverage="模擬暫停交易情境，委託保留"}
+        if active.contains(where:{$0.kind=="halt"}){q.bids=[];q.asks=[];q.valid=false;q.coverage="模擬暫停交易情境，委託保留"}
         let referenceTime=time-86400
         let reference=try self.price(instrument,at:referenceTime,state:state)
         q.summary=QuoteSummary(reference:reference,window:instrument.asset == .crypto || instrument.asset == .perpetual ? "模擬24小時":"模擬前一日",marketStatus:instrument.rules.isOpen(at:time) ? "模擬交易中":"模擬休市")

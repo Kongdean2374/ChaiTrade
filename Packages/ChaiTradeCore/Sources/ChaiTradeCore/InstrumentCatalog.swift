@@ -123,8 +123,8 @@ public enum InstrumentCatalog {
         CatalogEntry(asset:"perpetual",symbol:"ADAUSDT",name:"Cardano USDT 線性永續（模擬）",exchange:"Binance USDⓈ-M",currency:"USDT",sector:"加密合約",base:"ADA",tick:"0.01",step:"0.001",price:"100",provider:"binance",multiplier:"1"),
         CatalogEntry(asset:"future",symbol:"TXF202611",name:"臺股期貨 2026年11月（模擬現金結算）",exchange:"TAIFEX",currency:"TWD",sector:"指數期貨",base:"TXF202611",tick:"1",step:"1",price:"20000",provider:"fugleFutures",multiplier:"200"),
         CatalogEntry(asset:"future",symbol:"MXF202611",name:"小型臺指期貨 2026年11月（模擬現金結算）",exchange:"TAIFEX",currency:"TWD",sector:"指數期貨",base:"MXF202611",tick:"1",step:"1",price:"20000",provider:"fugleFutures",multiplier:"50"),
-        CatalogEntry(asset:"future",symbol:"TE202611",name:"電子期貨 2026年11月（模擬現金結算）",exchange:"TAIFEX",currency:"TWD",sector:"指數期貨",base:"TE202611",tick:"1",step:"1",price:"20000",provider:"fugleFutures",multiplier:"4000"),
-        CatalogEntry(asset:"future",symbol:"TF202611",name:"金融期貨 2026年11月（模擬現金結算）",exchange:"TAIFEX",currency:"TWD",sector:"指數期貨",base:"TF202611",tick:"1",step:"1",price:"20000",provider:"fugleFutures",multiplier:"1000"),
+        CatalogEntry(asset:"future",symbol:"TE202611",name:"電子期貨 2026年11月（模擬現金結算）",exchange:"TAIFEX",currency:"TWD",sector:"指數期貨",base:"TE202611",tick:"0.05",step:"1",price:"20000",provider:"fugleFutures",multiplier:"4000"),
+        CatalogEntry(asset:"future",symbol:"TF202611",name:"金融期貨 2026年11月（模擬現金結算）",exchange:"TAIFEX",currency:"TWD",sector:"指數期貨",base:"TF202611",tick:"0.2",step:"1",price:"20000",provider:"fugleFutures",multiplier:"1000"),
         CatalogEntry(asset:"future",symbol:"ESZ6",name:"E-mini S&P 500 2026年12月（模擬現金結算）",exchange:"CME",currency:"USD",sector:"指數期貨",base:"ESZ6",tick:"0.25",step:"1",price:"5000",provider:"",multiplier:"50"),
         CatalogEntry(asset:"index",symbol:"IX0001",name:"臺灣加權指數",exchange:"TWSE",currency:"TWD",sector:"市場指數",base:"IX0001",tick:"0.01",step:"1",price:"20000",provider:"fugle",multiplier:"1"),
         CatalogEntry(asset:"index",symbol:"IX0039",name:"臺灣電子類指數",exchange:"TWSE",currency:"TWD",sector:"市場指數",base:"IX0039",tick:"0.01",step:"1",price:"20000",provider:"fugle",multiplier:"1"),
@@ -153,7 +153,7 @@ public enum InstrumentCatalog {
             if asset == .future{rules.expiry=entry.exchange=="CME" ? 1797604200:1794980700;if mode == .offline{rules.dailySettlementMinute=entry.exchange=="CME" ? 960:825};rules.timeZone=entry.exchange=="CME" ? "America/Chicago":"Asia/Taipei"}
             var instrument=Instrument(id:identifier,symbol:entry.symbol,name:entry.name,asset:asset,currency:entry.currency,rules:rules,initialPrice:mode == .offline ? try Amount(entry.price):.zero,provider:mode == .online ? provider:nil)
             let market:MarketDomain=[.crypto,.perpetual].contains(asset) ? .crypto:[.forex,.future].contains(asset) ? .other:.stocks
-            instrument.identity=InstrumentIdentity(exchange:entry.exchange,market:market,baseAsset:entry.base,unit:asset == .crypto || asset == .perpetual ? entry.base:asset == .forex ? "單位":asset == .future ? "口":"股",boardLot:entry.exchange=="TWSE" && asset != .index ? 1000:1,sector:entry.sector)
+            instrument.identity=InstrumentIdentity(exchange:entry.exchange,market:market,baseAsset:entry.base,unit:asset == .crypto || asset == .perpetual ? entry.base:asset == .forex ? "單位":asset == .future ? "口":asset == .index ? "點":"股",boardLot:entry.exchange=="TWSE" && asset != .index ? 1000:1,sector:entry.sector)
             if mode == .offline,[.crypto,.perpetual].contains(asset){instrument.liquidity=Int(min(1e12,max(1000,10000/instrument.initialPrice.displayDouble/rules.quantityStep.displayDouble)))}
             if mode == .online && asset == .future{instrument.requiresRuleConfirmation=true}
             return instrument

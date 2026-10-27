@@ -150,6 +150,14 @@ public actor TradingEngine {
         guard i.asset != .index, !i.halted else { throw TradeError.invalid("此商品目前不可交易（指數只供參考）") }
         guard i.requiresRuleConfirmation != true else{throw TradeError.invalid("請先核對並保存此合約的乘數、到期日與自訂模擬規則，再建立部位")}
         guard i.rules.expiry == nil || time < i.rules.expiry! else { throw TradeError.invalid("合約已到期") }
+        let board=i.board(for:r)
+        if let board{
+            let lot=try Amount(i.identity?.boardLot ?? 1000)
+            if board == .regular{guard try r.quantity.isMultiple(of:lot) else{throw TradeError.invalid("整股數量須為每張交易單位的整數倍；零股請選盤中零股")}}
+            else{guard r.quantity > .zero,r.quantity<lot,try r.quantity.isMultiple(of:.one) else{throw TradeError.invalid("盤中零股數量須為1至999股")}
+                guard r.kind == .limit,r.timeInForce == .DAY,!r.postOnly else{throw TradeError.invalid("盤中零股採當日有效限價委託；市價、跨日與立即成交指令不適用")}
+            }
+        }
         guard r.quantity > .zero, try r.quantity.isMultiple(of: i.rules.quantityStep) else { throw TradeError.invalid("數量不符合商品級距") }
         for p in [r.price, r.trigger].compactMap({$0}) {
             guard p > .zero, try p.isMultiple(of: i.rules.tick(at:p)) else { throw TradeError.invalid("價格不符合最小跳動") }
@@ -175,7 +183,7 @@ public actor TradingEngine {
             }
             guard try r.quantity + sum(groups.values) <= position else { throw TradeError.insufficient("可用持倉不足，或已由其他委託保留") }
         }
-        let q = s.quotes[i.id]
+        let q = s.quotes[i.quoteKey(board:board)]
         let ref = r.price ?? q?.last ?? i.initialPrice
         guard ref > .zero else { throw TradeError.unavailable("缺少有效價格，請先更新行情；不使用合成報價估算保留資金") }
         let protection = try Amount("0.05")
@@ -203,9 +211,10 @@ public actor TradingEngine {
     @discardableResult private static func accept(_ r: OrderRequest, in s: inout AccountState, time: Int64) throws -> String {
         if let existing = s.orders.values.first(where: { $0.request.requestID == r.requestID }) { return existing.id }
         let (i, ref, reservation) = try validate(r, in: s, time: time)
+        var r=r;r.board=i.board(for:r)
         let id = r.requestID
         var order=Order(id: id, accountID: s.accountID, request: r, reserved: reservation, referencePrice: ref, createdAt: time, updatedAt: time, ruleVersion: i.rules.version)
-        order.postOnlyChecked=s.quotes[i.id].map{Self.fresh($0,now:time)} ?? false
+        order.postOnlyChecked=s.quotes[i.quoteKey(board:r.board)].map{Self.fresh($0,now:time)} ?? false
         s.orders[id]=order
         s.audit("accepted", "\(i.symbol) \(r.kind.label) \(r.quantity)", time: time)
         return id
@@ -216,7 +225,7 @@ public actor TradingEngine {
         let eventTime=state.simulation?.time ?? wallClock?() ?? time
         return try transaction { s in
             let id = try Self.accept(request, in: &s, time: eventTime)
-            if let q = s.quotes[request.instrumentID] { try Self.match(&s, quote: q, now: eventTime) }
+            if let order=s.orders[id],let i=s.instruments.first(where:{$0.id==request.instrumentID}),let q = s.quotes[i.quoteKey(board:i.board(for:order.request))] { try Self.match(&s, quote: q, now: eventTime) }
             try Self.recordEquity(&s,time:eventTime)
             return id
         }
@@ -232,7 +241,7 @@ public actor TradingEngine {
             var a = first, b = second; let group = "oco-\(first.requestID)"
             a.groupID = group; b.groupID = group
             _ = try Self.accept(a, in: &s, time: time); _ = try Self.accept(b, in: &s, time: time)
-            if let q = s.quotes[a.instrumentID] { try Self.match(&s, quote: q, now: time) }
+            if let i=s.instruments.first(where:{$0.id==a.instrumentID}),let q = s.quotes[i.quoteKey(board:i.board(for:a))] { try Self.match(&s, quote: q, now: time) }
             try Self.recordEquity(&s,time:time)
         }
     }
@@ -251,13 +260,13 @@ public actor TradingEngine {
             guard var o = s.orders[id], o.status.open, quantity > o.filled else { throw TradeError.invalid("委託已完成或新總量不大於成交量") }
             var r = o.request; r.quantity = try quantity - o.filled; r.price = price
             if let trigger { r.trigger = trigger }
-            let (_, ref, reservation) = try Self.validate(r, in: s, time: time, excluding: id)
+            let (i, ref, reservation) = try Self.validate(r, in: s, time: time, excluding: id)
             o.request.quantity = quantity; o.request.price = price; o.referencePrice = ref; o.reserved = reservation
             o.request.trigger = r.trigger
-            o.postOnlyChecked=s.quotes[r.instrumentID].map{Self.fresh($0,now:time)} ?? false
+            o.postOnlyChecked=s.quotes[i.quoteKey(board:i.board(for:r))].map{Self.fresh($0,now:time)} ?? false
             o.revision += 1; o.updatedAt = time; s.orders[id] = o
             s.audit("amended", "改單第 \(o.revision) 次，重新計算保留", time: time)
-            if let q = s.quotes[r.instrumentID] { try Self.match(&s, quote: q, now: time) }
+            if let q = s.quotes[i.quoteKey(board:i.board(for:r))] { try Self.match(&s, quote: q, now: time) }
             try Self.recordEquity(&s,time:time)
         }
     }
@@ -272,8 +281,8 @@ public actor TradingEngine {
         }
         try transaction { s in
             try Self.settleDue(&s, now:now)
-            if let old = s.quotes[quote.instrumentID],old.source == quote.source {if old.sequence>quote.sequence{return};if old.sequence==quote.sequence && old.valid && old.quality == .realtime{return}}
-            s.quotes[quote.instrumentID] = quote
+            if let old = s.quotes[quote.storageKey],old.source == quote.source {if old.sequence>quote.sequence{return};if old.sequence==quote.sequence && old.valid && old.quality == .realtime{return}}
+            s.quotes[quote.storageKey] = quote
             try Self.match(&s, quote: quote, now: now)
             try Self.risk(&s, quote: quote, now: now)
             try Self.recordEquity(&s,time:now)
@@ -316,7 +325,7 @@ public actor TradingEngine {
         let fresh = Self.fresh(q,now:now)
         let bookValid = q.last > .zero && q.bids.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && q.asks.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && (q.bids.first == nil || q.asks.first == nil || q.bids[0].price < q.asks[0].price)
         let gradeOK = q.grade == .E1 || q.grade == .E2 || (q.grade == .E3 && s.allowEstimatedExecution)
-        let ordered = s.orders.values.filter { $0.status.open && $0.request.instrumentID == i.id }.sorted { ($0.updatedAt, $0.id) < ($1.updatedAt, $1.id) }.map(\.id)
+        let ordered = s.orders.values.filter { $0.status.open && $0.request.instrumentID == i.id && (!i.usesTaiwanBoards || i.board(for:$0.request)==(q.board ?? .regular)) }.sorted { ($0.updatedAt, $0.id) < ($1.updatedAt, $1.id) }.map(\.id)
         for id in ordered {
             guard var o = s.orders[id], o.status.open else { continue }
             let startingFilled = o.filled
@@ -325,7 +334,7 @@ public actor TradingEngine {
                 o.status = .expired; o.reserved = .zero; s.orders[id] = o; s.audit("expired", id, time: now); continue
             }
             let riskPriceValid = !i.asset.derivative || (q.mark ?? .zero) > .zero
-            guard fresh && bookValid && gradeOK && i.rules.isOpen(at: q.time) && !i.halted && riskPriceValid else {
+            guard fresh && bookValid && gradeOK && i.boardIsOpen(q.board,at: q.time) && !i.halted && riskPriceValid else {
                 o.suspension = !fresh ? "行情過期或非即時，暫停成交" : !bookValid ? "委託簿無效" : !gradeOK ? "資料能力不足；E3 估算須明確啟用" : !riskPriceValid ? "缺少合約風險價；需有效標記價或明確啟用自訂參考價模型" : "非交易時段或停牌"
                 s.orders[id] = o; continue
             }
@@ -339,7 +348,7 @@ public actor TradingEngine {
             let wasTriggered = o.triggered
             guard try trigger(&o, q) else { s.orders[id] = o; continue }
             if !wasTriggered && o.triggered && o.request.kind != .stopLimit { o.referencePrice = q.last }
-            let key = "\(i.id)|\(o.request.side.rawValue)"
+            let key = "\(q.storageKey)|\(o.request.side.rawValue)"
             let stamp = "\(key)|\(q.source)|\(q.sequence)"
             var levels: [Level]
             if let saved = s.consumed[stamp] { levels = saved }
@@ -364,7 +373,8 @@ public actor TradingEngine {
             for n in levels.indices where needed > .zero {
                 let p = levels[n].price
                 guard o.request.side == .buy ? p <= guardPrice : p >= guardPrice else { continue }
-                let quantity = min(needed, levels[n].quantity)
+                var quantity = min(needed, levels[n].quantity)
+                if i.usesTaiwanBoards,q.board != .oddLot{let lot=try Amount(i.identity?.boardLot ?? 1000);quantity=try (quantity/lot).rounded(0,.down)*lot}
                 if quantity > .zero { plan.append((n,quantity)); needed = try needed - quantity }
             }
             if o.request.timeInForce == .FOK && needed > .zero { plan = [] }
@@ -450,7 +460,7 @@ public actor TradingEngine {
             }else{o.reserved = o.request.side == .buy ? try remainingNotional+feeRemaining:.zero}
         }
         let fillID = "fill-\(o.id)-\(s.sequence + 1)"
-        var fill = Fill(id: fillID, accountID: s.accountID, orderID: o.id, instrumentID: i.id, side: o.request.side, quantity: quantity, price: price, fee: fee, tax: tax, time: now, quoteTime: q.time, source: q.source, grade: q.grade, estimatedExecution: q.grade == .E3, liquidityEventID: "\(q.source)-\(q.sequence)", ruleVersion: o.ruleVersion, realized: realized)
+        var fill = Fill(id: fillID, accountID: s.accountID, orderID: o.id, instrumentID: i.id, side: o.request.side, quantity: quantity, price: price, fee: fee, tax: tax, time: now, quoteTime: q.time, source: q.source, grade: q.grade, estimatedExecution: q.grade == .E3, liquidityEventID: "\(q.source)-\(q.board?.rawValue ?? "default")-\(q.sequence)", ruleVersion: o.ruleVersion, realized: realized)
         fill.causalEventIDs=q.causalEventIDs
         s.fills.append(fill)
         if delayedSettlement {
@@ -534,6 +544,7 @@ public actor TradingEngine {
                 for i in s.instruments.sorted(by: { $0.id < $1.id }) where i.rules.isOpen(at: sim.time) && !i.halted {
                     let q = try Simulation.quote(i, state: sim); s.quotes[i.id] = q
                     try Self.match(&s, quote: q, now: sim.time); try Self.risk(&s, quote: q, now: sim.time)
+                    if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:sim,board:.oddLot);s.quotes[odd.storageKey]=odd;try Self.match(&s,quote:odd,now:sim.time)}
                 }
                 if sim.time % 60 == 0 || s.sequence>financialSequence { try Self.recordEquity(&s,time:sim.time) }
             }
@@ -574,7 +585,7 @@ public actor TradingEngine {
     public func initializeQuotes(context: AccountContext) throws {
         try check(context)
         guard let sim = state.simulation else { return }
-        try transaction { s in for i in s.instruments { s.quotes[i.id] = try Simulation.quote(i, state: sim) } }
+        try transaction { s in for i in s.instruments { s.quotes[i.id] = try Simulation.quote(i, state: sim);if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:sim,board:.oddLot);s.quotes[odd.storageKey]=odd} } }
     }
     public func updatePreferences(watchlist: Set<String>? = nil, allowEstimated: Bool? = nil, leverageEnabled: Bool? = nil, useReferenceRiskPrice: Bool? = nil, continueWhileAway: Bool? = nil, context: AccountContext) throws {
         try check(context)

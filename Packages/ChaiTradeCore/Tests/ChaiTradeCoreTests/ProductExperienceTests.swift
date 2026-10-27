@@ -119,3 +119,68 @@ import Testing
     #expect(HTTPMarketFailure.classify(status:429,retryAfter:f.string(from:now.addingTimeInterval(90)),now:now).retryAfter==90)
     for kind in [MarketIssueKind.missingKey,.unauthorized,.unsupported,.rateLimited,.connectionFailed,.closed,.delayed,.stale]{#expect(!kind.nextStep.isEmpty)}
 }
+
+@Test func taiwanBoardsUseIndependentBooksUnitsAndEffectiveDatedSessions()async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),ctx=AccountContext(mode:.offline)
+    var state=try TradingEngine.initial(mode:.offline,capital:Amount("100000000"),time:1000)
+    let instrument=try #require(state.instruments.first{$0.symbol=="2330"});state.instruments=[instrument];state.simulation!.newsFrom=nil;state.simulation!.newsAccountingFrom=nil
+    let engine=try TradingEngine(context:ctx,repository:AccountRepository(root:root,mode:.offline),initial:state)
+    try await engine.initializeQuotes(context:ctx)
+    var snapshot=await engine.snapshot()
+    let regular=try #require(snapshot.quotes[instrument.id]),odd=try #require(snapshot.quotes[instrument.quoteKey(board:.oddLot)])
+    #expect(regular.board == .regular && odd.board == .oddLot)
+    #expect(try regular.asks[0].quantity.isMultiple(of:(try Amount(1000))))
+    #expect(odd.asks[0].quantity < (try Amount(1000)))
+    var request=OrderRequest(instrumentID:instrument.id,side:.buy,kind:.limit,quantity:(try Amount(10)),price:odd.asks[0].price);request.board = .oddLot;request.timeInForce = .DAY
+    _=try await engine.submit(request,time:state.simulation!.time,context:ctx)
+    snapshot=await engine.snapshot();#expect(snapshot.positions[instrument.id]?.quantity==(try Amount(10)))
+    let regularRequest=OrderRequest(instrumentID:instrument.id,side:.buy,kind:.market,quantity:(try Amount(1000)))
+    _=try await engine.submit(regularRequest,time:state.simulation!.time,context:ctx)
+    snapshot=await engine.snapshot();#expect(snapshot.positions[instrument.id]?.quantity==(try Amount(1010)))
+    #expect(snapshot.fills.filter{$0.orderID==regularRequest.requestID}.allSatisfy{(try? $0.quantity.isMultiple(of:(try Amount(1000))))==true})
+    #expect(snapshot.fills.filter{$0.orderID==request.requestID}.allSatisfy{$0.liquidityEventID.contains("oddLot")})
+    request.requestID=UUID().uuidString;request.quantity=(try Amount(1000))
+    await #expect(throws:TradeError.self){try await engine.submit(request,time:state.simulation!.time,context:ctx)}
+    request.quantity=(try Amount(10));request.kind = .market
+    await #expect(throws:TradeError.self){try await engine.submit(request,time:state.simulation!.time,context:ctx)}
+    request.kind = .limit;request.timeInForce = .GTC
+    await #expect(throws:TradeError.self){try await engine.submit(request,time:state.simulation!.time,context:ctx)}
+    let parser=ISO8601DateFormatter()
+    let before=Int64(parser.date(from:"2026-10-27T01:05:00Z")!.timeIntervalSince1970)
+    let after=Int64(parser.date(from:"2026-12-07T01:05:00Z")!.timeIntervalSince1970)
+    #expect(instrument.boardIsOpen(.regular,at:before));#expect(!instrument.boardIsOpen(.oddLot,at:before));#expect(instrument.boardIsOpen(.oddLot,at:after))
+}
+
+@Test func quoteRecoveryCannotInvalidateFreshRestOrResetConsumedLiquidity()async throws{
+    let ctx=AccountContext(mode:.online),root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    var state=try TradingEngine.initial(mode:.online,capital:(try Amount(10000)),time:1000)
+    let instrument=Instrument(id:"TEST",symbol:"TEST",name:"合成驗證商品",asset:.crypto,currency:"TWD",rules:try RulePack(tick:Amount("0.01"),quantityStep:.one),initialPrice:(try Amount(100)));state.instruments=[instrument]
+    let engine=try TradingEngine(context:ctx,repository:AccountRepository(root:root,mode:.online),initial:state)
+    let quote=Quote(instrumentID:instrument.id,source:"REST",time:1000,sequence:10,last:(try Amount(100)),bids:[Level((try Amount(99)),(try Amount(2)))],asks:[Level((try Amount(100)),(try Amount(2)))])
+    try await engine.ingest(quote,now:1000,context:ctx)
+    try await engine.markMonitoringGap(instrumentID:instrument.id,time:1000,expectedSourcePrefix:"WS",context:ctx)
+    #expect(await engine.snapshot().quotes[instrument.id]?.valid==true)
+    _=try await engine.submit(OrderRequest(instrumentID:instrument.id,side:.buy,kind:.market,quantity:(try Amount(2))),time:1000,context:ctx)
+    try await engine.markMonitoringGap(instrumentID:instrument.id,time:1000,context:ctx)
+    try await engine.ingest(quote,now:1000,context:ctx)
+    #expect(await engine.snapshot().quotes[instrument.id]?.valid==true)
+    _=try await engine.submit(OrderRequest(instrumentID:instrument.id,side:.buy,kind:.market,quantity:(try Amount(2))),time:1000,context:ctx)
+    #expect(await engine.snapshot().positions[instrument.id]?.quantity==(try Amount(2)))
+}
+
+@Test func officialNewsParserRejectsWrongHostFutureAndOfflineTransportUse()async throws{
+    let xml="""
+    <?xml version="1.0"?><rss><channel>
+    <item><title>Official synthetic parser fixture</title><link>https://www.federalreserve.gov/newsevents/test.htm</link><description><![CDATA[<p>Publisher summary only.</p>]]></description><pubDate>Tue, 27 Oct 2026 12:00:00 GMT</pubDate></item>
+    <item><title>Wrong host</title><link>https://example.com/test</link><pubDate>Tue, 27 Oct 2026 12:00:00 GMT</pubDate></item>
+    <item><title>Future</title><link>https://www.federalreserve.gov/future.htm</link><pubDate>Tue, 27 Oct 2026 14:00:00 GMT</pubDate></item>
+    </channel></rss>
+    """
+    let date=Int64(ISO8601DateFormatter().date(from:"2026-10-27T13:00:00Z")!.timeIntervalSince1970)
+    let stories=try PublicNewsFeed.parseFederalReserve(Data(xml.utf8),now:date)
+    #expect(stories.count==1);#expect(stories[0].summary=="Publisher summary only.");#expect(stories[0].origin == .real)
+    actor NeverTransport:MarketTransport{var called=false;func get(_ url:URL,headers:[String:String])async throws->Data{called=true;return Data()}}
+    let transport=NeverTransport()
+    await #expect(throws:TradeError.self){try await PublicNewsFeed.fetch(mode:.offline,transport:transport,now:date)}
+    #expect(await transport.called==false)
+}

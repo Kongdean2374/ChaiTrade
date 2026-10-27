@@ -47,6 +47,7 @@ public enum HTTPMarketFailure {
     public static func classify(status:Int,retryAfter:String?,now:Date=Date())->MarketDataFailure{
         switch status {
         case 401,403:return MarketDataFailure(.unauthorized)
+        case 451:return MarketDataFailure(.regionRestricted)
         case 404,400,422:return MarketDataFailure(.unsupported)
         case 429:
             var seconds=retryAfter.flatMap(Int64.init)

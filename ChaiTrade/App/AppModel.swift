@@ -72,6 +72,8 @@ struct ChartAmendment: Identifiable {
     @Published var loading=false
     @Published var progress: Double?
     @Published var selectedID=""
+    @Published var selectedBoard=TradingBoard.regular
+    var boardQuoteTask:Task<Void,Never>?
     @Published var tab=0
     @Published var stateRevision=UUID()
     @Published var candles: [Candle]=[]
@@ -121,7 +123,7 @@ struct ChartAmendment: Identifiable {
     }
     var now: Int64 { state?.simulation?.time ?? Int64(Date().timeIntervalSince1970) }
     var selected: Instrument? { state?.instruments.first { $0.id == selectedID } }
-    var quote: Quote? { state?.quotes[selectedID] }
+    var quote: Quote? {guard let selected else{return nil};return state?.quotes[selected.quoteKey(board:selected.usesTaiwanBoards ? selectedBoard:nil)]}
     var valuation: Valuation? { state.flatMap { try? Analytics.valuation($0) } }
     func money(_ value: Amount?) -> String { settings.hideBalances ? "••••••" : value?.description ?? "未提供" }
     var interactionBlocked:Bool { progress != nil || catchupTarget != nil || maintainingAccount || clockWarning != nil }
@@ -212,7 +214,7 @@ struct ChartAmendment: Identifiable {
         browseSaveTask?.cancel();await flushBrowsing()
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID()
         if let context{await quoteScheduler.cancel(context:context)}
-        candleTask?.cancel();candleTask=nil
+        candleTask?.cancel();candleTask=nil;boardQuoteTask?.cancel();boardQuoteTask=nil
         streamTask?.cancel();streamTask=nil
         guard let engine,let context else{return}
         if catchupTarget != nil || progress != nil{stopCatchup();return}
@@ -334,18 +336,18 @@ struct ChartAmendment: Identifiable {
         guard let i=selected,let s=state,let capturedContext=context else{return}
         let generation=UUID();chartGeneration=generation;chartError=nil;chartLoading=true
         defer{if generation==chartGeneration{chartLoading=false}}
-        let interval=interval,count=chartCount,before=chartBefore
+        let interval=interval,count=chartCount,before=chartBefore,board=selectedBoard
         do {
             let values: [Candle]
             if let sim=s.simulation { candleTask?.cancel();let task=Task.detached(priority:.userInitiated){try Simulation.candles(i,state:sim,interval:interval,count:count,before:before)};candleTask=task;values=try await task.value }
             else if let id=i.provider {
-                let key="\(s.accountID)|\(i.id)|\(interval)|\(before ?? 0)",service=try provider(id),now=Int64(Date().timeIntervalSince1970)
+                let key="\(s.accountID)|\(i.id)|\(board.rawValue)|\(interval)|\(before ?? 0)",service=try provider(id),now=Int64(Date().timeIntervalSince1970)
                 var cached=chartCache[key] ?? []
                 if !cached.isEmpty,cached.count<count,let first=cached.first{
-                    let older=try await service.history(i,interval:interval,count:count-cached.count,now:now,before:first.time-1)
+                    let older=try await service.history(i,interval:interval,count:count-cached.count,now:now,before:first.time-1,board:i.usesTaiwanBoards ? board:nil)
                     cached=older+cached
                 }
-                let head=try await service.history(i,interval:interval,count:cached.isEmpty ? count:min(count,160),now:now,before:before)
+                let head=try await service.history(i,interval:interval,count:cached.isEmpty ? count:min(count,160),now:now,before:before,board:i.usesTaiwanBoards ? board:nil)
                 var merged=Dictionary(cached.map{($0.time,$0)},uniquingKeysWith:{_,new in new});for c in head{merged[c.time]=c}
                 values=Array(merged.values.sorted{$0.time<$1.time}.suffix(count))
                 chartCache[key]=values;chartCacheOrder.removeAll{$0==key};chartCacheOrder.append(key)
@@ -367,7 +369,7 @@ struct ChartAmendment: Identifiable {
         #endif
         guard !interactionBlocked else{error="市場事件處理中，暫停新的委託";return false}
         guard self.context==context else{error="帳戶已變更，未送出委託";return false}
-        if context.mode == .online,let instrument=state?.instruments.first(where:{$0.id==request.instrumentID}),!canTrade(instrument){error="行情或交易條件已變更，請重新確認有效報價後再送出";return false}
+        if context.mode == .online,let instrument=state?.instruments.first(where:{$0.id==request.instrumentID}),!canTrade(instrument,board:instrument.board(for:request)){error="行情或交易條件已變更，請重新確認有效報價後再送出";return false}
         do{
             if let oco{try await engine.submitOCO(request,oco,time:self.now,context:context)}else{_=try await engine.submit(request,time:self.now,context:context)}
             notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh();return true
@@ -440,7 +442,7 @@ struct ChartAmendment: Identifiable {
             try await engine.restore(restored,maintenanceToken:token,context:context);self.clearChartCaches();self.stateRevision=UUID();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
             }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }
-        if let context{try? await engine.prepareProductExperience(context:context);await refresh();restoreProductBrowsing();loadCredentialReadiness();await ensureQuoteService()}
+        try? await engine.prepareProductExperience(context:context);await refresh();restoreProductBrowsing();loadCredentialReadiness();await ensureQuoteService()
         await loadChart()
     }
     func recoverFailedAccount(_ url: URL,password: String) async {

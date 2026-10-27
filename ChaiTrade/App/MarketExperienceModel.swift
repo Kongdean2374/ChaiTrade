@@ -19,6 +19,7 @@ extension AppModel {
         marketNews=[];newsIssue=nil;lastNewsFetch=0;simulatedSummaries=[:];summaryMinute = -1
         market=state.productPreferences?.activeMarket ?? .stocks
         selectedID=browsing[market]?.selectedID.flatMap{id in state.instruments.first{$0.id==id && $0.market==market}}?.id ?? defaultProduct(in:market)?.id ?? ""
+        selectedBoard=selected?.usesTaiwanBoards==true ? .oddLot:.regular
     }
     func defaultProduct(in market:MarketDomain)->Instrument?{
         let pool=(state?.instruments ?? []).filter{$0.market==market && $0.asset != .index && $0.identity?.legacy != true}
@@ -49,37 +50,53 @@ extension AppModel {
         selectedID=state?.instruments.first{$0.id==saved && $0.market==target}?.id ?? defaultProduct(in:target)?.id ?? ""
         chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartBefore=nil;chartCount=160
         editBrowsing(target){$0.selectedID=self.selectedID.isEmpty ? nil:self.selectedID}
-        restartStream();Task{await ensureQuoteService();if tab==2{await loadChart()}}
+        selectedBoard=selected?.usesTaiwanBoards==true ? .oddLot:.regular
+        restartStream();Task{await ensureQuoteService();await requestSelectedBoard();if tab==2{await loadChart()}}
     }
     func selectProduct(_ instrument:Instrument){
         if market != instrument.market{switchMarket(instrument.market)}
         selectedID=instrument.id;chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartBefore=nil;chartCount=160;tab=2
         editBrowsing(instrument.market){value in value.selectedID=instrument.id;value.recent.removeAll{$0==instrument.id};value.recent.insert(instrument.id,at:0);value.recent=Array(value.recent.prefix(30))}
-        restartStream();Task{await quoteScheduler.retry([instrument.id]);await ensureQuoteService();await loadChart()}
+        selectedBoard=instrument.usesTaiwanBoards ? .oddLot:.regular
+        restartStream();Task{await requestSelectedBoard();await quoteScheduler.retry([instrument.id]);await ensureQuoteService();await loadChart()}
     }
     func visible(_ id:String,owner:String,present:Bool){
         if present{visibleOwners[owner,default:[]].insert(id)}else{visibleOwners[owner]?.remove(id)}
         Task{await ensureQuoteService()}
     }
     func removeVisibleOwner(_ owner:String){visibleOwners.removeValue(forKey:owner);Task{await ensureQuoteService()}}
+    func changeBoard(_ board:TradingBoard){selectedBoard=board;clearChartCaches();candles=[];Task{await requestSelectedBoard();await loadChart()}}
+    func requestSelectedBoard()async{
+        boardQuoteTask?.cancel()
+        guard let instrument=selected,instrument.usesTaiwanBoards,selectedBoard == .oddLot,let context,context.mode == .online,let source=instrument.provider,let engine else{return}
+        let key=instrument.quoteKey(board:.oddLot)
+        boardQuoteTask=Task{
+            quoteIssues[key] = .loading
+            do{let q=try await provider(source).quote(instrument,now:now,includeSummary:true,board:.oddLot);guard !Task.isCancelled,self.context==context,self.selectedID==instrument.id else{return};try await engine.ingest(q,now:now,context:context);quoteIssues[key] = .ready;await refresh()}
+            catch{guard !Task.isCancelled,self.context==context else{return};quoteIssues[key]=(error as? MarketDataFailure)?.kind ?? .connectionFailed}
+        }
+    }
     func loadCredentialReadiness(){
         guard context?.mode == .online else{credentialReady=[:];return}
         for provider in ProviderID.allCases{credentialReady[provider] = !provider.needsKey || ((try? KeychainVault.read(provider.rawValue+".key").isEmpty)==false)}
     }
-    func status(for instrument:Instrument)->MarketIssueKind{
+    func status(for instrument:Instrument,board:TradingBoard?=nil)->MarketIssueKind{
+        let key=instrument.quoteKey(board:board)
         if instrument.halted{return .halted}
-        if state?.mode == .offline{if state?.quotes[instrument.id]?.valid==false{return .halted};return instrument.rules.isOpen(at:now) ? .ready:.closed}
+        if state?.mode == .offline{if state?.quotes[key]?.valid==false{return .halted};return instrument.rules.isOpen(at:now) ? .ready:.closed}
         guard let provider=instrument.provider else{return .unsupported}
         if provider.needsKey && credentialReady[provider] != true{return .missingKey}
-        guard let quote=state?.quotes[instrument.id] else{return quoteIssues[instrument.id] ?? .loading}
+        guard let quote=state?.quotes[key] else{return quoteIssues[key] ?? .loading}
+        if let issue=quoteIssues[key],![MarketIssueKind.ready,.loading,.stale].contains(issue),!quote.valid{return issue}
         if quote.quality == .delayed{return .delayed}
-        if !instrument.rules.isOpen(at:marketClock){return .closed}
-        if !quote.valid || quote.quality != .realtime || marketClock-quote.time>quote.maximumAge{return quoteIssues[instrument.id] == .rateLimited ? .rateLimited:.stale}
+        if !instrument.boardIsOpen(board,at:marketClock){return .closed}
+        if !quote.valid || quote.quality != .realtime || marketClock-quote.time>quote.maximumAge || marketClock-quote.receivedAt>quote.maximumAge || marketClock<quote.time-5{return quoteIssues[key].flatMap{[MarketIssueKind.ready,.loading].contains($0) ? nil:$0} ?? .stale}
         if quote.grade == .E3{return .referenceOnly}
         return .ready
     }
-    func canTrade(_ instrument:Instrument)->Bool{
-        guard !interactionBlocked,instrument.asset != .index,!instrument.halted,instrument.requiresRuleConfirmation != true,let quote=state?.quotes[instrument.id],quote.valid,instrument.rules.isOpen(at:now) else{return false}
+    func canTrade(_ instrument:Instrument,board:TradingBoard?=nil)->Bool{
+        let board=instrument.usesTaiwanBoards ? (board ?? selectedBoard):nil
+        guard !interactionBlocked,instrument.asset != .index,!instrument.halted,instrument.requiresRuleConfirmation != true,let quote=state?.quotes[instrument.quoteKey(board:board)],quote.valid,instrument.boardIsOpen(board,at:now) else{return false}
         guard quote.quality == .realtime,now>=quote.time-5,now-quote.time<=quote.maximumAge,now-quote.receivedAt<=quote.maximumAge else{return false}
         guard quote.grade == .E1 || quote.grade == .E2 || (quote.grade == .E3 && state?.allowEstimatedExecution==true) else{return false}
         return !instrument.asset.derivative || (quote.mark ?? .zero) > .zero
@@ -136,7 +153,8 @@ extension AppModel {
                 }
             }
             await refresh();fetching=false
-            if tab==2,updated.contains(selectedID),now-lastChartRefresh>=10,!chartLoading{lastChartRefresh=now;Task{await self.loadChart()}}
+            if tab==2,updated.contains(selectedID),now-lastChartRefresh>=10,!chartLoading{
+                await requestSelectedBoard();lastChartRefresh=now;Task{await self.loadChart()}}
         }
     }
     func loadNews(force:Bool=false)async{
