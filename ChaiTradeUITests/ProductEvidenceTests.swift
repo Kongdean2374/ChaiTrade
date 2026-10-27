@@ -32,7 +32,7 @@ import XCTest
     }
     func testOnlineConnectionWizardAndLegalScopePageEvidence()throws{
         let app=launchClean();defer{finish()};try start(app,online:true);try openSettings(app)
-        app.buttons["行情連線"].tap();try check(app.navigationBars["行情連線"].waitForExistence(timeout:5),"Connection wizard missing");capture("AFTER A connection wizard sources")
+        app.buttons["settingsConnections"].tap();try check(app.navigationBars["行情連線"].waitForExistence(timeout:5),"Connection wizard missing");capture("AFTER A connection wizard sources")
         for title in ["Coinbase Exchange","Fugle 台股","Alpaca（IEX）"]{
             let link=app.buttons.containing(.staticText,identifier:title).firstMatch;try reveal(link,in:app);link.tap()
             try check(app.navigationBars[title].waitForExistence(timeout:5),"Provider page missing "+title);capture("AFTER A source "+title)

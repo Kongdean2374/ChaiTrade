@@ -29,9 +29,12 @@ func liveVisibleBTCETHContinuousQuotesChartsRecoveryAndLocalExecution()async thr
     for round in 0..<3{
         for instrument in [btc,eth]{
             print("LIVE_PRODUCT_STAGE quote",instrument.symbol,round)
-            let now=Int64(Date().timeIntervalSince1970),quote=try await provider.quote(instrument,now:now,includeSummary:true)
-            #expect(quote.valid && quote.quality == .realtime && quote.grade == .E1)
-            #expect(quote.time<=now+5 && now-quote.time<=quote.maximumAge)
+            let requestedAt=Int64(Date().timeIntervalSince1970),quote=try await provider.quote(instrument,now:requestedAt,includeSummary:true)
+            let now=Int64(Date().timeIntervalSince1970)
+            print("LIVE_QUOTE_TIMING_SECONDS",instrument.symbol,"request",requestedAt,"receipt",quote.receivedAt,"checked",now,"source",quote.time)
+            try #require(quote.valid && quote.quality == .realtime && quote.grade == .E1)
+            try #require(quote.time<=now+5 && now-quote.time<=quote.maximumAge)
+            try #require(quote.receivedAt>=requestedAt && abs(now-quote.receivedAt)<=1)
             #expect(!quote.bids.isEmpty && !quote.asks.isEmpty && quote.bids[0].price<quote.asks[0].price)
             #expect(quote.summary?.reference != nil && quote.summary?.volume != nil)
             if let previous=sequences[instrument.id]{#expect(quote.sequence>=previous)}
@@ -44,7 +47,8 @@ func liveVisibleBTCETHContinuousQuotesChartsRecoveryAndLocalExecution()async thr
     let latest=await engine.snapshot();#expect(latest.quotes.count==2);#expect(latest.quotes[btc.id]?.valid==true)
     for instrument in [btc,eth]{print("LIVE_PRODUCT_STAGE history",instrument.symbol);let candles=try await provider.history(instrument,interval:60,count:40,now:Int64(Date().timeIntervalSince1970));#expect(candles.count>=30);#expect(candles.allSatisfy{$0.high>=max($0.open,$0.close) && $0.low<=min($0.open,$0.close) && $0.volume != nil});#expect(candles.map(\.time)==candles.map(\.time).sorted())}
     // Refresh after chart reads: an earlier successful quote must not grant indefinite execution.
-    let now=Int64(Date().timeIntervalSince1970),quote=try await provider.quote(btc,now:now,includeSummary:true);try await engine.ingest(quote,now:now,context:context)
+    let requestedAt=Int64(Date().timeIntervalSince1970),quote=try await provider.quote(btc,now:requestedAt,includeSummary:true)
+    let now=Int64(Date().timeIntervalSince1970);try await engine.ingest(quote,now:now,context:context)
     var request=OrderRequest(instrumentID:btc.id,side:.buy,kind:.market,quantity:try Amount("0.0001"));request.requestID="live-local-intent-only"
     _=try await engine.submit(request,time:now,context:context);_=try await engine.submit(request,time:now,context:context)
     let filled=await engine.snapshot();#expect(filled.orders.count==1);#expect(filled.positions[btc.id]?.quantity==request.quantity)

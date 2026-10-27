@@ -37,7 +37,44 @@ struct FugleCandlePage: Sendable {
     var nextBefore: Int64
 }
 
+public struct MarketHistoryResult: Sendable {
+    public var candles: [Candle]
+    public var limitation: String?
+    public init(candles: [Candle], limitation: String? = nil) { self.candles=candles; self.limitation=limitation }
+}
 extension MarketDataProvider {
+    /// Keeps real intraday bars visible when only the separately licensed history
+    /// endpoint is denied. Quota/network/data errors never trigger extra fallback reads.
+    public func chartHistory(_ instrument: Instrument, interval: Int64, count: Int = 160, now: Int64,
+                             before: Int64? = nil, board: TradingBoard? = nil) async throws -> MarketHistoryResult {
+        do { return MarketHistoryResult(candles: try await history(instrument,interval:interval,count:count,now:now,before:before,board:board)) }
+        catch let failure as MarketDataFailure where (id == .fugle || id == .fugleFutures) &&
+            before == nil && interval < 86400 && [.unauthorized,.unsupported].contains(failure.kind) {
+            let native: Int64 = interval == 14400 ? 3600 : interval
+            let raw = try await fugleCurrentCandles(instrument,interval:native,now:now,board:board)
+            let bars = CandleCalendar.aggregate(raw,interval:interval,zone:instrument.rules.timeZone,now:now)
+            guard !bars.isEmpty else { throw failure }
+            let reason = failure.kind == .unauthorized ? "歷史行情沒有權限" : "歷史服務不支援此商品"
+            return MarketHistoryResult(candles:Array(bars.suffix(count)),
+                limitation:reason+"；目前只顯示來源當日日內資料。請在行情連線確認歷史資料方案；不補造更早 K 線")
+        }
+    }
+    func fugleCurrentCandles(_ instrument: Instrument, interval: Int64, now: Int64, board: TradingBoard?) async throws -> [Candle] {
+        guard [60,180,300,600,900,1800,3600].contains(interval), id != .fugleFutures || interval != 180 else { throw MarketDataFailure(.unsupported) }
+        let family = id == .fugle ? "stock" : "futopt", symbol = instrument.sourceSymbol ?? instrument.symbol
+        let sessions = id == .fugleFutures ? ["afterhours","regular"] : ["regular"]
+        var data: [[Candle]] = []
+        for session in sessions {
+            try Task.checkCancellation()
+            var query = ["timeframe":String(interval/60)]
+            if id == .fugleFutures { query["session"]=session }
+            if id == .fugle && board == .oddLot { query["type"]="oddlot" }
+            if let json = try await fugleResponse(path:"/marketdata/v1.0/\(family)/intraday/candles/\(symbol)",query:query) {
+                data.append(try fugleDecode(json,instrument:instrument,interval:interval,now:now,historical:false,session:session,contract:nil,board:board).filter{$0.time<=now})
+            } else { data.append([]) }
+        }
+        return id == .fugleFutures ? try Self.fugleMergeSessions(night:data[0],regular:data[1],daily:false) : data[0]
+    }
     private static func fugleCalendar() -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Taipei")!

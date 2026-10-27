@@ -6,7 +6,7 @@ private func fugleTime(_ text: String) -> Int64 {
     Int64(ISO8601DateFormatter().date(from: text)!.timeIntervalSince1970)
 }
 private actor FugleHistoryTransport: MarketTransport {
-    enum Scenario: Sendable { case stocks, emptyFirstPage, futures, wrongContract, missingPrice, limited }
+    enum Scenario: Sendable { case stocks, emptyFirstPage, futures, wrongContract, missingPrice, limited, historyDenied }
     let scenario: Scenario
     private var requests: [URL] = []
     init(_ scenario: Scenario) { self.scenario = scenario }
@@ -16,6 +16,7 @@ private actor FugleHistoryTransport: MarketTransport {
         if scenario == .limited { throw MarketDataFailure(.rateLimited, retryAfter: 17) }
         let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
         let historical = url.path.contains("/historical/"), future = url.path.contains("/futopt/")
+        if scenario == .historyDenied && historical { throw MarketDataFailure(.unauthorized) }
         let frame = query["timeframe"] ?? "1", daily = frame == "D", session = query["session"] ?? "regular"
         var result: [String: Any] = ["symbol": future ? "TXFK6" : "2330", "market": "TSE", "timeframe": frame]
         if future && historical {
@@ -137,4 +138,26 @@ private func fugleProvider(_ transport: FugleHistoryTransport, future: Bool = fa
     future.sourceContractMonth = "202611"
     #expect(try FugleContract.resolve(future).product == "TXF")
     #expect(try FugleContract.resolve(future).month == "202611")
+}
+
+@Test func fugleHistoryPermissionKeepsOnlyRealCurrentBarsWithExplicitLimitation() async throws {
+    let stock = try #require(InstrumentCatalog.builtIn(mode:.online).first{$0.symbol=="2330"})
+    let now=fugleTime("2026-10-27T09:31:30+08:00"), transport=FugleHistoryTransport(.historyDenied)
+    let result=try await fugleProvider(transport).chartHistory(stock,interval:60,count:160,now:now)
+    #expect(result.candles.map(\.close)==[101,102])
+    #expect(result.limitation?.contains("歷史行情沒有權限")==true)
+    #expect(await transport.urls().count==2)
+    let limited=FugleHistoryTransport(.limited)
+    do{_ = try await fugleProvider(limited).chartHistory(stock,interval:60,now:now);Issue.record("429 must not become a fallback success")}
+    catch let failure as MarketDataFailure{#expect(failure.kind == .rateLimited)}
+    #expect(await limited.urls().count==1)
+}
+
+@Test func quoteFreshnessClockIncludesQueueAndNetworkTimeWithoutRelaxingMaximumAge() throws {
+    let clock=QuoteRequestClock(wall:1000,uptime:50)
+    #expect(try clock.receivedAt(uptime:62.9)==1012)
+    #expect(try clock.receivedAt(uptime:49)==1000)
+    let received=try clock.receivedAt(uptime:92),sourceTime:Int64=1000
+    #expect(received-sourceTime>30)
+    #expect(throws:TradeError.self){try QuoteRequestClock(wall:Int64.max,uptime:0).receivedAt(uptime:1)}
 }

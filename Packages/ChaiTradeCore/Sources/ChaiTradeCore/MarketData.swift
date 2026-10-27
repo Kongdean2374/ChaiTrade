@@ -125,6 +125,7 @@ public struct MarketDataProvider: Sendable {
         guard instrument.provider == id else { throw TradeError.invalid("來源與商品 ID 不符，禁止合併不同市場") }
         let symbol = instrument.sourceSymbol ?? instrument.symbol
         guard symbol.range(of: #"^[A-Za-z0-9/._-]{1,32}$"#, options: .regularExpression) != nil else { throw TradeError.invalid("商品代碼不合法") }
+        let requestClock=QuoteRequestClock(wall:now,uptime:ProcessInfo.processInfo.systemUptime)
         var q: Quote
         switch id {
         case .coinbase:
@@ -180,7 +181,11 @@ public struct MarketDataProvider: Sendable {
         }
         guard q.last > .zero else{throw TradeError.unavailable("來源未提供有效成交價格；保留最後已知值，不用零代替未知行情")}
         if q.bids.contains(where:{$0.price <= .zero || $0.quantity < .zero}) || q.asks.contains(where:{$0.price <= .zero || $0.quantity < .zero}) || (q.bids.first != nil && q.asks.first != nil && q.bids[0].price>=q.asks[0].price){q.valid=false;q.sourceIssue = .invalidData}
-        if now - q.time > q.maximumAge,q.quality == .realtime { q.quality = .stale }
+        let received=try requestClock.receivedAt(uptime:ProcessInfo.processInfo.systemUptime)
+        q.receivedAt=received
+        if received - q.time > q.maximumAge,q.quality == .realtime { q.quality = .stale }
+        if q.time > received + 5 { q.valid=false;q.sourceIssue = .invalidData }
+
         if q.bids.isEmpty || q.asks.isEmpty { q.grade = .E3 }
         return q
     }
@@ -286,6 +291,7 @@ public struct MarketDataProvider: Sendable {
             j = try await fetch(path: "/products/\(symbol)/candles", query: ["granularity":String(interval),"start":Self.iso((before ?? now)-299*interval),"end":Self.iso(before ?? now)])
             return try j.array.map { row in Candle(time: row[0].integer ?? 0, open: try row[3].amount().displayDouble, high: try row[2].amount().displayDouble, low: try row[1].amount().displayDouble, close: try row[4].amount().displayDouble, volume: try row[5].amount().displayDouble, complete: (row[0].integer ?? 0) + interval <= now) }.sorted { $0.time < $1.time }
         case .fugle,.fugleFutures:
+            if before == nil && interval < 86400 { return try await fugleCurrentCandles(instrument,interval:interval,now:now,board:board) }
             return try await fugleCandlePage(instrument,interval:interval,now:now,before:before,board:board).candles
         case .alpaca:
             let tf = interval < 3600 ? "\(interval/60)Min" : interval < 86400 ? "\(interval/3600)Hour" : "1Day"

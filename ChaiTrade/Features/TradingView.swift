@@ -113,6 +113,7 @@ struct TradingView:View{
     private var chartSection:some View{MarketCard{
         ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(intervals,id:\.1){label,seconds in Button(label){model.interval=seconds;saveChart();Task{await model.loadChart()}}.font(.caption).buttonStyle(.bordered).tint(model.interval==seconds ? .orange:.gray)}}}
         if model.chartLoading{ProgressView("讀取K線…").font(.caption)}
+        if let limitation=model.chartLimitation{Label(limitation,systemImage:"info.circle").font(.caption).foregroundStyle(.orange).accessibilityIdentifier("chartSourceLimitation")}
         if let error=model.chartError{ContentUnavailableView("此範圍暫無K線",systemImage:"chart.xyaxis.line",description:Text(error)).frame(minHeight:200)}else{ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:10))}
         ViewThatFits(in:.horizontal){chartTools;VStack(alignment:.leading,spacing:10){indicatorPicker;chartActions}}
         HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}};Spacer();Button("繪圖"){drawing=true};Button("到價提醒"){alert=true}.accessibilityIdentifier("openPriceAlert");Button("截圖"){Task{await model.captureChart()}}}.font(.caption)

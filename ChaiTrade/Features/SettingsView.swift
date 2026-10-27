@@ -9,7 +9,7 @@ struct SettingsView:View {
         Section{Text("讓看盤與練習交易照自己的習慣運作。").foregroundStyle(.secondary)}
         Section{
             NavigationLink{ModeAccountSettings()}label:{Label("模式與帳戶",systemImage:"person.crop.circle")}
-            NavigationLink{ConnectionsView()}label:{Label("行情連線",systemImage:"antenna.radiowaves.left.and.right")}
+            NavigationLink{ConnectionsView()}label:{Label("行情連線",systemImage:"antenna.radiowaves.left.and.right")}.accessibilityIdentifier("settingsConnections")
             NavigationLink{TradingPreferencesView()}label:{Label("交易偏好",systemImage:"slider.horizontal.3")}
             NavigationLink{OfflineSettingsView()}label:{Label("離線模擬",systemImage:"airplane")}
             NavigationLink{AppearanceNotificationSettings()}label:{Label("外觀與通知",systemImage:"bell.badge")}

@@ -22,7 +22,8 @@ import XCTest
     }
     func testDarkLargeTextOrderKeyboardCancelHasNoSideEffects()throws{
         let app=launchClean(flags:["--uitest-dark","--uitest-large-type"]);defer{finish()};try start(app,theme:"dark",large:true)
-        app.tabBars.buttons["交易"].tap();let open=app.buttons["openOrder"];try reveal(open,in:app);open.tap()
+        app.tabBars.buttons["交易"].tap();let open=app.buttons["openOrder"];try reveal(open,in:app)
+        capture("VISUAL before order sheet tap");open.tap();capture("VISUAL after order sheet tap")
         let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap()
         try check(try state(app)["visualType"] as? String=="accessibility3","Order sheet did not inherit accessibility text size")
         capture("AFTER VISUAL dark accessibility order keyboard")

@@ -60,3 +60,25 @@ jobs:
           name: sqlite-archive-core-${{ github.sha }}
           path: build/logs
           if-no-files-found: error
+  native-chart-integration:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: bash scripts/preflight.sh
+      - name: Compile both real iOS and XCTest targets
+        run: |
+          mkdir -p build/logs
+          set -o pipefail
+          xcodebuild build -project ChaiTrade.xcodeproj -scheme ChaiTrade -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' DEVELOPMENT_TEAM='' 2>&1 | tee build/logs/history-device-build.log
+          simulator_id="$(CHAI_PREPARE_BUILD_ONLY=1 python3 scripts/prepare_simulator.py)"
+          xcodebuild build-for-testing -project ChaiTrade.xcodeproj -scheme ChaiTrade -destination "platform=iOS Simulator,id=$simulator_id,arch=$(uname -m)" -derivedDataPath build/UISimulator CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='' ONLY_ACTIVE_ARCH=YES ARCHS="$(uname -m)" 2>&1 | tee build/logs/history-ui-build.log
+      - name: Preserve compile evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: history-native-integration-${{ github.sha }}
+          path: build/logs
+          if-no-files-found: error

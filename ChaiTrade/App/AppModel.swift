@@ -82,6 +82,7 @@ struct ChartAmendment: Identifiable {
     @Published var stateRevision=UUID()
     @Published var candles: [Candle]=[]
     @Published var chartError: String?
+    @Published var chartLimitation: String?
     @Published var journalScreenshot: Data?
     weak var chartWebView:WKWebView?
     @Published var interval: Int64=60
@@ -112,8 +113,9 @@ struct ChartAmendment: Identifiable {
     private var fractionalTime=0.0
     private var lastFetch=0.0
     var chartGeneration=UUID()
-    var candleTask:Task<[Candle],Error>?
+    var candleTask:Task<MarketHistoryResult,Error>?
     private var chartCache:[String:[Candle]]=[:]
+    private var chartCacheLimitations:[String:String]=[:]
     private var chartCacheOrder:[String]=[]
     private var streamTask: Task<Void,Never>?
     let root: URL
@@ -349,32 +351,46 @@ struct ChartAmendment: Identifiable {
     func loadLatestChart()async{chartBefore=nil;chartCount=160;await loadChart()}
     func loadChart() async {
         guard let i=selected,let s=state,let capturedContext=context else{return}
-        let generation=UUID();chartGeneration=generation;chartError=nil;chartLoading=true
+        candleTask?.cancel()
+        let generation=UUID();chartGeneration=generation;chartError=nil;chartLimitation=nil;chartLoading=true
         defer{if generation==chartGeneration{chartLoading=false}}
         let interval=interval,count=chartCount,before=chartBefore,board=selectedBoard
         do {
-            let values: [Candle]
-            if s.simulation != nil,let engine { candleTask?.cancel();let task=Task{try await engine.simulationCandles(instrumentID:i.id,interval:interval,count:count,before:before,context:capturedContext)};candleTask=task;values=try await task.value }
-            else if let id=i.provider {
+            let task:Task<MarketHistoryResult,Error>
+            var cacheKey:String?
+            if s.simulation != nil,let engine {
+                task=Task{MarketHistoryResult(candles:try await engine.simulationCandles(instrumentID:i.id,interval:interval,count:count,before:before,context:capturedContext))}
+            } else if let id=i.provider {
                 let key="\(s.accountID)|\(i.id)|\(board.rawValue)|\(interval)|\(before ?? 0)",service=try provider(id),now=Int64(Date().timeIntervalSince1970)
-                var cached=chartCache[key] ?? []
-                if !cached.isEmpty,cached.count<count,let first=cached.first{
-                    let older=try await service.history(i,interval:interval,count:count-cached.count,now:now,before:first.time-1,board:i.usesTaiwanBoards ? board:nil)
-                    cached=older+cached
+                let cached=chartCache[key] ?? [],cachedLimitation=chartCacheLimitations[key];cacheKey=key
+                task=Task{
+                    var history=cached,limitation=cachedLimitation
+                    if cachedLimitation==nil,!history.isEmpty,history.count<count,let first=history.first{
+                        let older=try await service.chartHistory(i,interval:interval,count:count-history.count,now:now,before:first.time-1,board:i.usesTaiwanBoards ? board:nil)
+                        history=older.candles+history;limitation=older.limitation
+                    }
+                    let head=try await service.chartHistory(i,interval:interval,count:history.isEmpty ? count:min(count,160),now:now,before:before,board:i.usesTaiwanBoards ? board:nil)
+                    try Task.checkCancellation()
+                    var merged=Dictionary(history.map{($0.time,$0)},uniquingKeysWith:{_,new in new})
+                    for candle in head.candles{merged[candle.time]=candle}
+                    return MarketHistoryResult(candles:Array(merged.values.sorted{$0.time<$1.time}.suffix(count)),limitation:head.limitation ?? limitation)
                 }
-                let head=try await service.history(i,interval:interval,count:cached.isEmpty ? count:min(count,160),now:now,before:before,board:i.usesTaiwanBoards ? board:nil)
-                var merged=Dictionary(cached.map{($0.time,$0)},uniquingKeysWith:{_,new in new});for c in head{merged[c.time]=c}
-                values=Array(merged.values.sorted{$0.time<$1.time}.suffix(count))
-                chartCache[key]=values;chartCacheOrder.removeAll{$0==key};chartCacheOrder.append(key)
-                while chartCacheOrder.count>8{chartCache.removeValue(forKey:chartCacheOrder.removeFirst())}
-                if values.count<cached.count || (cached.count<count && values.count==cached.count){notice="來源沒有提供更早的可用歷史；不產生替代 K 線"}
+            } else {throw TradeError.unavailable("尚無圖表來源")}
+            candleTask=task
+            let result=try await withTaskCancellationHandler(operation:{try await task.value},onCancel:{task.cancel()})
+            try Task.checkCancellation()
+            guard generation==chartGeneration,self.context==capturedContext,self.selectedID==i.id else{return}
+            if let key=cacheKey{
+                chartCache[key]=result.candles;chartCacheLimitations[key]=result.limitation;chartCacheOrder.removeAll{$0==key};chartCacheOrder.append(key)
+                while chartCacheOrder.count>8{let old=chartCacheOrder.removeFirst();chartCache.removeValue(forKey:old);chartCacheLimitations.removeValue(forKey:old)}
             }
-            else { throw TradeError.unavailable("尚無圖表來源") }
-            guard generation==chartGeneration,self.context==capturedContext,self.selectedID==i.id else{return};candles=values
-            if values.isEmpty { chartError="此範圍沒有行情，請切換週期或載入更多歷史" }
-        } catch is CancellationError {} catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
+            candles=result.candles;chartLimitation=result.limitation
+            if result.candles.isEmpty{chartError="此範圍沒有行情，請切換週期或載入更多歷史"}
+        } catch is CancellationError {} catch {
+            if generation==chartGeneration,self.context==capturedContext,self.selectedID==i.id{candles=[];chartError=error.localizedDescription}
+        }
     }
-    func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
+    func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartLimitation=nil;chartCache.removeAll();chartCacheLimitations.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
     func rebindRestoredAccount()async throws{
         guard let previous=engine,let old=context else{throw TradeError.wrongAccount}
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel();browseSaveTask?.cancel();browsingDirty=[];summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute = -1;summaryGeneration=UUID()

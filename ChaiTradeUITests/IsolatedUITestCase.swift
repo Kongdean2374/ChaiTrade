@@ -39,8 +39,8 @@ import XCTest
         capture("Clean baseline")
     }
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
-        for _ in 0..<7 where !element.isHittable{app.swipeUp()}
-        try check(element.isHittable,"Control is not reachable: "+element.identifier)
+        for _ in 0..<7{if element.exists && element.isHittable{return};app.swipeUp()}
+        try check(element.exists && element.isHittable,"Control is not reachable: "+element.identifier)
     }
     func journal(_ app:XCUIApplication)throws{
         app.tabBars.buttons["資產"].tap();let button=app.buttons["本機交易日誌"];try reveal(button,in:app);button.tap()
