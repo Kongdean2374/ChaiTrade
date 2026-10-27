@@ -99,7 +99,12 @@ public final class AccountRepository: @unchecked Sendable {
             guard rebuilt == (state.cash[currency] ?? .zero) else {throw TradeError.corrupt("現金投影與帳本不符，保留原始資料")}
         }
         for (id,o) in state.orders {
-            guard id==o.id,o.request.requestID==o.id,o.filled >= .zero,o.filled <= o.request.quantity,o.reserved >= .zero else {throw TradeError.corrupt("委託數量、識別或保留不符")}
+            let r=o.request
+            guard id==o.id,r.requestID==o.id,instrumentIDs.contains(r.instrumentID),r.quantity > .zero,o.filled >= .zero,o.filled <= r.quantity,o.reserved >= .zero,o.referencePrice > .zero,r.leverage>=1 else {throw TradeError.corrupt("委託數量、識別或保留不符")}
+            if [.limit,.stopLimit].contains(r.kind){guard let price=r.price,price > .zero else{throw TradeError.corrupt("限價委託缺少有效價格")}}
+            if r.kind.conditional && r.kind != .trailing{guard let trigger=r.trigger,trigger > .zero else{throw TradeError.corrupt("條件委託缺少有效觸發價")}}
+            if r.kind == .trailing{guard (r.trailingDistance ?? .zero) > .zero else{throw TradeError.corrupt("移動停損距離不合法")}}
+            if r.postOnly{guard r.kind == .limit,r.price != nil else{throw TradeError.corrupt("Post-only 結構不合法")}}
         }
         guard Set(state.fills.map(\.id)).count == state.fills.count, Set(state.events.map(\.id)).count == state.events.count else { throw TradeError.corrupt("重複事件或成交") }
     }

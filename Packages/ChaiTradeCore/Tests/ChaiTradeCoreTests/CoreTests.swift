@@ -472,3 +472,12 @@ func allProviderQuoteSchemas(provider: ProviderID) async throws {
     #expect(s.equity.last?.flow == (try a("3000")))
     #expect(Analytics.timeWeighted(s.equity).last! == 1)
 }
+
+@Test func postOnlyWithoutQuoteCannotTakeLiquidityAfterFirstSnapshot() async throws {
+    let r=try Rig();var request=try r.buy(quantity:"1",price:"100");request.postOnly=true
+    let id=try await r.engine.submit(request,time:1000,context:r.context)
+    try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    let s=await r.engine.snapshot()
+    #expect(s.orders[id]?.status == .cancelled);#expect(s.fills.isEmpty)
+    #expect(try TradingEngine.available(s,currency:"TWD") == a("100000"))
+}

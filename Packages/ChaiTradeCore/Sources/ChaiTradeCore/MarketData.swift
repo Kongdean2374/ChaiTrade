@@ -158,6 +158,7 @@ public struct MarketDataProvider: Sendable {
             q = Quote(instrumentID: instrument.id, source: id.label, time: min(time,book["E"].integer.map{$0/1000} ?? time), sequence: book["lastUpdateId"].integer ?? time, last: try ticker["lastPrice"].amount(), bids: try book["bids"].array.map { try Level($0[0].amount(),$0[1].amount()) }, asks: try book["asks"].array.map { try Level($0[0].amount(),$0[1].amount()) }, coverage: "USDⓈ-M 線性永續；僅公開資料", receivedAt: now)
             q.mark = try mark["markPrice"].amount()
         }
+        guard q.last > .zero else{throw TradeError.unavailable("來源未提供有效成交價格；保留最後已知值，不用零代替未知行情")}
         if now - q.time > q.maximumAge { q.quality = .stale }
         if q.bids.isEmpty || q.asks.isEmpty { q.grade = .E3 }
         return q

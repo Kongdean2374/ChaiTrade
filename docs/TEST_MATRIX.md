@@ -49,8 +49,8 @@
 | T43 | 交易／資產匯出 | 未執行 | networkWhitelistAndCSVInjection; dualAccountBackupAndCSVNumbers |
 | T44 | 網路政策 | 通過 | networkWhitelistAndCSVInjection |
 | T45 | 100,000 筆交易壓力資料 | 失敗 | stressHistory100000; full-load performance below target |
-| T46 | 公開儲存庫乾淨建置 | 外部條件阻擋 | 需完整整合／UI／實機驗證 |
-| T47 | IPA 結構與簽署狀態 | 外部條件阻擋 | 需完整整合／UI／實機驗證 |
+| T46 | 公開儲存庫乾淨建置 | 通過 | run 40450662963, clean checkout / no secrets / core + UI + device build |
+| T47 | IPA 結構與簽署狀態 | 通過 | run 40450662963, verify_artifact.sh and IPA zip validation |
 | T48 | 使用者簽署後實機操作 | 外部條件阻擋 | 需完整整合／UI／實機驗證 |
 
 版本證據：TEST_EVIDENCE.json 記錄測試來源 SHA-256；Actions artifacts 包含每次 commit 的測試與建置日誌。T45 的失敗指整體效能驗收未達目標，資料對帳與存取測試本身通過。

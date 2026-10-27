@@ -183,6 +183,7 @@ public struct Order: Codable, Identifiable, Sendable {
     public var revision = 0
     public var ruleVersion: String
     public var suspension: String?
+    public var postOnlyChecked: Bool?
     public var remaining: Amount { get throws { try request.quantity - filled } }
 }
 public struct Fill: Codable, Identifiable, Sendable {

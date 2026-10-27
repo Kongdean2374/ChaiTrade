@@ -7,13 +7,13 @@
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Analytics.swift": "1a0c31cb0cc449610414a4aa831e1a32b0896c69115b70d1d4892dfd71b864c8",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Backup.swift": "2c9cfe039e7082425e1e9508e97f935df378045fd1426ac60d3f585dd157ca61",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Lifecycle.swift": "c1691b5a652719a989beacd7042838443916ae3ad8427ba53d08fef8a6102629",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketData.swift": "99e913973650e5f93ab73ec24c054770b33b9f2ba097a9d6a1ee3798dd1f26df",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketData.swift": "757a1bf1bfe0ab325eeb17eadde3d7ea731c238c56a47ce8bc83e95b817e8a88",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketStream.swift": "3cc2a2f150dda7aae31a762ebfb489d9e20b6362d651c1c85976a06fdd74ff01",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Models.swift": "07d589c079bd1a6a24e812e05e4d13a030c724bd690861c5993b0b34dd381eb9",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Persistence.swift": "f99a49efe87228e479d8a8a206973e99535ba143a6e71a9a6ecb8f365376f5e1",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Models.swift": "8903599aea145394165311d1d0c66557e9b9a01c66b6ef63b663049477760688",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Persistence.swift": "6caeeb5197b85c82e84f9f4792fb58137c6de3f4b1d9544a0ff99d7be9625615",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Simulation.swift": "4c610fed230f5cb0ed7e73f74bede425c549deb92619d17ef65c70b187c38f1b",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "769bfa0afe27e785a46275486e232c35ce42a119d22f026a5bb2f4b441867fe3",
-    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "559efd3d5fe8b99fde0cd8cd2526502391084c366fea86a2039ffe92218937be",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "80726131b17eab9f386127fa0380b091f5a5251cb9de037df123bf4cf1c4f2c0",
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "eb29993afc2b03198a590ab479794ff60c757a675c59ae95260423b9b9d82156",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/LiveTests.swift": "45e88767940cac60383d03e8e9ee145c60502dc142df3999334d9ebcec1d7f30"
   }
 }

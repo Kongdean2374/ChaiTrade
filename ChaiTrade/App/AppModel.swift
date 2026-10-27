@@ -238,7 +238,7 @@ struct ChartAmendment: Identifiable {
                 guard self.context == context,foreground else { continue }
                 try await engine.ingest(q,now:Int64(Date().timeIntervalSince1970),context:context)
                 providerStatus[id]="\(q.quality.rawValue)・\(q.grade.rawValue)・\(q.coverage)"
-            } catch { providerStatus[id]=error.localizedDescription }
+            } catch { providerStatus[id]=error.localizedDescription;try? await engine.markMonitoringGap(instrumentID:i.id,time:Int64(Date().timeIntervalSince1970),context:context) }
         }
         await refresh()
         if tab==2 { await loadChart() }

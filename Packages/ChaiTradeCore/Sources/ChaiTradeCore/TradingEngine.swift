@@ -126,7 +126,7 @@ public actor TradingEngine {
             groupCredit = s.orders.values.filter { $0.status.open && $0.request.groupID == group && $0.id != excluding }.map(\.reserved).max() ?? .zero
         }
         guard try (i.asset.derivative && reducing && openingQty == .zero) || reservation <= available(s, currency: i.currency, excluding: excluding) + groupCredit else { throw TradeError.insufficient("\(i.currency) 可用資金不足（含費用及價格保護）") }
-        if r.postOnly, let q {
+        if r.postOnly, let q, Self.fresh(q,now:time) {
             let cross = r.side == .buy ? (q.asks.first.map { $0.price <= ref } ?? false) : (q.bids.first.map { $0.price >= ref } ?? false)
             if cross { throw TradeError.invalid("Post-only 會立即吃單，已拒絕") }
         }
@@ -136,7 +136,9 @@ public actor TradingEngine {
         if let existing = s.orders.values.first(where: { $0.request.requestID == r.requestID }) { return existing.id }
         let (i, ref, reservation) = try validate(r, in: s, time: time)
         let id = r.requestID
-        s.orders[id] = Order(id: id, accountID: s.accountID, request: r, reserved: reservation, referencePrice: ref, createdAt: time, updatedAt: time, ruleVersion: i.rules.version)
+        var order=Order(id: id, accountID: s.accountID, request: r, reserved: reservation, referencePrice: ref, createdAt: time, updatedAt: time, ruleVersion: i.rules.version)
+        order.postOnlyChecked=s.quotes[i.id].map{Self.fresh($0,now:time)} ?? false
+        s.orders[id]=order
         s.audit("accepted", "\(i.symbol) \(r.kind.label) \(r.quantity)", time: time)
         return id
     }
@@ -176,6 +178,7 @@ public actor TradingEngine {
             let (_, ref, reservation) = try Self.validate(r, in: s, time: time, excluding: id)
             o.request.quantity = quantity; o.request.price = price; o.referencePrice = ref; o.reserved = reservation
             o.request.trigger = r.trigger
+            o.postOnlyChecked=s.quotes[r.instrumentID].map{Self.fresh($0,now:time)} ?? false
             o.revision += 1; o.updatedAt = time; s.orders[id] = o
             s.audit("amended", "改單第 \(o.revision) 次，重新計算保留", time: time)
             if let q = s.quotes[r.instrumentID] { try Self.match(&s, quote: q, now: time) }
@@ -184,6 +187,7 @@ public actor TradingEngine {
     public func ingest(_ quote: Quote, now: Int64, context: AccountContext) throws {
         try check(context)
         guard state.mode == .online else { throw TradeError.invalid("B 模式拒絕外部行情") }
+        guard quote.last > .zero else{throw TradeError.unavailable("來源沒有有效參考價格，不用零覆蓋最後已知報價")}
         var quote=quote
         if quote.mark == nil,state.useReferenceRiskPrice == true,try Self.instrument(state,quote.instrumentID).asset.derivative {
             quote.mark=quote.last;quote.coverage += "；使用者啟用自訂參考風險價模型（非交易所標記價）"
@@ -199,6 +203,7 @@ public actor TradingEngine {
     }
     public func markMonitoringGap(instrumentID: String,time: Int64,context: AccountContext) throws {
         try check(context)
+        guard let previous=state.quotes[instrumentID],previous.valid || previous.quality != .stale else{return}
         try transaction {s in
             if var quote=s.quotes[instrumentID]{quote.valid=false;quote.quality = .stale;s.quotes[instrumentID]=quote}
             for id in s.orders.keys where s.orders[id]!.status.open && s.orders[id]!.request.instrumentID==instrumentID{s.orders[id]!.suspension="行情監控曾中斷，等待新快照；不回填缺口成交"}
@@ -224,9 +229,12 @@ public actor TradingEngine {
         o.triggered = above ? price >= t : price <= t
         return o.triggered
     }
+    private static func fresh(_ q: Quote,now: Int64) -> Bool {
+        q.quality == .realtime && q.valid && now >= q.time-5 && now-q.time <= q.maximumAge && now-q.receivedAt <= q.maximumAge
+    }
     private static func match(_ s: inout AccountState, quote q: Quote, now: Int64) throws {
         let i = try instrument(s, q.instrumentID)
-        let fresh = q.quality == .realtime && q.valid && now >= q.time - 5 && now - q.time <= q.maximumAge && now - q.receivedAt <= q.maximumAge
+        let fresh = Self.fresh(q,now:now)
         let bookValid = q.last > .zero && q.bids.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && q.asks.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && (q.bids.first == nil || q.asks.first == nil || q.bids[0].price < q.asks[0].price)
         let gradeOK = q.grade == .E1 || q.grade == .E2 || (q.grade == .E3 && s.allowEstimatedExecution)
         let ordered = s.orders.values.filter { $0.status.open && $0.request.instrumentID == i.id }.sorted { ($0.updatedAt, $0.id) < ($1.updatedAt, $1.id) }.map(\.id)
@@ -243,6 +251,12 @@ public actor TradingEngine {
                 s.orders[id] = o; continue
             }
             o.suspension = nil
+            if o.request.postOnly && o.postOnlyChecked != true {
+                let price=o.request.price!
+                let crosses=o.request.side == .buy ? (q.asks.first.map{$0.price<=price} ?? false):(q.bids.first.map{$0.price>=price} ?? false)
+                if crosses{o.status = .cancelled;o.reserved = .zero;o.suspension="Post-only 首次取得有效報價時會吃單，已取消";s.orders[id]=o;s.audit("postOnlyCancelled",id,time:now);continue}
+                o.postOnlyChecked=true
+            }
             let wasTriggered = o.triggered
             guard try trigger(&o, q) else { s.orders[id] = o; continue }
             if !wasTriggered && o.triggered && o.request.kind != .stopLimit { o.referencePrice = q.last }
@@ -304,7 +318,7 @@ public actor TradingEngine {
             }
             if o.filled > .zero && o.request.parentID == nil { try protect(&s, parent: o, time: now) }
         }
-        for idx in s.alerts.indices where fresh && s.alerts[idx].instrumentID == i.id && s.alerts[idx].firedAt == nil {
+        for idx in s.alerts.indices where fresh && q.last > .zero && s.alerts[idx].instrumentID == i.id && s.alerts[idx].firedAt == nil {
             let a = s.alerts[idx]
             if a.above ? q.last >= a.price : q.last <= a.price { s.alerts[idx].firedAt = now; s.audit("priceAlert", "\(i.symbol) 到價 \(a.price)", time: now, id: "alert-\(a.id)") }
         }
