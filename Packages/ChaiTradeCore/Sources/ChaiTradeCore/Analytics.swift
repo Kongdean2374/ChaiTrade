@@ -15,6 +15,12 @@ public struct FXRate: Codable, Sendable {
     public init(currency: String, base: String, rate: Amount, time: Int64, source: String) { self.currency = currency; self.base = base; self.rate = rate; self.time = time; self.source = source }
 }
 public enum Analytics {
+    public static func fillTotals(_ s:AccountState)throws->[String:FillTotals]{
+        var totals=s.history?.totals ?? [:]
+        let currencies=Dictionary(uniqueKeysWithValues:s.instruments.map{($0.id,$0.currency)})
+        for fill in s.fills{guard let currency=currencies[fill.instrumentID] else{throw TradeError.corrupt("未知商品成交")};var total=totals[currency] ?? FillTotals();try total.include(fill);totals[currency]=total}
+        return totals
+    }
     public static func valuation(_ state: AccountState, rates: [FXRate] = []) throws -> Valuation {
         var total = Amount.zero, flows = Amount.zero, missing: [String] = []
         func convert(_ value: Amount, currency: String) throws -> Amount? {
@@ -39,24 +45,32 @@ public enum Analytics {
         return Valuation(total:total,complete:missing.isEmpty,missing:Array(Set(missing)).sorted(),tradingPnL:missing.isEmpty ? try total - flows : nil)
     }
     public static func csvCell(_ value: String) -> String {
-        let numeric=value.range(of:#"^-?[0-9]+(\.[0-9]+)?$"#,options:.regularExpression) != nil
+        let bytes=Array(value.utf8),start=bytes.first==45 ? 1:0
+        var dot=false,digit=false,numeric=bytes.count>start
+        for n in start..<bytes.count{let c=bytes[n];if c>=48 && c<=57{digit=true}else if c==46 && !dot && digit && n+1<bytes.count{dot=true}else{numeric=false;break}}
+        numeric = numeric && digit
         let dangerous = !numeric && (value.trimmingCharacters(in: .whitespacesAndNewlines).first.map { "=+-@\t\r".contains($0) } ?? false)
         return "\"" + (dangerous ? "'" : "") + value.replacingOccurrences(of:"\"",with:"\"\"") + "\""
     }
+    public static let fillHeader=["模擬交易","accountID","mode","schema","exportedAt","fillID","instrument","side","quantity","price","fee","tax","time","estimatedExecution"]
+    public static func fillFields(_ f:Fill)->[String]{[f.id,f.instrumentID,f.side.rawValue,f.quantity.description,f.price.description,f.fee.description,f.tax.description,String(f.time),String(f.estimatedExecution)]}
+    public static func fillRow(_ f:Fill,account s:AccountState,time:Int64)->[String]{["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time)]+fillFields(f)}
+    public static let orderHeader=["模擬交易","accountID","mode","schema","exportedAt","orderID","instrument","side","kind","status","quantity","filled","price","trigger","timeInForce","ruleVersion"]
+    public static func orderRow(_ o:Order,account s:AccountState,time:Int64)->[String]{["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time),o.id,o.request.instrumentID,o.request.side.rawValue,o.request.kind.rawValue,o.status.rawValue,o.request.quantity.description,o.filled.description,o.request.price?.description ?? "",o.request.trigger?.description ?? "",o.request.timeInForce.rawValue,o.ruleVersion]}
     public static func fillsCSV(_ s: AccountState, time: Int64) -> String {
-        var rows = [["模擬交易","accountID","mode","schema","exportedAt","fillID","instrument","side","quantity","price","fee","tax","time","estimatedExecution"]]
-        rows += s.fills.map { ["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time),$0.id,$0.instrumentID,$0.side.rawValue,$0.quantity.description,$0.price.description,$0.fee.description,$0.tax.description,String($0.time),String($0.estimatedExecution)] }
-        return rows.map { $0.map(csvCell).joined(separator:",") }.joined(separator:"\r\n")
+        var output=fillHeader.map(csvCell).joined(separator:",")
+        for f in s.fills{output += "\r\n"+fillRow(f,account:s,time:time).map(csvCell).joined(separator:",")}
+        return output
     }
     public static func ledgerCSV(_ s: AccountState, time: Int64) -> String {
-        var rows = [["模擬交易","accountID","exportedAt","eventID","time","currency","account","amount"]]
-        rows += s.ledger.map { ["模擬交易",s.accountID,String(time),$0.eventID,String($0.time),$0.currency,$0.account,$0.amount.description] }
-        return rows.map { $0.map(csvCell).joined(separator:",") }.joined(separator:"\r\n")
+        var output=["模擬交易","accountID","exportedAt","eventID","time","currency","account","amount"].map(csvCell).joined(separator:",")
+        for e in s.ledger{output += "\r\n"+["模擬交易",s.accountID,String(time),e.eventID,String(e.time),e.currency,e.account,e.amount.description].map(csvCell).joined(separator:",")}
+        return output
     }
     public static func ordersCSV(_ s: AccountState,time: Int64) -> String {
-        var rows=[["模擬交易","accountID","mode","schema","exportedAt","orderID","instrument","side","kind","status","quantity","filled","price","trigger","timeInForce","ruleVersion"]]
-        rows += s.orders.values.sorted{$0.createdAt<$1.createdAt}.map{["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time),$0.id,$0.request.instrumentID,$0.request.side.rawValue,$0.request.kind.rawValue,$0.status.rawValue,$0.request.quantity.description,$0.filled.description,$0.request.price?.description ?? "",$0.request.trigger?.description ?? "",$0.request.timeInForce.rawValue,$0.ruleVersion]}
-        return rows.map{$0.map(csvCell).joined(separator:",")}.joined(separator:"\r\n")
+        var output=orderHeader.map(csvCell).joined(separator:",")
+        for o in s.orders.values.sorted(by:{$0.createdAt<$1.createdAt}){output += "\r\n"+orderRow(o,account:s,time:time).map(csvCell).joined(separator:",")}
+        return output
     }
     /// Time-weighted return removes external flows at each valuation boundary.
     public static func timeWeighted(_ points: [EquityPoint]) -> [Double?] {

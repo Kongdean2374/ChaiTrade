@@ -42,4 +42,25 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["總覽"].waitForExistence(timeout:30))
     }
+    func testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition() throws {
+        let app=XCUIApplication();app.launchArguments=["--uitest"];app.launch()
+        XCTAssertTrue(app.tabBars.buttons["總覽"].waitForExistence(timeout:30))
+        XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
+        app.buttons["設定"].tap()
+        app.buttons["A 真實行情・模擬交易"].tap()
+        app.buttons["完成"].tap()
+        XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
+        XCUIDevice.shared.press(.home);app.activate()
+        XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
+        app.terminate();app.launch()
+        XCTAssertTrue(app.staticTexts["activeModeBanner"].waitForExistence(timeout:30))
+        XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"A 真實行情・模擬交易")
+        app.buttons["設定"].tap();app.buttons["B 離線市場・模擬交易"].tap();app.buttons["完成"].tap()
+        app.terminate();app.launch()
+        XCTAssertTrue(app.staticTexts["activeModeBanner"].waitForExistence(timeout:30))
+        XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
+        app.tabBars.buttons["資產"].tap()
+        XCTAssertTrue(app.staticTexts["SIM:TAIWANSTOCK01"].waitForExistence(timeout:10))
+    }
+
 }

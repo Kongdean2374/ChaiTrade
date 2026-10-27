@@ -74,7 +74,8 @@ struct SettingsView: View {
     func reset() async {
         guard let engine=model.engine,let context=model.context else{return}
         await model.run{
-            let current=await engine.snapshot(),backup=try BackupService.export(current,password:nil,time:model.now)
+            let current=try await engine.fullSnapshot(context:context),time=model.now
+            let backup=try await Task.detached{try BackupService.export(current,password:nil,time:time)}.value
             let dir=model.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
             try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
             try backup.write(to:dir.appendingPathComponent("before-reset-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)

@@ -17,3 +17,5 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: bash scripts/preflight.sh
       - run: bash scripts/test.sh
+      - name: Required 100,000-fill Release performance and integrity gate
+        run: bash scripts/test_stress.sh

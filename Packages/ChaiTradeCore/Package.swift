@@ -7,8 +7,9 @@ let package = Package(
     products: [.library(name: "ChaiTradeCore", targets: ["ChaiTradeCore"])],
     targets: [
         .systemLibrary(name: "CSQLite", pkgConfig: "sqlite3", providers: [.apt(["libsqlite3-dev"])]),
+        .systemLibrary(name: "CZlib", pkgConfig: "zlib", providers: [.apt(["zlib1g-dev"])]),
         .systemLibrary(name: "COpenSSL", pkgConfig: "openssl", providers: [.apt(["libssl-dev"])]),
-        .target(name: "ChaiTradeCore", dependencies: ["CSQLite", .target(name: "COpenSSL", condition: .when(platforms: [.linux]))]),
+        .target(name: "ChaiTradeCore", dependencies: ["CSQLite", "CZlib", .target(name: "COpenSSL", condition: .when(platforms: [.linux]))]),
         .testTarget(name: "ChaiTradeCoreTests", dependencies: ["ChaiTradeCore"])
     ], swiftLanguageModes: [.v6]
 )

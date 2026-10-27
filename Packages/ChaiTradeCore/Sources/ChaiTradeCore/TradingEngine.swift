@@ -7,21 +7,24 @@ public actor TradingEngine {
     public init(context: AccountContext, repository: AccountRepository, initial: AccountState) throws {
         guard context.mode == repository.mode else { throw TradeError.wrongAccount }
         try AccountRepository.validate(initial, mode: context.mode)
-        self.context = context; self.repository = repository; self.state = initial
-        try repository.save(initial)
+        self.context = context; self.repository = repository; self.state = try repository.save(initial)
     }
     public func snapshot() -> AccountState { state }
     public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
         try check(context);return try repository.fillPage(limit:limit,before:before)
     }
+    public func fullSnapshot(context:AccountContext)throws->AccountState{
+        try check(context);guard let full=try repository.fullSnapshot() else{throw TradeError.corrupt("帳戶不存在")};return full
+    }
+    public func exportCSV(kind:String,time:Int64,context:AccountContext)throws->Data{try check(context);return try repository.csv(kind:kind,time:time)}
+    public func orderPage(limit:Int=100,before:Int64?=nil,beforeID:String?=nil,search:String="",context:AccountContext)throws->[Order]{try check(context);return try repository.orderPage(limit:limit,before:before,beforeID:beforeID,search:search)}
     private func check(_ context: AccountContext) throws {
         guard context == self.context else { throw TradeError.wrongAccount }
     }
     @discardableResult private func transaction<T>(_ body: (inout AccountState) throws -> T) throws -> T {
         var next = state
         let result = try body(&next)
-        try repository.save(next)
-        state = next
+        state = try repository.save(next)
         return result
     }
     public static func initial(mode: Mode, baseCurrency: String = "TWD", capital: Amount, time: Int64) throws -> AccountState {
@@ -144,6 +147,7 @@ public actor TradingEngine {
     }
     @discardableResult public func submit(_ request: OrderRequest, time: Int64, context: AccountContext) throws -> String {
         try check(context)
+        if let existing=try repository.order(id:request.requestID){return existing.id}
         let eventTime=state.simulation?.time ?? time
         return try transaction { s in
             let id = try Self.accept(request, in: &s, time: eventTime)
@@ -153,6 +157,9 @@ public actor TradingEngine {
     }
     public func submitOCO(_ first: OrderRequest, _ second: OrderRequest, time: Int64, context: AccountContext) throws {
         try check(context)
+        let a=try repository.order(id:first.requestID),b=try repository.order(id:second.requestID)
+        if a != nil && b != nil{return}
+        guard a == nil && b == nil else{throw TradeError.invalid("OCO 識別已部分使用，請重新建立整組")}
         guard first.instrumentID == second.instrumentID, first.side == second.side, first.quantity == second.quantity else { throw TradeError.invalid("OCO 需同商品、同方向、同數量") }
         try transaction { s in
             var a = first, b = second; let group = "oco-\(first.requestID)"
@@ -630,6 +637,6 @@ public actor TradingEngine {
     }
     public func restore(_ restored: AccountState, context: AccountContext) throws {
         try check(context); try AccountRepository.validate(restored, mode: context.mode)
-        try repository.save(restored, replacing: true); state = restored
+        state = try repository.save(restored, replacing: true)
     }
 }

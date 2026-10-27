@@ -261,6 +261,27 @@ public struct Drawing: Codable, Identifiable, Sendable {
     public var price2: Double
     public init(instrumentID: String, kind: String, time1: Int64, price1: Double, time2: Int64, price2: Double) { self.instrumentID = instrumentID; self.kind = kind; self.time1 = time1; self.price1 = price1; self.time2 = time2; self.price2 = price2 }
 }
+/// Prefixes live in indexed SQLite tables, never in the screen/transaction snapshot.
+public struct HistoryWindow: Codable, Sendable {
+    public var fills: Int = 0
+    public var ledger: Int = 0
+    public var events: Int = 0
+    public var cashBefore: [String: Amount] = [:]
+    public var totals: [String: FillTotals]?
+    public init() {}
+}
+public struct FillTotals: Codable, Sendable {
+    public var count = 0
+    public var notional = Amount.zero
+    public var realized = Amount.zero
+    public var fees = Amount.zero
+    public var taxes = Amount.zero
+    public init() {}
+    public mutating func include(_ fill:Fill)throws {
+        count += 1;notional=try notional+fill.quantity*fill.price
+        realized=try realized+fill.realized;fees=try fees+fill.fee;taxes=try taxes+fill.tax
+    }
+}
 public struct AccountState: Codable, Sendable {
     public var schema = 1
     public var accountID: String
@@ -273,6 +294,7 @@ public struct AccountState: Codable, Sendable {
     public var fills: [Fill] = []
     public var ledger: [LedgerEntry] = []
     public var events: [AuditEvent] = []
+    public var history: HistoryWindow?
     public var appliedEvents: Set<String> = []
     public var quotes: [String: Quote] = [:]
     public var consumed: [String: [Level]] = [:]

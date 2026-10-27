@@ -21,3 +21,9 @@ Commit 3a4f3379c81e64f629a4bab90cc69f660011156b: [run 40451960851](https://githu
 The final run includes deferred Post-only validation, stale-source handling and backup structure validation. The preceding full successful run was 40450662963 (commit c13cc51522b02c70d7d16731f71a1922c4251181).
 
 Repository access was verified by API writes and an independent public Git clone; all 79 tracked files at c13cc515 were compared byte-for-byte with the uploaded local tree, with zero mismatches. Later source changes are recorded in the final build commit above.
+
+## T45 correction (local evidence; Apple rerun pending)
+
+Schema-2 SQLite storage separates complete immutable history from a bounded hot projection, uses prepared batches and an exact pre-escaped CSV report index. Migration, failed append rollback, stable equal-time order cursors and bounded backup expansion tests pass. 44 ordinary functions passed (the summary includes two opt-in skips; stress is separately required in Release).
+
+Latest Release 100,000-fill benchmark: hot load 0.0374 s; 100-row page p95 0.00408 s; actual matched order-write p95 0.0165 s; complete CSV 0.1133 s. 30 samples per p95. Full reconstruction preserved 100,000 fills/orders and 200,002 ledger entries; CSV matched the canonical full-state export; compressed backup restored all records and balances. Bulk import 10.07 s and explicit full-integrity reconstruction 8.31 s are not screen-load or per-order operations. The original 3 s cold, 300 ms interaction and 150 ms order targets remain enforced, with an additional 3 s report gate. CI now requires the Release stress gate before IPA publication.

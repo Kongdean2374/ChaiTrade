@@ -279,20 +279,25 @@ struct ChartAmendment: Identifiable {
         let updated=set;await run{try await engine.updatePreferences(watchlist:updated,context:context)}
     }
     func export(kind: String, password: String = "") async {
-        guard let s=state else{return}
+        guard let s=state,let engine,let context else{return}
         await run {
             let data: Data
             switch kind {
-            case "CSV": data=Data(Analytics.fillsCSV(s,time:self.now).utf8)
-            case "ledger": data=Data(Analytics.ledgerCSV(s,time:self.now).utf8)
-            case "orders": data=Data(Analytics.ordersCSV(s,time:self.now).utf8)
+            case "CSV": data=try await engine.exportCSV(kind:"fills",time:self.now,context:context)
+            case "ledger": data=try await engine.exportCSV(kind:"ledger",time:self.now,context:context)
+            case "orders": data=try await engine.exportCSV(kind:"orders",time:self.now,context:context)
             case "both":
                 let otherMode: Mode=s.mode == .online ? .offline:.online
-                let otherRepository=try AccountRepository(root:self.root,mode:otherMode)
-                guard let other=try otherRepository.load() else{throw TradeError.corrupt("另一帳戶不存在，完整備份中止")}
-                data=try BackupService.exportBoth([s,other],password:password.isEmpty ? nil:password,time:self.now)
-            case "JSON": var clean=s;if s.mode == .online{clean.quotes=[:];clean.consumed=[:]};data=try AccountRepository.encode(clean)
-            default: data=try BackupService.export(s,password:password.isEmpty ? nil:password,time:self.now)
+                let root=self.root
+                let other=try await Task.detached{let repository=try AccountRepository(root:root,mode:otherMode);guard let full=try repository.fullSnapshot() else{throw TradeError.corrupt("另一帳戶不存在，完整備份中止")};return full}.value
+                let full=try await engine.fullSnapshot(context:context),time=self.now
+                data=try await Task.detached{try BackupService.exportBoth([full,other],password:password.isEmpty ? nil:password,time:time)}.value
+            case "JSON":
+                var clean=try await engine.fullSnapshot(context:context);if s.mode == .online{clean.quotes=[:];clean.consumed=[:]};let full=clean
+                data=try await Task.detached{try AccountRepository.encode(full)}.value
+            default:
+                let full=try await engine.fullSnapshot(context:context),time=self.now
+                data=try await Task.detached{try BackupService.export(full,password:password.isEmpty ? nil:password,time:time)}.value
             }
             self.exportName="ChaiTrade-模擬交易-\(s.accountID)-\(kind).\(["CSV","ledger","orders"].contains(kind) ? "csv":kind == "JSON" ? "json":"chaitrade")"
             self.exportDocument=ExportDocument(data:data);self.exporting=true
@@ -303,9 +308,10 @@ struct ChartAmendment: Identifiable {
         await run {
             let granted=url.startAccessingSecurityScopedResource();defer{if granted{url.stopAccessingSecurityScopedResource()}}
             let data=try Data(contentsOf:url,options:.mappedIfSafe)
-            let restored=try BackupService.importAccount(data,expectedMode:context.mode,password:password)
-            let current=await engine.snapshot()
-            let recovery=try BackupService.export(current,password:nil,time:self.now)
+            let restored=try await Task.detached{try BackupService.importAccount(data,expectedMode:context.mode,password:password)}.value
+            let current=try await engine.fullSnapshot(context:context)
+            let time=self.now
+            let recovery=try await Task.detached{try BackupService.export(current,password:nil,time:time)}.value
             let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
             try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
             try recovery.write(to:directory.appendingPathComponent("before-restore-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
@@ -321,7 +327,7 @@ struct ChartAmendment: Identifiable {
             let access=url.startAccessingSecurityScopedResource();defer{if access{url.stopAccessingSecurityScopedResource()}}
             let size=try url.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0
             guard size<=100_000_000 else{throw TradeError.corrupt("備份超過安全大小限制")}
-            let restored=try BackupService.importAccount(Data(contentsOf:url,options:.mappedIfSafe),expectedMode:target,password:password)
+            let restored=try await Task.detached{try BackupService.importAccount(Data(contentsOf:url,options:.mappedIfSafe),expectedMode:target,password:password)}.value
             let stage=root.appendingPathComponent("recovery-stage-\(UUID().uuidString)")
             defer{try? FileManager.default.removeItem(at:stage)}
             do {let repository=try AccountRepository(root:stage,mode:target);try repository.save(restored,replacing:true)}

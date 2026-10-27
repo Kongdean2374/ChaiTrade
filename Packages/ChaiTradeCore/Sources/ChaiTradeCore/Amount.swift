@@ -16,14 +16,18 @@ public struct Amount: Codable, Hashable, Comparable, Sendable, CustomStringConve
     public static let zero = Amount(unchecked: 0)
     public static let one = Amount(unchecked: 1)
     public static let max = Amount(unchecked: Decimal(string: "1000000000000000")!)
+    private static let locale = Locale(identifier: "en_US_POSIX")
+    private static let inputPattern = try! NSRegularExpression(pattern: "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,12})?$")
+    private static let storedPattern = try! NSRegularExpression(pattern: "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,128})?$")
     private init(unchecked value: Decimal) { decimal = value }
     public init(_ text: String) throws {
         try self.init(text,maximumScale:12)
     }
     private init(_ text: String,maximumScale: Int) throws {
-        let pattern="^-?(0|[1-9][0-9]*)(\\.[0-9]{1,\(maximumScale)})?$"
-        guard text.range(of:pattern,options:.regularExpression) != nil,
-              let d = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")),
+        let pattern = maximumScale == 12 ? Self.inputPattern : Self.storedPattern
+        let range = NSRange(text.startIndex..., in:text)
+        guard pattern.firstMatch(in:text,range:range)?.range == range,
+              let d = Decimal(string: text, locale: Self.locale),
               !d.isNaN, d <= Self.max.decimal, d >= -Self.max.decimal else {
             throw TradeError.invalid("數值格式、精度或範圍不合法（最多 12 位小數／10¹⁵）")
         }
@@ -31,11 +35,11 @@ public struct Amount: Codable, Hashable, Comparable, Sendable, CustomStringConve
         if canonical.contains("."){while canonical.last=="0"{canonical.removeLast()};if canonical.last=="."{canonical.removeLast()}}
         if canonical=="-0"{canonical="0"}
         var value=d
-        guard NSDecimalString(&value,Locale(identifier:"en_US_POSIX"))==canonical else{throw TradeError.invalid("數值超出 Decimal 可精確表示範圍")}
+        guard NSDecimalString(&value,Self.locale)==canonical else{throw TradeError.invalid("數值超出 Decimal 可精確表示範圍")}
         decimal = d
     }
     public init(_ integer: Int) throws { try self.init(String(integer)) }
-    public var description: String { var d = decimal; return NSDecimalString(&d, Locale(identifier: "en_US_POSIX")) }
+    public var description: String { var d = decimal; return NSDecimalString(&d, Self.locale) }
     public var displayDouble: Double { NSDecimalNumber(decimal: decimal).doubleValue }
     public static func < (a: Self, b: Self) -> Bool { a.decimal < b.decimal }
     public var magnitude: Self { Self(unchecked: abs(decimal)) }

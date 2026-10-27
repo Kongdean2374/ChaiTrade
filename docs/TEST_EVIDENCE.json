@@ -2,19 +2,25 @@
   "date": "2026-10-27",
   "toolchain": "Swift 6.1.3 Linux; Xcode 16.4 / Swift 6.1.2 Apple",
   "sourceSHA256": {
-    "Packages/ChaiTradeCore/Package.swift": "4dd335d61169bfa39af43afd55fe7be49cd5900916ce40d2390a60207ff1b645",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Amount.swift": "110a2c8ec773f7871a00f687e4f17f6c4e658adae72a0698bd36050699e0abb9",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Analytics.swift": "1a0c31cb0cc449610414a4aa831e1a32b0896c69115b70d1d4892dfd71b864c8",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Backup.swift": "2c9cfe039e7082425e1e9508e97f935df378045fd1426ac60d3f585dd157ca61",
+    "Packages/ChaiTradeCore/Sources/COpenSSL/module.modulemap": "78a26ecb67525675930828e31eb3522e4d3bb771d96da4eb8b82174830cf8668",
+    "Packages/ChaiTradeCore/Sources/COpenSSL/shim.h": "3648a50a0fab5284a94e38e41929218364c95340c94d9ebfdb3f72e2886033f4",
+    "Packages/ChaiTradeCore/Sources/CSQLite/module.modulemap": "bbfe59a972a3e8e09e347c04bc22c0eacd2544881af8a4b6068bfc30b38466e8",
+    "Packages/ChaiTradeCore/Sources/CSQLite/shim.h": "b052d8e561e942f97b503033ecd2eaa2b35213bdbf374983efe9e68eabdfc024",
+    "Packages/ChaiTradeCore/Sources/CZlib/module.modulemap": "6428e9a18fd7035ba979644d6cb4b1e3460d8f6658dc1043436335bed4537ec0",
+    "Packages/ChaiTradeCore/Sources/CZlib/shim.h": "80324eed37fb3c06611102a5ed598bb3d60aa818eeb6f848068e359677a07ea7",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Amount.swift": "a56e402f86d43723b12316b195aa6342676814fd4f1642d37acb455ff841576c",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Analytics.swift": "acaba77cecabc3ef72a1b59ebb9aa810af3ba4d736c915174810f5e08a00afb6",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Backup.swift": "b41df836a84e4bb367bf6523aa74d9656e9e418b005e84221fbf2ebffeae346d",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Lifecycle.swift": "c1691b5a652719a989beacd7042838443916ae3ad8427ba53d08fef8a6102629",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketData.swift": "757a1bf1bfe0ab325eeb17eadde3d7ea731c238c56a47ce8bc83e95b817e8a88",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/MarketStream.swift": "3cc2a2f150dda7aae31a762ebfb489d9e20b6362d651c1c85976a06fdd74ff01",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Models.swift": "8903599aea145394165311d1d0c66557e9b9a01c66b6ef63b663049477760688",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Persistence.swift": "6caeeb5197b85c82e84f9f4792fb58137c6de3f4b1d9544a0ff99d7be9625615",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Models.swift": "ed7e80ff9b8ad7872dad423d83761da1a9a02eca28bb3aa06d7e7e270d4ab313",
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Persistence.swift": "b437647b2cc2661d43a18036eba5ca92d44478b4d4b29fed1201ab9f3d835d79",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Simulation.swift": "4c610fed230f5cb0ed7e73f74bede425c549deb92619d17ef65c70b187c38f1b",
-    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "80726131b17eab9f386127fa0380b091f5a5251cb9de037df123bf4cf1c4f2c0",
-    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "eb29993afc2b03198a590ab479794ff60c757a675c59ae95260423b9b9d82156",
-    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/LiveTests.swift": "45e88767940cac60383d03e8e9ee145c60502dc142df3999334d9ebcec1d7f30"
+    "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "1397ad6135d3744b6a81e5c538aff56a2a0accd2a68d73c7f33b1500cfdebbbf",
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "17cb0365c0b38a6a51a8ddabfdbd03d5afde5898719e14aca49a18c4daaec654",
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/LiveTests.swift": "45e88767940cac60383d03e8e9ee145c60502dc142df3999334d9ebcec1d7f30",
+    "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/PersistenceTests.swift": "69ad7b5a2bcc6176a2dd788681761ff7dcfe96521723ff210023a40ab656d85c"
   },
   "githubVerification": {
     "commit": "3a4f3379c81e64f629a4bab90cc69f660011156b",
@@ -35,6 +41,22 @@
     "ipaArtifactID": 12711180423,
     "evidenceArtifactID": 12710274581,
     "artifactExpiresAt": "2026-11-03T04:57:09Z",
-    "deviceSignedAcceptance": "not executed"
+    "deviceSignedAcceptance": "not executed",
+    "scope": "Precedes T45 schema-2 correction; Apple rerun pending"
+  },
+  "latestLocalT45": {
+    "bulkImportSeconds": 10.071830036,
+    "csv100000Seconds": 0.113291011,
+    "fills": 100000,
+    "fullIntegrityLoadSeconds": 8.309173464,
+    "hotFills": 100,
+    "hotLoadSeconds": 0.037366173,
+    "hotOrders": 100,
+    "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+    "orderWriteP95Seconds": 0.016505823,
+    "page100P95Seconds": 0.004076441,
+    "passed": true,
+    "platform": "Debian GNU/Linux 12 (bookworm)",
+    "samplesPerP95": 30
   }
 }

@@ -48,9 +48,9 @@
 | T42 | E3 參考價估算撮合 | 未執行 | MarketData/TradingEngine E3 policy; full UI flow not yet executed |
 | T43 | 交易／資產匯出 | 未執行 | networkWhitelistAndCSVInjection; dualAccountBackupAndCSVNumbers |
 | T44 | 網路政策 | 通過 | networkWhitelistAndCSVInjection |
-| T45 | 100,000 筆交易壓力資料 | 失敗 | stressHistory100000; full-load performance below target |
+| T45 | 100,000 筆交易壓力資料 | 本機 Release 通過，Apple 待重跑 | stressHistory100000; 3 s cold/report, 300 ms page p95, 150 ms order p95; full integrity/CSV/backup equality |
 | T46 | 公開儲存庫乾淨建置 | 通過 | run 40451960851, clean checkout / no secrets / core + UI + device build |
 | T47 | IPA 結構與簽署狀態 | 通過 | run 40451960851, verify_artifact.sh and IPA zip validation |
 | T48 | 使用者簽署後實機操作 | 外部條件阻擋 | 需完整整合／UI／實機驗證 |
 
-版本證據：TEST_EVIDENCE.json 記錄測試來源 SHA-256；Actions artifacts 包含每次 commit 的測試與建置日誌。T45 的失敗指整體效能驗收未達目標，資料對帳與存取測試本身通過。
+版本證據：TEST_EVIDENCE.json 記錄測試來源 SHA-256；Actions artifacts 包含每次 commit 的測試與建置日誌。T45 的新量測見 STRESS_REPORT.json；未把 Linux 結果冒稱為 iPhone 實機結果。

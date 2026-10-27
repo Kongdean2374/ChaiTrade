@@ -19,7 +19,7 @@ struct RootView: View {
                 VStack(spacing:0) {
                     HStack {
                         Image(systemName:"circle.fill").font(.system(size:7)).foregroundStyle(model.state?.mode == .offline ? .orange:.cyan)
-                        Text(model.state!.mode.label).font(.caption.weight(.semibold))
+                        Text(model.state!.mode.label).font(.caption.weight(.semibold)).accessibilityIdentifier("activeModeBanner")
                         Spacer()
                         if model.settings.pendingMode != nil { Image(systemName:"arrow.triangle.2.circlepath").accessibilityLabel("待下次完整啟動切換") }
                         Button { settings=true } label: { Image(systemName:"gearshape") }.accessibilityLabel("設定")
@@ -103,7 +103,7 @@ struct DashboardView: View {
                 VStack(alignment:.leading,spacing:10) {
                     Text("\(model.state?.baseCurrency ?? "") 帳戶淨值\(model.valuation?.complete == false ? "（已知部分）":"")").font(.subheadline).foregroundStyle(.secondary)
                     Text(model.money(model.valuation?.total)).font(.system(size:38,weight:.semibold,design:.rounded)).monospacedDigit().minimumScaleFactor(0.4).lineLimit(1)
-                    HStack { Metric(title:"交易淨損益（扣除資金流）",value:model.money(model.valuation?.tradingPnL));Metric(title:"成交筆數",value:String(model.state?.fills.count ?? 0)) }
+                    HStack { Metric(title:"交易淨損益（扣除資金流）",value:model.money(model.valuation?.tradingPnL));Metric(title:"成交筆數",value:String((model.state?.history?.fills ?? 0)+(model.state?.fills.count ?? 0))) }
                 }.padding(22).background(.orange.opacity(0.08),in:RoundedRectangle(cornerRadius:22))
                 if let valuation=model.valuation,!valuation.complete { Text(valuation.missing.joined(separator:"\n")).font(.caption).foregroundStyle(.orange) }
                 if let sim=model.state?.simulation {

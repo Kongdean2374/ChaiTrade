@@ -8,6 +8,10 @@ struct OrdersView: View {
     @State private var amendment: Order?
     @State private var historical: [FillPageRow]=[]
     @State private var historyCursor: Int64?
+    @State private var olderOrders:[Order]=[]
+    @State private var orderCursor:Int64?
+    @State private var orderCursorID:String?
+    @State private var search=""
     var orders: [Order] { (model.state?.orders.values.sorted{($0.createdAt,$0.id)>($1.createdAt,$1.id)} ?? []).filter{!openOnly || $0.status.open} }
     var body: some View {
         List {
@@ -24,6 +28,11 @@ struct OrdersView: View {
                     }
                 }.padding(.vertical,5)
             }
+            if !openOnly{
+                ForEach(olderOrders){o in Text("\(o.request.instrumentID) · \(o.request.side.label) · \(o.status.rawValue)\n\(o.filled) / \(o.request.quantity)").font(.caption.monospaced())}
+                TextField("歷史商品代碼",text:$search).onChange(of:search){_,_ in olderOrders=[];orderCursor=nil;orderCursorID=nil}
+                Button("查詢／載入歷史委託"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let rows=try await engine.orderPage(limit:100,before:orderCursor,beforeID:orderCursorID,search:search,context:context);let known=Set(orders.map(\.id)+olderOrders.map(\.id));olderOrders=Array((olderOrders+rows.filter{!known.contains($0.id)}).suffix(500));orderCursor=rows.last?.updatedAt;orderCursorID=rows.last?.id;if rows.isEmpty{model.notice="已到符合條件的最早委託"}}}}
+            }
             if orders.isEmpty{ContentUnavailableView("沒有符合條件的委託",systemImage:"tray",description:Text("已成交、撤單與到期紀錄會保留在歷史中。"))}
             Section("最近成交（模擬）") {
                 ForEach(Array((model.state?.fills ?? []).suffix(100).reversed())){fill in
@@ -36,7 +45,7 @@ struct OrdersView: View {
                     if historyCursor == nil{historyCursor=try await engine.fillPage(limit:100,before:nil,context:context).last?.cursor}
                     guard let cursor=historyCursor else{return}
                     let rows=try await engine.fillPage(limit:100,before:cursor,context:context)
-                    historical+=rows;historyCursor=rows.last?.cursor ?? cursor
+                    historical=Array((historical+rows).suffix(500));historyCursor=rows.last?.cursor ?? cursor
                     if rows.isEmpty{model.notice="已到最早成交紀錄"}
                 }}}
             }
@@ -123,12 +132,13 @@ struct PerformanceView: View {
     var body: some View {
         List{if let s=model.state{
             Section("口徑：加權平均成本；損益依幣別分開"){
-                LabeledContent("成交筆數",value:String(s.fills.count))
+                LabeledContent("成交筆數",value:String((s.history?.fills ?? 0)+s.fills.count))
+                let totals=(try? Analytics.fillTotals(s)) ?? [:]
                 ForEach(s.cash.keys.sorted(),id:\.self){currency in
-                    let fills=s.fills.filter{fill in s.instruments.first(where:{$0.id==fill.instrumentID})?.currency==currency}
-                    LabeledContent("\(currency) 毛價差",value:(try? sum(fills.map(\.realized)).description) ?? "計算失敗")
-                    LabeledContent("\(currency) 費用",value:(try? sum(fills.map(\.fee)).description) ?? "計算失敗")
-                    LabeledContent("\(currency) 稅費",value:(try? sum(fills.map(\.tax)).description) ?? "計算失敗")
+                    let total=totals[currency] ?? FillTotals()
+                    LabeledContent("\(currency) 毛價差",value:total.realized.description)
+                    LabeledContent("\(currency) 費用",value:total.fees.description)
+                    LabeledContent("\(currency) 稅費",value:total.taxes.description)
                 }
             }
             Section("資金流調整績效"){

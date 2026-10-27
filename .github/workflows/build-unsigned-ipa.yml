@@ -21,6 +21,8 @@ jobs:
         run: bash scripts/preflight.sh
       - name: Core, persistence, replay and backup tests
         run: bash scripts/test.sh
+      - name: Required 100,000-fill Release performance and integrity gate
+        run: bash scripts/test_stress.sh
       - name: Build and verify unsigned iPhoneOS IPA
         run: bash scripts/build_unsigned_ipa.sh
       - name: iPhone Simulator UI smoke tests
@@ -32,7 +34,7 @@ jobs:
       - name: Finalize metadata after required UI tests
         run: |
           python3 scripts/build_info.py
-          cp build/logs/ui-tests.log dist/ui-tests.log
+          cp build/logs/ui-tests.log build/logs/stress-tests.log build/logs/stress-100000.json dist/
       - name: Upload IPA, checksum and build info
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

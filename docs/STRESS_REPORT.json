@@ -1,9 +1,15 @@
 {
-  "save": "9.57231728 seconds",
-  "platform": "Debian GNU/Linux 12 (bookworm)",
-  "page100": "0.005229893 seconds",
-  "fills": "100000",
-  "csv": "8.143607801 seconds",
-  "load": "11.208158925 seconds",
-  "note": "Synthetic storage/report benchmark; not iPhone UI or per-order latency evidence"
+  "bulkImportSeconds" : 10.071830036,
+  "csv100000Seconds" : 0.113291011,
+  "fills" : 100000,
+  "fullIntegrityLoadSeconds" : 8.309173464,
+  "hotFills" : 100,
+  "hotLoadSeconds" : 0.037366173,
+  "hotOrders" : 100,
+  "note" : "Synthetic Release storage\/report benchmark; simulator UI and signed iPhone acceptance remain separate",
+  "orderWriteP95Seconds" : 0.016505823,
+  "page100P95Seconds" : 0.004076441,
+  "passed" : true,
+  "platform" : "Debian GNU\/Linux 12 (bookworm)",
+  "samplesPerP95" : 30
 }

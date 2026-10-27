@@ -384,7 +384,7 @@ private struct FixtureTransport: MarketTransport {
 }
 
 @Test(.enabled(if:ProcessInfo.processInfo.environment["CHAI_STRESS"]=="1"))
-func stressHistory100000() throws {
+func stressHistory100000() async throws {
     let r=try Rig(capital:"1000000");var s=try r.repo.load()!
     let quantity=try a("1"),price=try a("100")
     for n in 0..<100000 {
@@ -397,19 +397,57 @@ func stressHistory100000() throws {
     let clock=ContinuousClock(),start=clock.now
     try r.repo.save(s)
     let saved=clock.now
-    let loaded=try r.repo.load()!
+    s=try r.repo.load()!
     let read=clock.now
-    let page=try r.repo.fillPage(limit:100)
+    #expect(s.fills.count<=100);#expect(s.orders.count<=200);#expect(s.ledger.count<=100);#expect(s.events.count<=100)
+    #expect((s.history?.fills ?? 0)+s.fills.count==100000)
+    var queries:[Double]=[]
+    func seconds(_ start:ContinuousClock.Instant,_ end:ContinuousClock.Instant)->Double{let c=start.duration(to:end).components;return Double(c.seconds)+Double(c.attoseconds)/1e18}
+    for _ in 0..<30{let t=clock.now;let page=try r.repo.fillPage(limit:100);#expect(page.count==100);queries.append(seconds(t,clock.now))}
     let paged=clock.now
-    #expect(page.count==100)
-    #expect(loaded.fills.count==100000);#expect(loaded.orders.count==100000)
-    let csv=Analytics.fillsCSV(loaded,time:200000)
+    let full=try r.repo.fullSnapshot()!
+    let fullRead=clock.now
+    #expect(full.fills.count==100000);#expect(full.orders.count==100000);#expect(full.ledger.count==200002);#expect(full.cash==s.cash)
+    let csv=try r.repo.csv(kind:"fills",time:200000)
     let exported=clock.now
-    #expect(csv.components(separatedBy:"\r\n").count==100001)
-    let metrics:[String:String]=["fills":"100000","save":String(describing:start.duration(to:saved)),"load":String(describing:saved.duration(to:read)),"csv":String(describing:paged.duration(to:exported)),"page100":String(describing:read.duration(to:paged)),"platform":ProcessInfo.processInfo.operatingSystemVersionString,"note":"Synthetic storage/report benchmark; not iPhone UI or per-order latency evidence"]
-    let out=URL(fileURLWithPath:"/app/.reports")
-    if FileManager.default.fileExists(atPath:"/app") {try FileManager.default.createDirectory(at:out,withIntermediateDirectories:true);try JSONSerialization.data(withJSONObject:metrics,options:.prettyPrinted).write(to:out.appendingPathComponent("stress-100000.json"))}
+    #expect(csv.filter{$0==10}.count==100000)
+    let orders=try r.repo.orderPage(limit:100,search:"TEST");#expect(orders.count==100)
+    let ctx=AccountContext(mode:.online),engine=try TradingEngine(context:ctx,repository:r.repo,initial:s)
+    // The oldest id must remain idempotent after leaving the hot window and after restart.
+    let old=try #require(full.orders["stress-0"])
+    #expect(try await engine.submit(old.request,time:200000,context:ctx)==old.id)
+    try await engine.ingest(r.quote(time:200000),now:200000,context:ctx)
+    var writes:[Double]=[]
+    for n in 0..<30{
+        let t=clock.now
+        var request=try r.buy(quantity:"1",id:"new-\(n)")
+        request.timeInForce = .GTC
+        _=try await engine.submit(request,time:200000,context:ctx)
+        writes.append(seconds(t,clock.now))
+    }
+    let restart=try AccountRepository(root:r.root,mode:.online)
+    let reopened=try restart.load()!
+     #expect(reopened.orders.values.filter{$0.id.hasPrefix("new-") && $0.status == .filled}.count==30)
+    #expect(try restart.fullSnapshot()?.fills.count==100030)
+    #expect(try Analytics.fillTotals(reopened)["TWD"]?.count==100030)
+    #expect(try Analytics.fillTotals(full)["TWD"]?.count==100000)
+    #expect(Analytics.fillsCSV(full,time:200000)==String(decoding:csv,as:UTF8.self))
+    let backup=try BackupService.export(full,password:nil,time:200000)
+    let restored=try BackupService.validate(backup,expectedMode:.online,password:nil)
+    #expect(restored.fills.count==100000);#expect(restored.orders.count==100000);#expect(restored.ledger.count==200002)
+    #expect(restored.cash==full.cash);#expect(restored.netFlows==full.netFlows)
+    func p95(_ values:[Double])->Double{values.sorted()[Int(ceil(Double(values.count)*0.95))-1]}
+    let cold=seconds(saved,read),query=p95(queries),write=p95(writes),report=seconds(fullRead,exported)
+    #expect(cold<=3,"Original cold-load target: 3 seconds")
+    #expect(query<=0.3,"Original page-interaction target: 300 ms p95")
+    #expect(write<=0.15,"Original local order-feedback target: 150 ms p95")
+    #expect(report<=3,"Full 100,000-row report budget: 3 seconds")
+    let metrics:[String:Any]=["fills":100000,"bulkImportSeconds":seconds(start,saved),"hotLoadSeconds":cold,"fullIntegrityLoadSeconds":seconds(paged,fullRead),"csv100000Seconds":report,"page100P95Seconds":query,"orderWriteP95Seconds":write,"samplesPerP95":30,"hotFills":s.fills.count,"hotOrders":s.orders.count,"platform":ProcessInfo.processInfo.operatingSystemVersionString,"passed":cold<=3 && query<=0.3 && write<=0.15 && report<=3,"note":"Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate"]
+    let out=URL(fileURLWithPath:ProcessInfo.processInfo.environment["CHAI_REPORT_DIR"] ?? "/app/.reports")
+    try FileManager.default.createDirectory(at:out,withIntermediateDirectories:true)
+    try JSONSerialization.data(withJSONObject:metrics,options:[.prettyPrinted,.sortedKeys]).write(to:out.appendingPathComponent("stress-100000.json"))
     print("STRESS_METRICS",metrics)
+
 }
 
 private struct PathFixtures: MarketTransport {

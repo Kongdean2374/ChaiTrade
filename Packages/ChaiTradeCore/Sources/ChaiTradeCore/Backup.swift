@@ -1,4 +1,5 @@
 import Foundation
+import CZlib
 #if canImport(CryptoKit)
 import CryptoKit
 import CommonCrypto
@@ -19,6 +20,8 @@ public struct BackupEnvelope: Codable, Sendable {
     public var tag: Data
     public var payload: Data
     public var checksum: String
+    public var compression: String?
+    public var expandedSize: Int?
 }
 public struct AccountBackupBundle: Codable, Sendable {
     public var format = "ChaiTrade 雙帳戶模擬交易備份"
@@ -28,6 +31,18 @@ public struct AccountBackupBundle: Codable, Sendable {
     public var checksums: [String]
 }
 public enum BackupService {
+    private static let expandedLimit = 512_000_000
+    private static func compress(_ data:Data)throws->Data{
+        var size=compressBound(uLong(data.count)),out=Data(count:Int(compressBound(uLong(data.count))))
+        let status=out.withUnsafeMutableBytes{dst in data.withUnsafeBytes{src in compress2(dst.bindMemory(to:UInt8.self).baseAddress,&size,src.bindMemory(to:UInt8.self).baseAddress,uLong(data.count),Z_BEST_SPEED)}}
+        guard status==Z_OK else{throw TradeError.corrupt("備份壓縮失敗")};out.count=Int(size);return out
+    }
+    private static func expand(_ data:Data,size:Int)throws->Data{
+        guard size>0,size<=expandedLimit else{throw TradeError.corrupt("備份展開大小超過安全上限")}
+        var count=uLongf(size),out=Data(count:size)
+        let status=out.withUnsafeMutableBytes{dst in data.withUnsafeBytes{src in uncompress(dst.bindMemory(to:UInt8.self).baseAddress,&count,src.bindMemory(to:UInt8.self).baseAddress,uLong(data.count))}}
+        guard status==Z_OK,count==size else{throw TradeError.corrupt("備份壓縮資料或展開長度不符")};return out
+    }
     public static func exportBoth(_ accounts: [AccountState],password: String?,time: Int64) throws -> Data {
         guard accounts.count==2,Set(accounts.map(\.mode)).count==2 else{throw TradeError.invalid("完整備份須包含獨立的 A、B 帳戶")}
         let payloads=try accounts.sorted{$0.mode.rawValue<$1.mode.rawValue}.map{try export($0,password:password,time:time)}
@@ -105,12 +120,17 @@ public enum BackupService {
     }
     public static func export(_ state: AccountState, password: String?, time: Int64) throws -> Data {
         try AccountRepository.validate(state,mode:state.mode)
+        guard state.history.map({$0.fills==0 && $0.ledger==0 && $0.events==0}) ?? true else{throw TradeError.invalid("備份必須先取得完整歷史，不可匯出分頁投影")}
         var clean = state
+        clean.history=nil
         // Provider data/cache and credentials are never exported. Offline state is the owned synthetic world.
         if state.mode == .online { clean.quotes = [:]; clean.consumed = [:] }
-        let payload = try AccountRepository.encode(clean)
+        let raw = try AccountRepository.encode(clean)
+        guard raw.count<=expandedLimit else{throw TradeError.invalid("完整帳戶超過 512 MB 展開上限，未匯出；請保留原帳戶")}
+        let payload = raw.count>65_536 ? try compress(raw):raw
         guard payload.count<=32_000_000 else{throw TradeError.invalid("帳戶超過目前 32 MB 備份容量，未產生不可還原的檔案；請保留原帳戶，不要重設或重裝")}
         var envelope = BackupEnvelope(mode:state.mode,createdAt:time,algorithm:"none",iterations:0,salt:Data(),nonce:Data(),tag:Data(),payload:payload,checksum:digest(payload))
+        if raw.count>65_536{envelope.compression="zlib-1";envelope.expandedSize=raw.count}
         if let password, !password.isEmpty {
             envelope.algorithm = "AES-256-GCM/PBKDF2-HMAC-SHA256"; envelope.iterations = 600_000
             envelope.salt = try random(16); envelope.nonce = try random(12); envelope.tag = Data(repeating:0,count:16)
@@ -130,7 +150,10 @@ public enum BackupService {
             payload = try crypt(e.payload,key:key,nonce:e.nonce,tag:&tag,encrypt:false)
         } else { guard e.iterations == 0,e.salt.isEmpty,e.nonce.isEmpty,e.tag.isEmpty else { throw TradeError.corrupt("備份加密標頭不合法") } }
         guard digest(payload) == e.checksum else { throw TradeError.corrupt("備份校驗碼不符，原資料不變") }
+        if let compression=e.compression{guard compression=="zlib-1",let size=e.expandedSize else{throw TradeError.corrupt("備份壓縮格式不符")};payload=try expand(payload,size:size)}
+        else{guard e.expandedSize==nil else{throw TradeError.corrupt("備份展開標頭不合法")}}
         let state = try JSONDecoder().decode(AccountState.self,from:payload)
+        guard state.history==nil else{throw TradeError.corrupt("備份不可缺少封存歷史")}
         try AccountRepository.validate(state,mode:expectedMode)
         return state
     }
