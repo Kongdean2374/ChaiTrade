@@ -69,3 +69,26 @@ private func archiveFixture(capital:Int=1000,journals:Int=0)throws->(URL,Account
     #expect(throws:TradeError.self){try target.installArchiveSnapshot(verified)}
     #expect(try target.load()?.cash["TWD"]==Amount(1000))
 }
+
+@Test func archiveRejectsFilledOrderWithoutCanonicalFillsAndHotOrderWithoutCanonicalRow() throws {
+    func orderFixture(filled:Bool)throws->(URL,AccountRepository){
+        let (root,repository)=try archiveFixture()
+        var state=try #require(try repository.fullSnapshot())
+        let instrument=try #require(state.instruments.first)
+        let request=OrderRequest(instrumentID:instrument.id,side:.buy,kind:.market,quantity:.one)
+        var order=Order(id:request.requestID,accountID:state.accountID,request:request,referencePrice:try Amount(100),createdAt:1000,updatedAt:1000,ruleVersion:"synthetic-archive-validation")
+        if filled{order.status = .filled;order.filled = .one}
+        state.orders[order.id]=order
+        _=try repository.save(state)
+        return (root,repository)
+    }
+    let (firstRoot,first)=try orderFixture(filled:true),firstURL=firstRoot.appendingPathComponent("copy/account.sqlite")
+    try first.createArchiveSnapshot(at:firstURL)
+    #expect(throws:TradeError.self){try SQLiteArchiveDatabase.verify(firstURL,mode:.online)}
+    let (secondRoot,second)=try orderFixture(filled:false),secondURL=secondRoot.appendingPathComponent("copy/account.sqlite")
+    try second.createArchiveSnapshot(at:secondURL)
+    var db:OpaquePointer?;#expect(sqlite3_open(secondURL.path,&db)==SQLITE_OK)
+    #expect(sqlite3_exec(db,"DELETE FROM orders",nil,nil,nil)==SQLITE_OK);sqlite3_close(db)
+    #expect(throws:TradeError.self){try SQLiteArchiveDatabase.verify(secondURL,mode:.online)}
+    #expect(try first.load()?.orders.count==1);#expect(try second.load()?.orders.count==1)
+}

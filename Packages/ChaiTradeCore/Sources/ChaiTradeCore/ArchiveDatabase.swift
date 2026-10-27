@@ -117,6 +117,7 @@ enum SQLiteArchiveDatabase{
                 "SELECT count(*) FROM equity WHERE account_id<>?",
                 "SELECT count(*) FROM financial_flows WHERE account_id<>? OR id IS NOT json_extract(payload,'$.id') OR time IS NOT json_extract(payload,'$.time') OR sequence IS NOT json_extract(payload,'$.sequence')"
             ]{guard try strings(db,sql,values:[state.accountID])==["0"] else{throw TradeError.corrupt("歸檔列的帳戶或原始身份不符")}}
+            var pendingHotOrders=Set(state.orders.keys)
             try visit(db,sql:"SELECT payload FROM orders ORDER BY id"){text in
                 let order=try decoder.decode(Order.self,from:Data(text.utf8)),request=order.request
                 guard order.accountID==state.accountID,order.id==request.requestID,instruments[request.instrumentID] != nil,request.quantity > .zero,order.filled >= .zero,order.filled<=request.quantity,order.reserved >= .zero,order.referencePrice > .zero,request.leverage>=1 else{throw TradeError.corrupt("歸檔委託不合法")}
@@ -124,9 +125,18 @@ enum SQLiteArchiveDatabase{
                 if request.kind.conditional && request.kind != .trailing{guard (request.trigger ?? .zero) > .zero else{throw TradeError.corrupt("歸檔觸發價遺失")}}
                 if request.kind == .trailing{guard (request.trailingDistance ?? .zero) > .zero else{throw TradeError.corrupt("歸檔追蹤距離無效")}}
                 if request.postOnly{guard request.kind == .limit,request.price != nil else{throw TradeError.corrupt("歸檔Post-only無效")}}
-                if let hot=state.orders[order.id]{guard try AccountRepository.encode(hot)==AccountRepository.encode(order) else{throw TradeError.corrupt("委託投影與歸檔不符")}}
+                guard order.fees >= .zero else{throw TradeError.corrupt("歸檔委託費用不合法")}
+                if order.status == .filled{guard order.filled==request.quantity else{throw TradeError.corrupt("歸檔已成交委託數量不完整")}}
+                if order.filled > .zero || order.fees > .zero{
+                    guard try strings(db,"SELECT EXISTS(SELECT 1 FROM fills WHERE order_id=?)",values:[order.id])==["1"] else{throw TradeError.corrupt("歸檔已成交委託缺少原始成交")}
+                }
+                if let hot=state.orders[order.id]{
+                    guard try AccountRepository.encode(hot)==AccountRepository.encode(order) else{throw TradeError.corrupt("委託投影與歸檔不符")}
+                    pendingHotOrders.remove(order.id)
+                }
                 else if order.status.open{throw TradeError.corrupt("歸檔未結委託未包含於帳戶")}
             }
+            guard pendingHotOrders.isEmpty else{throw TradeError.corrupt("帳戶委託投影缺少原始歸檔")}
             var currentOrder:String?,order:Order?,filled=Amount.zero,fees=Amount.zero
             func finishOrder()throws{if let order{guard filled==order.filled,fees==order.fees else{throw TradeError.corrupt("歸檔成交與委託累計費用不符")}}}
             try visit(db,sql:"SELECT payload FROM fills ORDER BY order_id,rowid"){text in
@@ -135,7 +145,7 @@ enum SQLiteArchiveDatabase{
                     try finishOrder();currentOrder=fill.orderID;filled = .zero;fees = .zero
                     guard let raw=try strings(db,"SELECT payload FROM orders WHERE id=?",values:[fill.orderID]).first else{throw TradeError.corrupt("歸檔成交缺少委託")};order=try decoder.decode(Order.self,from:Data(raw.utf8))
                 }
-                guard fill.accountID==state.accountID,fill.quantity > .zero,fill.price > .zero,fill.fee >= .zero,fill.tax >= .zero,let instrument=instruments[fill.instrumentID],order?.request.instrumentID==fill.instrumentID else{throw TradeError.corrupt("歸檔成交不合法")}
+                guard fill.accountID==state.accountID,fill.quantity > .zero,fill.price > .zero,fill.fee >= .zero,fill.tax >= .zero,let instrument=instruments[fill.instrumentID],order?.request.instrumentID==fill.instrumentID,order?.request.side==fill.side else{throw TradeError.corrupt("歸檔成交不合法")}
                 filled=try filled+fill.quantity;fees=try fees+fill.fee
                 var total=totals[instrument.currency] ?? FillTotals();try total.include(fill);totals[instrument.currency]=total
             };try finishOrder()
