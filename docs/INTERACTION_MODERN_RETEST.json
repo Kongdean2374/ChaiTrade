@@ -1,0 +1,105 @@
+{
+  "commit": "ae980f87f193a47ab51ba8ca3e8d6b72f8572c4d",
+  "runID": 40506629626,
+  "evidenceArtifactID": 12736942115,
+  "archiveSHA256": "a13a1e766dbccdfa496a60ca2989a90d0cc5cea6ea9e97b9c9100909ade37448",
+  "environment": "Xcode 26.2 / iPhone 17 Pro / iOS 26.2",
+  "executions": 18,
+  "passed": 16,
+  "failed": 2,
+  "uniqueSessionDirectories": 18,
+  "results": {
+    "InteractionTests.testBackNavigationSheetCancelSwipeAndKeyboard": [
+      {
+        "result": "passed",
+        "seconds": 87.097
+      },
+      {
+        "result": "passed",
+        "seconds": 74.338
+      }
+    ],
+    "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": [
+      {
+        "result": "passed",
+        "seconds": 75.626
+      },
+      {
+        "result": "passed",
+        "seconds": 71.151
+      }
+    ],
+    "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": [
+      {
+        "result": "passed",
+        "seconds": 111.903
+      },
+      {
+        "result": "passed",
+        "seconds": 88.843
+      }
+    ],
+    "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": [
+      {
+        "result": "failed",
+        "seconds": 38.707
+      },
+      {
+        "result": "failed",
+        "seconds": 38.584
+      }
+    ],
+    "InteractionTests.testRapidTabsReselectAndFavoritesPersist": [
+      {
+        "result": "passed",
+        "seconds": 48.593
+      },
+      {
+        "result": "passed",
+        "seconds": 46.054
+      }
+    ],
+    "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": [
+      {
+        "result": "passed",
+        "seconds": 69.279
+      },
+      {
+        "result": "passed",
+        "seconds": 68.668
+      }
+    ],
+    "SmokeTests.testOfflineMarketOrderUsesLocalEngine": [
+      {
+        "result": "passed",
+        "seconds": 51.372
+      },
+      {
+        "result": "passed",
+        "seconds": 49.236
+      }
+    ],
+    "SmokeTests.testOfflineOnboardingAndNavigation": [
+      {
+        "result": "passed",
+        "seconds": 39.035
+      },
+      {
+        "result": "passed",
+        "seconds": 41.196
+      }
+    ],
+    "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": [
+      {
+        "result": "passed",
+        "seconds": 88.788
+      },
+      {
+        "result": "passed",
+        "seconds": 86.682
+      }
+    ]
+  },
+  "failure": "Order test cannot find cancel after rapid taps on source presentation button; replace moving bottom confirmation dialog with centered explicit two-action alert. All same assertions retained.",
+  "nextRun": "Two focused order repetitions must pass before the full mandatory nine cases x two repetitions. No IPA without both."
+}

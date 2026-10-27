@@ -25,11 +25,12 @@ try:
 except (OSError,subprocess.CalledProcessError) as e:print('UI_TEST_SESSION_COLLECTION',type(e).__name__)
 
 # Make attachments readable without Xcode and retain an independent SQLite summary.
-result=pathlib.Path('build/UITests.xcresult')
-if result.exists():
- try:
-  subprocess.run(['xcrun','xcresulttool','export','attachments','--path',str(result),'--output-path',str(out/'ui-attachments')],check=True,timeout=90)
- except (OSError,subprocess.CalledProcessError,subprocess.TimeoutExpired) as e:print('UI_ATTACHMENT_EXPORT',type(e).__name__)
+for result,directory in [(pathlib.Path('build/UITests.xcresult'),'ui-attachments'),(pathlib.Path('build/UIOrderFocused.xcresult'),'ui-focused-attachments')]:
+ if result.exists():
+  try:
+   subprocess.run(['xcrun','xcresulttool','export','attachments','--path',str(result),'--output-path',str(out/directory)],check=True,timeout=90)
+  except (OSError,subprocess.CalledProcessError,subprocess.TimeoutExpired) as e:print('UI_ATTACHMENT_EXPORT',type(e).__name__)
+
 try:
  import sqlite3
  summaries=[]

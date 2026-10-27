@@ -141,7 +141,7 @@ struct OrderForm: View {
                 ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
             }
             .onAppear{price=model.quote?.last.description ?? ""}
-            .confirmationDialog("確認本機模擬委託",isPresented:$confirm,titleVisibility:.visible){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text("\(model.selected?.symbol ?? "") · \(side.label) · \(quantity)\n不會向交易所傳送委託。")}
+            .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text("\(model.selected?.symbol ?? "") · \(side.label) · \(quantity)\n不會向交易所傳送委託。")}
     }
     var preview: (Amount,Amount,Amount)? {
         guard let i=model.selected,let q=try? Amount(quantity),let p=(try? Amount(price)) ?? model.quote?.last else{return nil}

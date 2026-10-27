@@ -34,7 +34,7 @@ jobs:
       - name: Finalize metadata after required UI tests
         run: |
           python3 scripts/build_info.py
-          cp build/logs/ui-tests.log build/logs/stress-tests.log build/logs/stress-100000.json dist/
+          cp build/logs/ui-tests.log build/logs/ui-focused-order.log build/logs/stress-tests.log build/logs/stress-100000.json dist/
       - name: Upload IPA, checksum and build info
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -53,5 +53,6 @@ jobs:
           path: |
             build/logs/
             build/UITests.xcresult
+            build/UIOrderFocused.xcresult
           retention-days: 7
           if-no-files-found: warn

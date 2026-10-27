@@ -14,3 +14,7 @@ xcuserdata/
 *.mobileprovision
 *.chaitrade
 .reports/
+
+# Python tooling caches
+__pycache__/
+*.py[cod]
