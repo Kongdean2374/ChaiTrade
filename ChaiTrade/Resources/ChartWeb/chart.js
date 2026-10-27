@@ -18,7 +18,7 @@ window.render=function(data){
  lastData=data;
  const clean=data.candles.filter(c=>Number.isFinite(c.close)&&c.time>0);
  series.setData(data.line?clean.map(c=>({time:c.time,value:c.close})):clean);
- volume.setData(clean.map(c=>({time:c.time,value:c.volume,color:c.close>=c.open?'#e65c6638':'#35b79238'})));
+ volume.setData(clean.filter(c=>c.volume!==null&&Number.isFinite(c.volume)).map(c=>({time:c.time,value:c.volume,color:c.close>=c.open?'#e65c6638':'#35b79238'})));
  for(const s of extra)chart.removeSeries(s);extra=[];
  for(const o of data.overlays){const s=chart.addSeries(LightweightCharts.LineSeries,{color:o.color,lineWidth:1,priceLineVisible:false,lastValueVisible:false},o.pane||0);s.setData(o.data);extra.push(s);}
  for(const l of priceLines)series.removePriceLine(l);priceLines=[];

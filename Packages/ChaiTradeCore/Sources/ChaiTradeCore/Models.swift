@@ -117,9 +117,9 @@ public struct Candle: Codable, Sendable, Equatable {
     public var high: Double
     public var low: Double
     public var close: Double
-    public var volume: Double
+    public var volume: Double?
     public var complete: Bool
-    public init(time: Int64, open: Double, high: Double, low: Double, close: Double, volume: Double, complete: Bool = true) {
+    public init(time: Int64, open: Double, high: Double, low: Double, close: Double, volume: Double?, complete: Bool = true) {
         self.time = time; self.open = open; self.high = high; self.low = low; self.close = close; self.volume = volume; self.complete = complete
     }
 }
@@ -284,6 +284,7 @@ public struct AccountState: Codable, Sendable {
     public var simulation: SimulationState?
     public var allowEstimatedExecution = false
     public var leverageEnabled = false
+    public var useReferenceRiskPrice: Bool?
     public var continueWhileAway = true
     public var lastWallTime: Int64?
     public var sequence: Int64 = 0

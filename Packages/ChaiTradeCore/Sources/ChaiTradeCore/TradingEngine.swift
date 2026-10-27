@@ -11,6 +11,9 @@ public actor TradingEngine {
         try repository.save(initial)
     }
     public func snapshot() -> AccountState { state }
+    public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
+        try check(context);return try repository.fillPage(limit:limit,before:before)
+    }
     private func check(_ context: AccountContext) throws {
         guard context == self.context else { throw TradeError.wrongAccount }
     }
@@ -111,14 +114,14 @@ public actor TradingEngine {
         let reducing = position != .zero && position.sign != r.side.sign.sign
         let openingQty = reducing ? max(.zero, try r.quantity - position.magnitude) : r.quantity
         let reservation: Amount
-        if i.asset.derivative { reservation = try protected * openingQty * i.rules.multiplier / Amount(r.leverage) + fee }
+        if i.asset.derivative { reservation = openingQty == .zero && reducing ? .zero:try protected * openingQty * i.rules.multiplier / Amount(r.leverage) + fee }
         else if r.side == .buy { reservation = try notional + fee }
         else { reservation = .zero }
         var groupCredit: Amount = .zero
         if let group = r.groupID {
             groupCredit = s.orders.values.filter { $0.status.open && $0.request.groupID == group && $0.id != excluding }.map(\.reserved).max() ?? .zero
         }
-        guard try reservation <= available(s, currency: i.currency, excluding: excluding) + groupCredit else { throw TradeError.insufficient("\(i.currency) 可用資金不足（含費用及價格保護）") }
+        guard try (i.asset.derivative && reducing && openingQty == .zero) || reservation <= available(s, currency: i.currency, excluding: excluding) + groupCredit else { throw TradeError.insufficient("\(i.currency) 可用資金不足（含費用及價格保護）") }
         if r.postOnly, let q {
             let cross = r.side == .buy ? (q.asks.first.map { $0.price <= ref } ?? false) : (q.bids.first.map { $0.price >= ref } ?? false)
             if cross { throw TradeError.invalid("Post-only 會立即吃單，已拒絕") }
@@ -177,6 +180,10 @@ public actor TradingEngine {
     public func ingest(_ quote: Quote, now: Int64, context: AccountContext) throws {
         try check(context)
         guard state.mode == .online else { throw TradeError.invalid("B 模式拒絕外部行情") }
+        var quote=quote
+        if quote.mark == nil,state.useReferenceRiskPrice == true,try Self.instrument(state,quote.instrumentID).asset.derivative {
+            quote.mark=quote.last;quote.coverage += "；使用者啟用自訂參考風險價模型（非交易所標記價）"
+        }
         try transaction { s in
             try Self.settleDue(&s, now:now)
             if let old = s.quotes[quote.instrumentID], old.source == quote.source, old.sequence >= quote.sequence { return }
@@ -216,7 +223,7 @@ public actor TradingEngine {
     private static func match(_ s: inout AccountState, quote q: Quote, now: Int64) throws {
         let i = try instrument(s, q.instrumentID)
         let fresh = q.quality == .realtime && q.valid && now >= q.time - 5 && now - q.time <= q.maximumAge && now - q.receivedAt <= q.maximumAge
-        let bookValid = q.bids.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && q.asks.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && (q.bids.first == nil || q.asks.first == nil || q.bids[0].price < q.asks[0].price)
+        let bookValid = q.last > .zero && q.bids.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && q.asks.allSatisfy { $0.price > .zero && $0.quantity >= .zero } && (q.bids.first == nil || q.asks.first == nil || q.bids[0].price < q.asks[0].price)
         let gradeOK = q.grade == .E1 || q.grade == .E2 || (q.grade == .E3 && s.allowEstimatedExecution)
         let ordered = s.orders.values.filter { $0.status.open && $0.request.instrumentID == i.id }.sorted { ($0.updatedAt, $0.id) < ($1.updatedAt, $1.id) }.map(\.id)
         for id in ordered {
@@ -226,8 +233,9 @@ public actor TradingEngine {
             if dayExpired || (o.request.expiresAt.map { now >= $0 } ?? false) {
                 o.status = .expired; o.reserved = .zero; s.orders[id] = o; s.audit("expired", id, time: now); continue
             }
-            guard fresh && bookValid && gradeOK && i.rules.isOpen(at: q.time) && !i.halted else {
-                o.suspension = !fresh ? "行情過期或非即時，暫停成交" : !bookValid ? "委託簿無效" : !gradeOK ? "資料能力不足；E3 估算須明確啟用" : "非交易時段或停牌"
+            let riskPriceValid = !i.asset.derivative || (q.mark ?? .zero) > .zero
+            guard fresh && bookValid && gradeOK && i.rules.isOpen(at: q.time) && !i.halted && riskPriceValid else {
+                o.suspension = !fresh ? "行情過期或非即時，暫停成交" : !bookValid ? "委託簿無效" : !gradeOK ? "資料能力不足；E3 估算須明確啟用" : !riskPriceValid ? "缺少合約風險價；需有效標記價或明確啟用自訂參考價模型" : "非交易時段或停牌"
                 s.orders[id] = o; continue
             }
             o.suspension = nil
@@ -314,7 +322,8 @@ public actor TradingEngine {
         else if next.sign != old.sign { p.average = price }
         let oldMargin = p.margin
         p.quantity = next; p.realized = try p.realized + realized
-        p.leverage = o.request.leverage; p.marginMode = o.request.marginMode
+        let openingQuantity=try quantity-closing
+        if openingQuantity > .zero {p.leverage = o.request.leverage; p.marginMode = o.request.marginMode}
         if old == .zero { p.openedAt = now }
         if i.asset.derivative {
             let released = old == .zero ? .zero : try oldMargin * closing / old.magnitude
@@ -327,12 +336,22 @@ public actor TradingEngine {
         let newCash = try (s.cash[i.currency] ?? .zero) + cashDelta
         let otherLocks = try (s.cash[i.currency] ?? .zero) - available(s, currency: i.currency, excluding: o.id) - oldMargin
         let newPayable = delayedSettlement && o.request.side == .buy ? notional:.zero
-        guard newCash >= (try otherLocks + p.margin + newPayable) else { throw TradeError.insufficient("成交時可用資金不足，保留原帳務") }
+        guard try (i.asset.derivative && closing > .zero && openingQuantity == .zero) || newCash >= otherLocks + p.margin + newPayable else { throw TradeError.insufficient("成交時可用資金不足，保留原帳務") }
         s.cash[i.currency] = newCash; s.positions[i.id] = p
         o.filled = try o.filled + quantity; o.cumulativeNotional = totalNotional; o.fees = cumulativeFee
         o.updatedAt = now
         let rem = try o.remaining
-        o.reserved = o.request.quantity == .zero ? .zero : try o.reserved * rem / (rem + quantity)
+        if rem == .zero {o.reserved = .zero}
+        else {
+            let ceiling=try ([.limit,.stopLimit].contains(o.request.kind) ? (o.request.price ?? o.referencePrice):o.referencePrice*Amount("1.05"))
+            let remainingNotional=try rem*ceiling*i.rules.multiplier
+            let feeRemaining=try max(.zero,i.rules.fees.cumulative(notional:o.cumulativeNotional+remainingNotional,maker:o.request.postOnly)-o.fees)
+            if i.asset.derivative {
+                let stillClosing=p.quantity.sign != 0 && p.quantity.sign != o.request.side.sign.sign ? min(rem,p.quantity.magnitude):.zero
+                let toOpen=try rem-stillClosing
+                o.reserved = toOpen == .zero ? .zero:try toOpen*ceiling*i.rules.multiplier/Amount(o.request.leverage)+feeRemaining
+            }else{o.reserved = o.request.side == .buy ? try remainingNotional+feeRemaining:.zero}
+        }
         let fillID = "fill-\(o.id)-\(s.sequence + 1)"
         let fill = Fill(id: fillID, accountID: s.accountID, orderID: o.id, instrumentID: i.id, side: o.request.side, quantity: quantity, price: price, fee: fee, tax: tax, time: now, quoteTime: q.time, source: q.source, grade: q.grade, estimatedExecution: q.grade == .E3, liquidityEventID: "\(q.source)-\(q.sequence)", ruleVersion: o.ruleVersion, realized: realized)
         s.fills.append(fill)
@@ -374,13 +393,15 @@ public actor TradingEngine {
         guard i.asset.derivative, let p = s.positions[i.id], p.quantity != .zero, let mark = q.mark,
               q.quality == .realtime, q.valid, now - q.time <= q.maximumAge else { return }
         let pnl = try (mark - p.average) * p.quantity * i.rules.multiplier
-        let maintenance = try mark * p.quantity.magnitude * i.rules.multiplier * i.rules.maintenance
+        var maintenance = try mark * p.quantity.magnitude * i.rules.multiplier * (i.rules.maintenance+i.rules.fees.taker)
         var collateral = p.margin
         if p.marginMode == .cross {
             collateral = try (s.cash[i.currency] ?? .zero) - sum(s.positions.values.filter { $0.marginMode == .isolated && $0.id != p.id }.map(\.margin))
-            for other in s.positions.values where other.id != p.id && other.marginMode == .cross {
-                guard let oi = s.instruments.first(where: { $0.id == other.id }), oi.currency == i.currency, let om = s.quotes[other.id]?.mark else { continue }
+            for other in s.positions.values where other.id != p.id && other.marginMode == .cross && other.quantity != .zero {
+                guard let oi = s.instruments.first(where: { $0.id == other.id }), oi.currency == i.currency else { continue }
+                guard let oq=s.quotes[other.id],oq.valid,oq.quality == .realtime,now-oq.time<=oq.maximumAge,let om=oq.mark else{return}
                 collateral = try collateral + (om - other.average) * other.quantity * oi.rules.multiplier
+                maintenance = try maintenance+om*other.quantity.magnitude*oi.rules.multiplier*(oi.rules.maintenance+oi.rules.fees.taker)
             }
         }
         guard try collateral + pnl <= maintenance else { return }
@@ -439,11 +460,12 @@ public actor TradingEngine {
         guard let sim = state.simulation else { return }
         try transaction { s in for i in s.instruments { s.quotes[i.id] = try Simulation.quote(i, state: sim) } }
     }
-    public func updatePreferences(watchlist: Set<String>? = nil, allowEstimated: Bool? = nil, leverageEnabled: Bool? = nil, continueWhileAway: Bool? = nil, context: AccountContext) throws {
+    public func updatePreferences(watchlist: Set<String>? = nil, allowEstimated: Bool? = nil, leverageEnabled: Bool? = nil, useReferenceRiskPrice: Bool? = nil, continueWhileAway: Bool? = nil, context: AccountContext) throws {
         try check(context)
         try transaction { s in
             if let watchlist { s.watchlist = watchlist }; if let allowEstimated { s.allowEstimatedExecution = allowEstimated }
             if let leverageEnabled { s.leverageEnabled = leverageEnabled }; if let continueWhileAway { s.continueWhileAway = continueWhileAway }
+            if let useReferenceRiskPrice{s.useReferenceRiskPrice=useReferenceRiskPrice}
         }
     }
     public func recordJournal(_ journal: JournalEntry, context: AccountContext) throws { try check(context); try transaction { $0.journals.removeAll { $0.id == journal.id }; $0.journals.append(journal) } }

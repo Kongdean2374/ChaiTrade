@@ -19,5 +19,9 @@ unzip -t dist/ChaiTrade-unsigned.ipa
 (cd dist && shasum -a 256 ChaiTrade-unsigned.ipa > ChaiTrade-unsigned.ipa.sha256)
 python3 scripts/build_info.py
 cp build/logs/core-tests.log dist/core-tests.log
-cp build/logs/ui-tests.log dist/ui-tests.log
+if [[ -f build/logs/ui-tests.log ]]; then
+  cp build/logs/ui-tests.log dist/ui-tests.log
+else
+  echo 'UI validation pending; workflow uploads this artifact only after required UI tests succeed.' > dist/ui-tests.log
+fi
 echo '未簽名 IPA 已封裝；仍須另行簽署與實機驗證。'

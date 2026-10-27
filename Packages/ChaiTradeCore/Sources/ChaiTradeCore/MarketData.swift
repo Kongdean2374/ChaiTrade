@@ -225,7 +225,7 @@ public struct MarketDataProvider: Sendable {
             return try j["values"].array.map { row in
                 let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = .gmt; f.dateFormat = "yyyy-MM-dd HH:mm:ss"
                 guard let text = row["datetime"].string, let date = f.date(from:text) else { throw TradeError.unavailable("歷史時間格式變更") }
-                return Candle(time: Int64(date.timeIntervalSince1970), open: try row["open"].amount().displayDouble, high: try row["high"].amount().displayDouble, low: try row["low"].amount().displayDouble, close: try row["close"].amount().displayDouble, volume: 0)
+                return Candle(time: Int64(date.timeIntervalSince1970), open: try row["open"].amount().displayDouble, high: try row["high"].amount().displayDouble, low: try row["low"].amount().displayDouble, close: try row["close"].amount().displayDouble, volume: nil)
             }.sorted { $0.time < $1.time }
         case .binance:
             let tf = interval < 3600 ? "\(interval/60)m" : interval < 86400 ? "\(interval/3600)h" : "1d"

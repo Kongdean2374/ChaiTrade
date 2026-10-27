@@ -6,6 +6,8 @@ struct OrdersView: View {
     @EnvironmentObject var model: AppModel
     @State private var openOnly=true
     @State private var amendment: Order?
+    @State private var historical: [FillPageRow]=[]
+    @State private var historyCursor: Int64?
     var orders: [Order] { (model.state?.orders.values.sorted{($0.createdAt,$0.id)>($1.createdAt,$1.id)} ?? []).filter{!openOnly || $0.status.open} }
     var body: some View {
         List {
@@ -27,6 +29,16 @@ struct OrdersView: View {
                 ForEach(Array((model.state?.fills ?? []).suffix(100).reversed())){fill in
                     VStack(alignment:.leading,spacing:4){Text("\(fill.instrumentID) · \(fill.side.label)").font(.caption.bold());Text("\(fill.quantity) @ \(fill.price) · 費 \(fill.fee) 稅 \(fill.tax)").font(.caption.monospaced());Text("\(fill.source) · \(fill.grade.rawValue)\(fill.estimatedExecution ? " · 估算成交":"")").font(.caption2).foregroundStyle(.secondary)}
                 }
+            }
+            Section("較早成交（依載入時點分頁）"){
+                ForEach(historical){row in let f=row.fill;Text("\(f.instrumentID) · \(f.side.label)\n\(f.quantity) @ \(f.price) · \(f.source)").font(.caption.monospaced())}
+                Button("載入較早成交"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{
+                    if historyCursor == nil{historyCursor=try await engine.fillPage(limit:100,before:nil,context:context).last?.cursor}
+                    guard let cursor=historyCursor else{return}
+                    let rows=try await engine.fillPage(limit:100,before:cursor,context:context)
+                    historical+=rows;historyCursor=rows.last?.cursor ?? cursor
+                    if rows.isEmpty{model.notice="已到最早成交紀錄"}
+                }}}
             }
         }.navigationTitle("委託與成交").sheet(item:$amendment){o in NavigationStack{AmendView(order:o)}}
     }

@@ -1,6 +1,12 @@
 import Foundation
 import CSQLite
 
+public struct FillPageRow: Sendable,Identifiable {
+    public let cursor: Int64
+    public let fill: Fill
+    public var id: String{fill.id}
+}
+
 /// Serial access is owned by TradingEngine. SQLite transactions protect the snapshot and idempotency indices.
 public final class AccountRepository: @unchecked Sendable {
     private var db: OpaquePointer?
@@ -47,6 +53,25 @@ public final class AccountRepository: @unchecked Sendable {
         let state = try JSONDecoder().decode(AccountState.self, from: Data(json.utf8))
         try Self.validate(state, mode: mode)
         return state
+    }
+    public func fillPage(limit: Int = 100,before cursor: Int64? = nil) throws -> [FillPageRow] {
+        guard (1...500).contains(limit),cursor == nil || cursor!>0 else{throw TradeError.invalid("歷史分頁參數不合法")}
+        lock.lock();defer{lock.unlock()}
+        let sql="SELECT rowid,payload FROM fills \(cursor == nil ? "":"WHERE rowid < ?") ORDER BY rowid DESC LIMIT ?"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db,sql,-1,&statement,nil)==SQLITE_OK else{throw TradeError.corrupt("無法查詢成交歷史")}
+        defer{sqlite3_finalize(statement)}
+        if let cursor{sqlite3_bind_int64(statement,1,cursor);sqlite3_bind_int(statement,2,Int32(limit))}else{sqlite3_bind_int(statement,1,Int32(limit))}
+        var rows:[FillPageRow]=[]
+        var status=sqlite3_step(statement)
+        while status==SQLITE_ROW {
+            guard let text=sqlite3_column_text(statement,1) else{throw TradeError.corrupt("成交歷史格式損壞")}
+            let fill=try JSONDecoder().decode(Fill.self,from:Data(String(cString:text).utf8))
+            guard fill.accountID==mode.accountID else{throw TradeError.wrongAccount}
+            rows.append(FillPageRow(cursor:sqlite3_column_int64(statement,0),fill:fill));status=sqlite3_step(statement)
+        }
+        guard status==SQLITE_DONE else{throw TradeError.corrupt("成交分頁讀取中斷")}
+        return rows
     }
     public static func encode<T: Encodable>(_ object: T) throws -> Data {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]

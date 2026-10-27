@@ -11,10 +11,10 @@ Date: 2026-10-27. Work is in progress against the entire REQUIREMENTS.md; this i
 | R05 funding | cashFlow/exchange, CashView | Exact values, cash reservations, external-flow separation tested |
 | R06 full scope | REQUIREMENTS.md and this table | Not yet fully accepted; missing behaviors tracked in KNOWN_LIMITATIONS |
 | R07 order types and markets | TradingEngine, RulePack, OrderForm | Market/limit/stop/trailing/OCO/bracket, FOK/IOC/post/reduce; core tests passed for covered cases |
-| R08 native UI and charts | Features/, ChartView, ChartWeb | Implemented; Apple platform compilation/UI checks pending |
+| R08 native UI and charts | Features/, ChartView, ChartWeb | Implemented; Simulator compilation passed in earlier runs; app launch smoke currently failed and is under investigation |
 | R09 public repository | Kongdean2374/ChaiTrade | Public read/write verified with README round trip |
-| R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; execution pending |
+| R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; main workflow executing; no IPA success claimed yet |
 | R11 no actual assets | NetworkPolicy | Only allowlisted market-data GET requests; policy tests passed |
-| R12 maintenance and verification | CoreTests, backups, docs, scripts | 23 Linux Swift tests passed; stress/device/migration acceptance incomplete |
+| R12 maintenance and verification | CoreTests, backups, docs, scripts | 36 ordinary Linux Swift test functions passed; 1 stress test separately passed; stress/device/migration acceptance incomplete |
 
 Technical choice: native SQLite C binding replaces GRDB so the same persistence code can be compiled and executed on Linux and iOS without conditional database engines. Transactions, WAL, schema versioning and account validation remain explicit. This choice does not remove the required behavior; full normalized event reconstruction, query performance and migrations still require further validation.

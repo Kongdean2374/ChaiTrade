@@ -142,7 +142,8 @@ public enum Indicators {
         return candles.map { candle in
             let day = calendar.dateComponents([.year,.month,.day],from:Date(timeIntervalSince1970:TimeInterval(candle.time)))
             if day != lastDay { pv=0;volume=0;lastDay=day }
-            pv += (candle.high+candle.low+candle.close)/3*candle.volume; volume += candle.volume
+            guard let v=candle.volume else{return nil}
+            pv += (candle.high+candle.low+candle.close)/3*v; volume += v
             return volume > 0 ? pv/volume : nil
         }
     }

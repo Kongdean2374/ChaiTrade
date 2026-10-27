@@ -1,0 +1,9 @@
+{
+  "save": "9.57231728 seconds",
+  "platform": "Debian GNU/Linux 12 (bookworm)",
+  "page100": "0.005229893 seconds",
+  "fills": "100000",
+  "csv": "8.143607801 seconds",
+  "load": "11.208158925 seconds",
+  "note": "Synthetic storage/report benchmark; not iPhone UI or per-order latency evidence"
+}

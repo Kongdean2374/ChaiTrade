@@ -350,3 +350,100 @@ private struct FixtureTransport: MarketTransport {
     let after=await r.engine.snapshot().simulation!
     #expect(try Simulation.price(r.instrument,at:sim.time,state:after) == price)
 }
+
+@Test func partialFillReleasesAlreadyPaidMinimumFeeReservation() async throws {
+    let r=try Rig(minimum:"10");try await r.engine.ingest(r.quote(quantity:"40"),now:1000,context:r.context)
+    let id=try await r.engine.submit(r.buy(quantity:"100",price:"100"),time:1000,context:r.context)
+    let s=await r.engine.snapshot()
+    #expect(s.orders[id]?.reserved == (try a("6000")))
+    #expect(try TradingEngine.available(s,currency:"TWD") == a("89990"))
+}
+@Test func futureSettlementResetsBasisAndExpires() async throws {
+    let r=try Rig(capital:"1000",derivative:true)
+    var initial=await r.engine.snapshot();initial.instruments[0].asset = .future
+    try await r.engine.restore(initial,context:r.context)
+    try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    var order=try r.buy(quantity:"2");order.leverage=10
+    _=try await r.engine.submit(order,time:1000,context:r.context)
+    try await r.engine.settleFuture(instrumentID:"TEST",price:a("110"),time:1005,eventID:"daily",final:false,context:r.context)
+    try await r.engine.settleFuture(instrumentID:"TEST",price:a("110"),time:1005,eventID:"daily",final:false,context:r.context)
+    try await r.engine.ingest(r.quote(price:"110",time:1005),now:1005,context:r.context)
+    #expect(try Analytics.valuation(await r.engine.snapshot()).total == a("1020"))
+    try await r.engine.settleFuture(instrumentID:"TEST",price:a("120"),time:1010,eventID:"expiry",final:true,context:r.context)
+    #expect(await r.engine.snapshot().cash["TWD"] == (try a("1040")))
+    await #expect(throws:TradeError.self){try await r.engine.submit(r.buy(quantity:"1"),time:1010,context:r.context)}
+}
+@Test func reducedPositionCannotReverseOnSecondExit() async throws {
+    let r=try Rig(derivative:true);try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    _=try await r.engine.submit(r.buy(quantity:"10"),time:1000,context:r.context)
+    var exit=OrderRequest(instrumentID:"TEST",side:.sell,kind:.limit,quantity:try a("8"),price:try a("110"));exit.reduceOnly=true
+    _=try await r.engine.submit(exit,time:1000,context:r.context)
+    exit.requestID=UUID().uuidString;_=try await r.engine.submit(exit,time:1000,context:r.context)
+    try await r.engine.ingest(r.quote(price:"111",time:1005),now:1005,context:r.context)
+    #expect(await r.engine.snapshot().positions["TEST"]?.quantity == .zero)
+}
+
+@Test(.enabled(if:ProcessInfo.processInfo.environment["CHAI_STRESS"]=="1"))
+func stressHistory100000() throws {
+    let r=try Rig(capital:"1000000");var s=try r.repo.load()!
+    let quantity=try a("1"),price=try a("100")
+    for n in 0..<100000 {
+        let id="stress-\(n)",side: Side=n%2==0 ? .buy:.sell,time=Int64(1000+n)
+        var request=OrderRequest(instrumentID:"TEST",side:side,kind:.limit,quantity:quantity,price:price);request.requestID=id
+        s.orders[id]=Order(id:id,accountID:s.accountID,request:request,status:.filled,filled:quantity,cumulativeNotional:price,referencePrice:price,createdAt:time,updatedAt:time,ruleVersion:r.instrument.rules.version)
+        let fill=Fill(id:"fill-\(id)",accountID:s.accountID,orderID:id,instrumentID:"TEST",side:side,quantity:quantity,price:price,fee:.zero,tax:.zero,time:time,quoteTime:time,source:"synthetic-stress-fixture",grade:.E1,estimatedExecution:false,liquidityEventID:"liquidity-\(n)",ruleVersion:r.instrument.rules.version,realized:.zero)
+        s.fills.append(fill);s.post(event:fill.id,currency:"TWD",debit:"cash",credit:"spot-clearing",amount:side == .buy ? price.negated:price,time:time);s.audit("fill","合成壓力資料",time:time,id:fill.id)
+    }
+    let clock=ContinuousClock(),start=clock.now
+    try r.repo.save(s)
+    let saved=clock.now
+    let loaded=try r.repo.load()!
+    let read=clock.now
+    let page=try r.repo.fillPage(limit:100)
+    let paged=clock.now
+    #expect(page.count==100)
+    #expect(loaded.fills.count==100000);#expect(loaded.orders.count==100000)
+    let csv=Analytics.fillsCSV(loaded,time:200000)
+    let exported=clock.now
+    #expect(csv.components(separatedBy:"\r\n").count==100001)
+    let metrics:[String:String]=["fills":"100000","save":String(describing:start.duration(to:saved)),"load":String(describing:saved.duration(to:read)),"csv":String(describing:paged.duration(to:exported)),"page100":String(describing:read.duration(to:paged)),"platform":ProcessInfo.processInfo.operatingSystemVersionString,"note":"Synthetic storage/report benchmark; not iPhone UI or per-order latency evidence"]
+    let out=URL(fileURLWithPath:"/app/.reports")
+    if FileManager.default.fileExists(atPath:"/app") {try FileManager.default.createDirectory(at:out,withIntermediateDirectories:true);try JSONSerialization.data(withJSONObject:metrics,options:.prettyPrinted).write(to:out.appendingPathComponent("stress-100000.json"))}
+    print("STRESS_METRICS",metrics)
+}
+
+private struct PathFixtures: MarketTransport {
+    let paths: [String:String]
+    func get(_ url: URL,headers: [String:String]) async throws -> Data {
+        guard NetworkPolicy.permits(url,method:"GET",mode:.online),let json=paths[url.path] else{throw TradeError.unavailable("Unexpected fixture request path")}
+        return Data(json.utf8)
+    }
+}
+@Test(arguments:[ProviderID.fugle,.fugleFutures,.alpaca,.twelveData,.binance])
+func allProviderQuoteSchemas(provider: ProviderID) async throws {
+    var rules=RulePack(tick:try a("0.01"),quantityStep:try a("1"));rules.multiplier = .one
+    let symbol: String,asset: AssetClass,paths: [String:String]
+    switch provider {
+    case .fugle,.fugleFutures:
+        symbol=provider == .fugle ? "2330":"TXF202610";asset=provider == .fugle ? .taiwanStock:.future
+        let family=provider == .fugle ? "stock":"futopt"
+        paths=["/marketdata/v1.0/\(family)/intraday/quote/\(symbol)":#"{"lastPrice":100.01,"lastUpdated":1793059200000000,"bids":[{"price":100,"size":10}],"asks":[{"price":100.02,"size":12}]}"#]
+    case .alpaca:
+        symbol="AAPL";asset = .usStock
+        paths=["/v2/stocks/AAPL/snapshot":#"{"latestTrade":{"t":"2026-10-27T00:00:00Z","p":100.01},"latestQuote":{"t":"2026-10-27T00:00:00Z","bp":100,"bs":10,"ap":100.02,"as":12}}"#]
+    case .twelveData:
+        symbol="EUR/USD";asset = .forex
+        paths=["/quote":#"{"close":"1.12345","timestamp":1793059200,"status":"ok"}"#]
+    case .binance:
+        symbol="BTCUSDT";asset = .perpetual
+        paths=["/fapi/v1/premiumIndex":#"{"markPrice":"100","indexPrice":"99","time":1793059200000}"#,"/fapi/v1/depth":#"{"lastUpdateId":123,"E":1793059200000,"bids":[["100","10"]],"asks":[["102","12"]]}"#,"/fapi/v1/ticker/24hr":#"{"lastPrice":"101"}"#]
+    case .coinbase:return
+    }
+    let i=Instrument(id:"\(provider.rawValue):\(symbol)",symbol:symbol,name:"合成 fixture",asset:asset,currency:"USD",rules:rules,initialPrice:.zero,provider:provider)
+    let p=MarketDataProvider(id:provider,credentials:ProviderCredentials(key:"SYNTHETIC_FIXTURE_KEY",secret:"SYNTHETIC_FIXTURE_SECRET"),transport:PathFixtures(paths:paths))
+    let q=try await p.quote(i,now:1793059200)
+    #expect(q.time==1793059200);#expect(q.quality == .realtime)
+    if provider == .twelveData{#expect(q.grade == .E3);#expect(q.bids.isEmpty)}
+    else{#expect(q.bids.count==1);#expect(q.asks.count==1)}
+    if provider == .binance{#expect(q.last == (try a("101")));#expect(q.mark == (try a("100")))}
+}

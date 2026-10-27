@@ -28,6 +28,8 @@ struct SettingsView: View {
                 Toggle("啟用槓桿／合約功能",isOn:Binding(get:{model.state?.leverageEnabled ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(leverageEnabled:v,context:context)}}}))
                 Text("啟用即表示了解虛擬合約可能強平及穿倉，負債會保留。現貨不自動借貸。").font(.caption).foregroundStyle(.orange)
                 if model.state?.mode == .online{
+                    Toggle("允許合約採自訂參考風險價模型",isOn:Binding(get:{model.state?.useReferenceRiskPrice ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(useReferenceRiskPrice:v,context:context)}}}))
+                    Text("缺少交易所標記價時，只有明確啟用才可用來源參考價計算自訂風險。畫面會標示此模型；不能宣稱為交易所標記價。").font(.caption)
                     Toggle("允許 E3 參考價估算撮合",isOn:Binding(get:{model.state?.allowEstimatedExecution ?? false},set:{v in Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.updatePreferences(allowEstimated:v,context:context)}}}))
                     Text("E3 使用明示價差與有限流動性模型，成交永久標記為估算。延遲／過期行情仍不可成交。").font(.caption)
                 }
