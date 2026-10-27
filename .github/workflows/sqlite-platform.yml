@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
       - name: Complete core and actual public source checks
-        run: bash scripts/test.sh
+        run: CHAI_ARCHIVE_DIAGNOSTIC=1 bash scripts/test.sh
       - name: Original T45 gate
         run: bash scripts/test_stress.sh
       - name: Preserve exact logs
