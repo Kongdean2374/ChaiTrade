@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+mkdir -p build/logs
+destination='platform=iOS Simulator,name=iPhone 16 Pro,OS=18.5'
+xcodebuild test -project ChaiTrade.xcodeproj -scheme ChaiTrade \
+  -destination "$destination" -resultBundlePath build/UITests.xcresult \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  2>&1 | tee build/logs/ui-tests.log

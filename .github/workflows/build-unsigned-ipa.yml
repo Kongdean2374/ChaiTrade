@@ -1,0 +1,44 @@
+name: Build unsigned IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**.md']
+permissions:
+  contents: read
+concurrency:
+  group: unsigned-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify toolchain and bundled resources
+        run: bash scripts/preflight.sh
+      - name: Core, persistence, replay and backup tests
+        run: bash scripts/test.sh
+      - name: iPhone Simulator UI smoke tests
+        run: bash scripts/test_ui.sh
+      - name: Build and verify unsigned iPhoneOS IPA
+        run: bash scripts/build_unsigned_ipa.sh
+      - name: Upload IPA, checksum and build info
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ChaiTrade-unsigned-ipa
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve build and test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ChaiTrade-test-evidence
+          path: |
+            build/logs/
+            build/UITests.xcresult
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,0 +1,259 @@
+import SwiftUI
+import ChaiTradeCore
+import Security
+import UniformTypeIdentifiers
+
+enum KeychainVault {
+    static func read(_ key: String) throws -> String {
+        let query: [String:Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"ChaiTrade.market-data",kSecAttrAccount as String:key,kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary,&result)
+        if status == errSecItemNotFound { return "" }
+        guard status == errSecSuccess,let data = result as? Data,let string = String(data:data,encoding:.utf8) else { throw TradeError.unavailable("Keychain 已鎖定或無法存取") }
+        return string
+    }
+    static func write(_ value: String, key: String) throws {
+        let query: [String:Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"ChaiTrade.market-data",kSecAttrAccount as String:key]
+        if value.isEmpty { let status = SecItemDelete(query as CFDictionary); guard status == errSecSuccess || status == errSecItemNotFound else { throw TradeError.unavailable("無法刪除金鑰") }; return }
+        let values: [String:Any] = [kSecValueData as String:Data(value.utf8),kSecAttrAccessible as String:kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let result = SecItemUpdate(query as CFDictionary,values as CFDictionary)
+        if result == errSecItemNotFound { var add=query;add.merge(values) { _,new in new };guard SecItemAdd(add as CFDictionary,nil) == errSecSuccess else { throw TradeError.unavailable("無法保存行情金鑰") } }
+        else if result != errSecSuccess { throw TradeError.unavailable("無法更新行情金鑰") }
+    }
+}
+
+struct ExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.data,.json,.commaSeparatedText] }
+    var data: Data
+    init(data: Data) { self.data=data }
+    init(configuration: ReadConfiguration) throws { data=configuration.file.regularFileContents ?? Data() }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents:data) }
+}
+
+@MainActor final class AppModel: ObservableObject {
+    @Published var state: AccountState?
+    @Published var settings=AppSettings()
+    @Published var error: String?
+    @Published var notice: String?
+    @Published var loading=false
+    @Published var progress: Double?
+    @Published var selectedID=""
+    @Published var tab=0
+    @Published var candles: [Candle]=[]
+    @Published var chartError: String?
+    @Published var interval: Int64=60
+    @Published var chartCount=160
+    @Published var fetching=false
+    @Published var providerStatus: [ProviderID:String]=[:]
+    @Published var exportDocument: ExportDocument?
+    @Published var exportName="ChaiTrade-backup"
+    @Published var exporting=false
+    @Published var catchupTarget: Int64?
+    @Published var clockWarning: String?
+    private(set) var engine: TradingEngine?
+    private(set) var context: AccountContext?
+    private var booted=false
+    private var busy=false
+    private var foreground=true
+    private var lastUptime=ProcessInfo.processInfo.systemUptime
+    private var fractionalTime=0.0
+    private var lastFetch=0.0
+    private var chartGeneration=UUID()
+    let root: URL
+    init() {
+        let base=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask).first!
+        root=base.appendingPathComponent(ProcessInfo.processInfo.arguments.contains("--uitest") ? "ChaiTradeUITest":"ChaiTrade",isDirectory:true)
+        do { settings=try AppSettings.load(root:root) } catch { self.error="設定檔無法讀取，保留原資料：\(error.localizedDescription)" }
+    }
+    var now: Int64 { state?.simulation?.time ?? Int64(Date().timeIntervalSince1970) }
+    var selected: Instrument? { state?.instruments.first { $0.id == selectedID } }
+    var quote: Quote? { state?.quotes[selectedID] }
+    var valuation: Valuation? { state.flatMap { try? Analytics.valuation($0) } }
+    func money(_ value: Amount?) -> String { settings.hideBalances ? "••••••" : value?.description ?? "未提供" }
+    func run(_ operation: () async throws -> Void) async {
+        do { try await operation();await refresh() } catch { self.error=error.localizedDescription }
+    }
+    func boot() async {
+        guard !booted,settings.onboarded else { return }
+        booted=true;loading=true;defer{loading=false}
+        do {
+            let target=settings.pendingMode ?? settings.activeMode
+            let switched=target != settings.activeMode
+            let repo=try AccountRepository(root:root,mode:target)
+            guard let existing=try repo.load() else { throw TradeError.corrupt("帳戶不存在，請使用備份恢復；不會重建空帳戶覆蓋資料") }
+            let ctx=AccountContext(mode:target)
+            let service=try TradingEngine(context:ctx,repository:repo,initial:existing)
+            try await service.initializeQuotes(context:ctx)
+            engine=service;context=ctx;state=await service.snapshot()
+            selectedID=state?.instruments.first(where:{$0.asset == .crypto})?.id ?? state?.instruments.first?.id ?? ""
+            settings.activeMode=target;settings.pendingMode=nil;try settings.save(root:root)
+            var resources=URLResourceValues();resources.isExcludedFromBackup=true
+            var url=root;try url.setResourceValues(resources)
+            try FileManager.default.setAttributes([.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication],ofItemAtPath:root.path)
+            if !switched { await prepareCatchup() }
+            lastUptime=ProcessInfo.processInfo.systemUptime
+            await loadChart()
+        } catch { self.error=error.localizedDescription;booted=false }
+    }
+    func onboard(mode: Mode, online: String, offline: String, currency: String) async {
+        await run {
+            let amounts=[try Amount(online),try Amount(offline)]
+            guard amounts.allSatisfy({$0 > .zero}) else { throw TradeError.invalid("初始本金必須大於零") }
+            for (index,m) in Mode.allCases.enumerated() {
+                let repo=try AccountRepository(root:self.root,mode:m)
+                if try repo.load() == nil { try repo.save(TradingEngine.initial(mode:m,baseCurrency:currency,capital:amounts[index],time:Int64(Date().timeIntervalSince1970))) }
+            }
+            self.settings.activeMode=mode;self.settings.onboarded=true;try self.settings.save(root:self.root)
+        }
+        await boot()
+    }
+    func refresh() async { if let engine { state=await engine.snapshot() } }
+    func select(_ instrument: Instrument) { selectedID=instrument.id;tab=2;Task{await loadChart()} }
+    func tick() async {
+        guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil else { return }
+        busy=true;defer{busy=false}
+        let uptime=ProcessInfo.processInfo.systemUptime, elapsed=max(0,uptime-lastUptime);lastUptime=uptime
+        do {
+            if let sim=state?.simulation {
+                if !sim.paused {
+                    fractionalTime += elapsed*Double(sim.speed)
+                    let seconds=Int64(fractionalTime)/5*5
+                    if seconds > 0 {
+                        let target=sim.time+seconds;fractionalTime -= Double(seconds)
+                        var cursor=sim.time
+                        while cursor < target && !Task.isCancelled { cursor=try await engine.advance(to:target,context:context) }
+                        try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context)
+                        await refresh()
+                        if tab==2 { await loadChart() }
+                    }
+                }
+            } else if uptime-lastFetch>=10 {
+                lastFetch=uptime;await fetchQuotes()
+            }
+        } catch { self.error=error.localizedDescription }
+    }
+    func suspend() async {
+        foreground=false
+        guard let engine,let context else{return}
+        await run { try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context) }
+    }
+    func resume() async {
+        guard !foreground else{return};foreground=true;lastUptime=ProcessInfo.processInfo.systemUptime
+        await prepareCatchup()
+    }
+    private func prepareCatchup() async {
+        guard let s=state,let sim=s.simulation,!sim.paused,s.continueWhileAway,let wall=s.lastWallTime else{return}
+        let delta=Int64(Date().timeIntervalSince1970)-wall
+        if delta<0 || delta>604800 { clockWarning="裝置時間倒退或相隔超過七天。原檢查點保留，請明確選擇補算或從此刻繼續。";catchupTarget=sim.time+max(0,delta);return }
+        if delta>=5 { catchupTarget=sim.time+delta;await catchUp() }
+    }
+    func catchUp() async {
+        guard let target=catchupTarget,let engine,let context,let start=state?.simulation?.time else{return}
+        clockWarning=nil;progress=0
+        do {
+            var cursor=start
+            while cursor+5<=target && !Task.isCancelled && progress != nil {
+                cursor=try await engine.advance(to:target,context:context)
+                progress=Double(cursor-start)/Double(max(1,target-start))
+                // Persist the matching wall-clock checkpoint so interrupted catch-up never counts elapsed time twice.
+                let remaining=target-cursor
+                try await engine.saveWallClock(Int64(Date().timeIntervalSince1970)-remaining,context:context)
+                await refresh();await Task.yield()
+            }
+            if cursor+5>target { catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間" }
+        } catch { self.error=error.localizedDescription }
+        progress=nil;lastUptime=ProcessInfo.processInfo.systemUptime
+    }
+    func stopCatchup() { progress=nil }
+    func skipCatchup() async {
+        catchupTarget=nil;clockWarning=nil;progress=nil
+        if let engine,let context { await run{try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context)} }
+    }
+    func provider(_ id: ProviderID) throws -> MarketDataProvider {
+        guard context?.mode == .online else { throw TradeError.invalid("B 不取得憑證或建立 Provider") }
+        let credentials=try ProviderCredentials(key:KeychainVault.read(id.rawValue+".key"),secret:KeychainVault.read(id.rawValue+".secret"))
+        return try MarketDataProvider(id:id,credentials:credentials,transport:ReadOnlyTransport(mode:.online))
+    }
+    func fetchQuotes() async {
+        guard !fetching,let s=state,s.mode == .online,let context,let engine else{return}
+        fetching=true;defer{fetching=false}
+        var ids=s.watchlist.union(s.positions.values.filter{$0.quantity != .zero}.map(\.id))
+        ids.formUnion(s.orders.values.filter{$0.status.open}.map{$0.request.instrumentID});ids.insert(selectedID)
+        for i in s.instruments where ids.contains(i.id) {
+            guard foreground,let id=i.provider else{continue}
+            do {
+                let service=try provider(id),received=Int64(Date().timeIntervalSince1970)
+                let q=try await service.quote(i,now:received)
+                guard self.context == context,foreground else { continue }
+                try await engine.ingest(q,now:Int64(Date().timeIntervalSince1970),context:context)
+                providerStatus[id]="\(q.quality.rawValue)・\(q.grade.rawValue)・\(q.coverage)"
+            } catch { providerStatus[id]=error.localizedDescription }
+        }
+        await refresh()
+        if tab==2 { await loadChart() }
+    }
+    func loadChart() async {
+        guard let i=selected,let s=state else{return}
+        let generation=UUID();chartGeneration=generation;chartError=nil
+        let interval=interval,count=chartCount
+        do {
+            let values: [Candle]
+            if let sim=s.simulation { values=try await Task.detached(priority:.userInitiated) { try Simulation.candles(i,state:sim,interval:interval,count:count) }.value }
+            else if let id=i.provider { values=try await provider(id).candles(i,interval:interval,now:Int64(Date().timeIntervalSince1970)) }
+            else { throw TradeError.unavailable("尚無圖表來源") }
+            guard generation==chartGeneration else{return};candles=values
+            if values.isEmpty { chartError="此範圍沒有行情，請切換週期或載入更多歷史" }
+        } catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
+    }
+    func submit(_ request: OrderRequest, oco: OrderRequest? = nil) async {
+        guard let engine,let context else{return}
+        await run {
+            if let oco { try await engine.submitOCO(request,oco,time:self.now,context:context) }
+            else { _=try await engine.submit(request,time:self.now,context:context) }
+            self.notice="委託已送入本機引擎；成交與保留請見委託頁"
+        }
+    }
+    func setPending(_ mode: Mode?) {
+        do { settings.pendingMode=mode == settings.activeMode ? nil:mode;try settings.save(root:root) }
+        catch { self.error=error.localizedDescription }
+    }
+    func saveSettings() { do{try settings.save(root:root)}catch{self.error=error.localizedDescription} }
+    func configureSimulation(speed: Int? = nil, paused: Bool? = nil, scenario: String? = nil, volatility: Double? = nil, liquidity: Double? = nil) async {
+        guard let sim=state?.simulation,let engine,let context else{return}
+        await run{try await engine.configureSimulation(speed:speed ?? sim.speed,paused:paused ?? sim.paused,scenario:scenario ?? sim.scenario,volatility:volatility ?? sim.volatility,liquidity:liquidity ?? sim.liquidity,context:context)}
+    }
+    func toggleWatch(_ id: String) async {
+        guard var set=state?.watchlist,let engine,let context else{return}
+        if set.contains(id) { set.remove(id) } else { set.insert(id) }
+        let updated=set;await run{try await engine.updatePreferences(watchlist:updated,context:context)}
+    }
+    func export(kind: String, password: String = "") async {
+        guard let s=state else{return}
+        await run {
+            let data: Data
+            switch kind {
+            case "CSV": data=Data(Analytics.fillsCSV(s,time:self.now).utf8)
+            case "ledger": data=Data(Analytics.ledgerCSV(s,time:self.now).utf8)
+            case "JSON": var clean=s;if s.mode == .online{clean.quotes=[:];clean.consumed=[:]};data=try AccountRepository.encode(clean)
+            default: data=try BackupService.export(s,password:password.isEmpty ? nil:password,time:self.now)
+            }
+            self.exportName="ChaiTrade-模擬交易-\(s.accountID)-\(kind).\(kind == "CSV" || kind == "ledger" ? "csv":kind == "JSON" ? "json":"chaitrade")"
+            self.exportDocument=ExportDocument(data:data);self.exporting=true
+        }
+    }
+    func importBackup(_ url: URL, password: String) async {
+        guard let context,let engine else{return}
+        await run {
+            let granted=url.startAccessingSecurityScopedResource();defer{if granted{url.stopAccessingSecurityScopedResource()}}
+            let data=try Data(contentsOf:url,options:.mappedIfSafe)
+            let restored=try BackupService.validate(data,expectedMode:context.mode,password:password)
+            let current=await engine.snapshot()
+            let recovery=try BackupService.export(current,password:nil,time:self.now)
+            let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
+            try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+            try recovery.write(to:directory.appendingPathComponent("before-restore-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
+            try await engine.restore(restored,context:context);self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
+        }
+        await loadChart()
+    }
+}
