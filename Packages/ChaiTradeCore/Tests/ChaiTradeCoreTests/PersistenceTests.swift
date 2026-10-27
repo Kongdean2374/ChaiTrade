@@ -67,3 +67,19 @@ private func sql(_ path:String,_ command:String)throws{
     #expect(found.count==350);#expect(Set(found.map(\.id)).count==350)
     #expect(try repo.load()!.orders.count==100)
 }
+@Test func schemaTwoArchivedHistoryMigratesToAtomicReportIndex()async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),ctx=AccountContext(mode:.online)
+    let repo=try AccountRepository(root:root,mode:.online),initial=try TradingEngine.initial(mode:.online,baseCurrency:"USD",capital:Amount("100000"),time:1000)
+    let engine=try TradingEngine(context:ctx,repository:repo,initial:initial),id=initial.instruments[0].id
+    let q=Quote(instrumentID:id,source:"synthetic-migration-fixture",time:1000,sequence:1000,last:try Amount("100"),bids:[Level(try Amount("99.99"),try Amount("1000"))],asks:[Level(try Amount("100"),try Amount("1000"))])
+    try await engine.ingest(q,now:1000,context:ctx)
+    for n in 0..<120{var request=OrderRequest(instrumentID:id,side:.buy,kind:.market,quantity:.one);request.requestID="migration-\(n)";_=try await engine.submit(request,time:1000,context:ctx)}
+    let before=try #require(try repo.fullSnapshot())
+    #expect(try repo.load()?.history?.fills==20)
+    try sql(repo.path,"DELETE FROM report_state; DELETE FROM report_checkpoints; PRAGMA user_version=2; CREATE TRIGGER fail_report BEFORE INSERT ON report_state BEGIN SELECT RAISE(ABORT,'injected interruption'); END;")
+    #expect(throws:TradeError.self){_=try AccountRepository(root:root,mode:.online)}
+    try sql(repo.path,"DROP TRIGGER fail_report")
+    let migrated=try AccountRepository(root:root,mode:.online),after=try #require(try migrated.fullSnapshot())
+    #expect(after.cash==before.cash);#expect(after.fills.count==120);#expect(after.ledger.count==before.ledger.count)
+    #expect(try migrated.performance().currencies["USD"]?.count==120)
+}

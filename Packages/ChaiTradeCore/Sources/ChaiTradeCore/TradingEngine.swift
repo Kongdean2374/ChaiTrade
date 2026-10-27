@@ -4,26 +4,49 @@ public actor TradingEngine {
     public nonisolated let context: AccountContext
     private let repository: AccountRepository
     private var state: AccountState
-    public init(context: AccountContext, repository: AccountRepository, initial: AccountState) throws {
+    private let wallClock:(@Sendable ()->Int64)?
+    private var maintenance:UUID?
+    public init(context: AccountContext, repository: AccountRepository, initial: AccountState,wallClock:(@Sendable ()->Int64)?=nil) throws {
         guard context.mode == repository.mode else { throw TradeError.wrongAccount }
         try AccountRepository.validate(initial, mode: context.mode)
-        self.context = context; self.repository = repository; self.state = try repository.save(initial)
+        self.context = context; self.repository = repository; self.wallClock=wallClock;self.state = try repository.save(initial)
     }
     public func snapshot() -> AccountState { state }
     public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
         try check(context);return try repository.fillPage(limit:limit,before:before)
     }
-    public func fullSnapshot(context:AccountContext)throws->AccountState{
-        try check(context);guard let full=try repository.fullSnapshot() else{throw TradeError.corrupt("帳戶不存在")};return full
+    public nonisolated func fullSnapshot(context:AccountContext)async throws->AccountState{
+        guard context==self.context else{throw TradeError.wrongAccount}
+        let repository=self.repository
+        return try await Task.detached(priority:.utility){guard let full=try repository.readSnapshot() else{throw TradeError.corrupt("帳戶不存在")};return full}.value
+    }
+    public func beginMaintenance(context:AccountContext)async throws->(UUID,AccountState){
+        try check(context);let token=UUID();maintenance=token
+        do{return try await (token,fullSnapshot(context:context))}catch{maintenance=nil;throw error}
+    }
+    public func endMaintenance(token:UUID,context:AccountContext)throws{
+        guard context==self.context else{throw TradeError.wrongAccount}
+        guard maintenance==nil || maintenance==token else{throw TradeError.invalid("維護工作階段不符")};maintenance=nil
     }
     public func exportCSV(kind:String,time:Int64,context:AccountContext)throws->Data{try check(context);return try repository.csv(kind:kind,time:time)}
+    public func performance(from:Int64=0,until:Int64=Int64.max,context:AccountContext)throws->PerformanceReport{try check(context);return try repository.performance(from:from,until:until)}
     public func orderPage(limit:Int=100,before:Int64?=nil,beforeID:String?=nil,search:String="",context:AccountContext)throws->[Order]{try check(context);return try repository.orderPage(limit:limit,before:before,beforeID:beforeID,search:search)}
     private func check(_ context: AccountContext) throws {
         guard context == self.context else { throw TradeError.wrongAccount }
+        guard maintenance==nil else{throw TradeError.unavailable("帳戶正在建立恢復點或還原，暫停新的帳務操作")}
     }
-    @discardableResult private func transaction<T>(_ body: (inout AccountState) throws -> T) throws -> T {
+    @discardableResult private func transaction<T>(catchup:Bool=false,_ body: (inout AccountState) throws -> T) throws -> T {
         var next = state
         let result = try body(&next)
+        let kinds:Set<String>=["fill","priceAlert","liquidation","monitoringGap","rejected","catchupComplete"]
+        let added=next.events.filter{$0.sequence>state.sequence && kinds.contains($0.kind)}
+        if !added.isEmpty{
+            if next.inbox==nil{next.inbox=[]}
+            let known=Set(next.inbox!.map(\.id))
+            next.inbox! += added.map{event in var notice=LocalNotice(accountID:next.accountID,event:event,catchup:catchup || event.kind=="catchupComplete");notice.delivered=next.notificationEnabled != true;return notice}.filter{!known.contains($0.id)}
+            // Delivered center entries may leave the hot projection; canonical AuditEvent history remains intact.
+            while next.inbox!.count>200,let index=next.inbox!.firstIndex(where:{$0.delivered}){next.inbox!.remove(at:index)}
+        }
         state = try repository.save(next)
         return result
     }
@@ -148,7 +171,7 @@ public actor TradingEngine {
     @discardableResult public func submit(_ request: OrderRequest, time: Int64, context: AccountContext) throws -> String {
         try check(context)
         if let existing=try repository.order(id:request.requestID){return existing.id}
-        let eventTime=state.simulation?.time ?? time
+        let eventTime=state.simulation?.time ?? wallClock?() ?? time
         return try transaction { s in
             let id = try Self.accept(request, in: &s, time: eventTime)
             if let q = s.quotes[request.instrumentID] { try Self.match(&s, quote: q, now: eventTime) }
@@ -157,6 +180,7 @@ public actor TradingEngine {
     }
     public func submitOCO(_ first: OrderRequest, _ second: OrderRequest, time: Int64, context: AccountContext) throws {
         try check(context)
+        let time=state.simulation?.time ?? wallClock?() ?? time
         let a=try repository.order(id:first.requestID),b=try repository.order(id:second.requestID)
         if a != nil && b != nil{return}
         guard a == nil && b == nil else{throw TradeError.invalid("OCO 識別已部分使用，請重新建立整組")}
@@ -178,6 +202,7 @@ public actor TradingEngine {
     }
     public func amend(id: String, quantity: Amount, price: Amount?, trigger: Amount? = nil, time: Int64, context: AccountContext) throws {
         try check(context)
+        let time=state.simulation?.time ?? wallClock?() ?? time
         try transaction { s in
             guard var o = s.orders[id], o.status.open, quantity > o.filled else { throw TradeError.invalid("委託已完成或新總量不大於成交量") }
             var r = o.request; r.quantity = try quantity - o.filled; r.price = price
@@ -193,6 +218,7 @@ public actor TradingEngine {
     }
     public func ingest(_ quote: Quote, now: Int64, context: AccountContext) throws {
         try check(context)
+        let now=wallClock?() ?? now
         guard state.mode == .online else { throw TradeError.invalid("B 模式拒絕外部行情") }
         guard quote.last > .zero else{throw TradeError.unavailable("來源沒有有效參考價格，不用零覆蓋最後已知報價")}
         var quote=quote
@@ -445,11 +471,11 @@ public actor TradingEngine {
         let formatter = ISO8601DateFormatter(); formatter.timeZone = TimeZone(identifier: zone); formatter.formatOptions = [.withFullDate]
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(t)))
     }
-    public func advance(to target: Int64, wallTarget: Int64? = nil, context: AccountContext) throws -> Int64 {
+    public func advance(to target: Int64, wallTarget: Int64? = nil,catchup:Bool=false, context: AccountContext) throws -> Int64 {
         try check(context)
         guard state.mode == .offline, let simulation = state.simulation, target >= simulation.time else { throw TradeError.invalid("模擬時間不可倒退或在 A 推進") }
         // A bounded checkpoint transaction. Call repeatedly; a crash resumes from the last committed five-second event.
-        return try transaction { s in
+        return try transaction(catchup:catchup) { s in
             let end = min(target - target % Simulation.step, simulation.time + 300)
             while s.simulation!.time + Simulation.step <= end {
                 s.simulation!.time += Simulation.step
@@ -470,7 +496,7 @@ public actor TradingEngine {
     }
     public func configureSimulation(speed: Int, paused: Bool, scenario: String, volatility: Double, liquidity: Double, context: AccountContext) throws {
         try check(context)
-        guard state.mode == .offline, [1,2,5,10,60,100].contains(speed), volatility >= 0.1, volatility <= 5, liquidity >= 0.1, liquidity <= 10 else { throw TradeError.invalid("模擬參數不合法") }
+        guard state.mode == .offline, [1,2,5,10,60,100].contains(speed), volatility >= 0.1, volatility <= 5, liquidity >= 0.1, liquidity <= 10,["多頭","空頭","盤整","恐慌","復甦"].contains(scenario) else { throw TradeError.invalid("模擬參數不合法") }
         try transaction { s in
             s.simulation!.speed = speed; s.simulation!.paused = paused
             if s.simulation!.scenario != scenario || s.simulation!.volatility != volatility || s.simulation!.liquidity != liquidity {
@@ -493,8 +519,25 @@ public actor TradingEngine {
             if let useReferenceRiskPrice{s.useReferenceRiskPrice=useReferenceRiskPrice}
         }
     }
-    public func recordJournal(_ journal: JournalEntry, context: AccountContext) throws { try check(context); try transaction { $0.journals.removeAll { $0.id == journal.id }; $0.journals.append(journal) } }
+    public func recordJournal(_ journal: JournalEntry, context: AccountContext) throws {
+        try check(context)
+        if let id=journal.orderID{guard try repository.order(id:id) != nil else{throw TradeError.invalid("關聯委託不在目前帳戶")}}
+        try transaction{$0.journals.removeAll{$0.id==journal.id};$0.journals.append(journal)}
+    }
+    public func saveChartPreferences(instrumentID:String,preferences:ChartPreferences,context:AccountContext)throws{
+        try check(context)
+        guard state.instruments.contains(where:{$0.id==instrumentID}),(2...100).contains(preferences.period),[60,300,900,1800,3600,14400,86400,604800,2592000].contains(preferences.interval),["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"].contains(preferences.indicator) else{throw TradeError.invalid("圖表偏好超過範圍")}
+        try transaction{if $0.chartPreferences==nil{$0.chartPreferences=[:]};$0.chartPreferences![instrumentID]=preferences}
+    }
     public func addAlert(_ alert: PriceAlert, context: AccountContext) throws { try check(context); try transaction { $0.alerts.append(alert) } }
+    public func configureNotifications(_ enabled:Bool,context:AccountContext)throws{try check(context);try transaction{s in s.notificationEnabled=enabled;if !enabled{for n in s.inbox?.indices ?? 0..<0{s.inbox![n].delivered=true}}}}
+    public func acknowledgeNotices(_ ids:Set<String>,context:AccountContext)throws{
+        try check(context);try transaction{s in for n in s.inbox?.indices ?? 0..<0{if ids.contains(s.inbox![n].id){s.inbox![n].delivered=true}}}
+    }
+    public func recordNotice(_ kind:String,message:String,time:Int64,context:AccountContext)throws{
+        try check(context);guard ["rejected","catchupComplete"].contains(kind),message.utf8.count<=1000 else{throw TradeError.invalid("提醒類型不合法")}
+        try transaction{$0.audit(kind,message,time:time)}
+    }
     public func saveDrawing(_ drawing: Drawing, context: AccountContext) throws { try check(context); try transaction { $0.drawings.removeAll { $0.id == drawing.id }; $0.drawings.append(drawing) } }
     public func removeDrawing(id: String, context: AccountContext) throws { try check(context); try transaction { $0.drawings.removeAll { $0.id == id } } }
     public func addInstrument(_ i: Instrument, context: AccountContext) throws {
@@ -635,8 +678,11 @@ public actor TradingEngine {
             try Self.settleDue(&s,now:action.time)
         }
     }
-    public func restore(_ restored: AccountState, context: AccountContext) throws {
-        try check(context); try AccountRepository.validate(restored, mode: context.mode)
+    public func restore(_ restored: AccountState,maintenanceToken:UUID?=nil, context: AccountContext) throws {
+        guard context==self.context else{throw TradeError.wrongAccount}
+        guard maintenance==maintenanceToken else{throw TradeError.invalid("還原維護工作階段不符")}
+        try AccountRepository.validate(restored, mode: context.mode)
         state = try repository.save(restored, replacing: true)
+        maintenance=nil
     }
 }

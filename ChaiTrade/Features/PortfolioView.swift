@@ -124,13 +124,58 @@ struct JournalView: View {
     @Environment(\.dismiss) var dismiss
     @State private var text=""
     @State private var tags=""
-    var body: some View { Form{Section("新增本機檢討"){TextField("策略／情緒標籤",text:$tags);TextEditor(text:$text).frame(minHeight:120);Button("保存日誌"){Task{guard let engine=model.engine,let context=model.context,!text.isEmpty else{return};await model.run{try await engine.recordJournal(JournalEntry(text:text,tags:tags,time:model.now),context:context)};if model.error == nil{text="";tags=""}}}};ForEach(Array((model.state?.journals ?? []).reversed())){entry in Section(entry.tags){Text(entry.text);Text(Date(timeIntervalSince1970:TimeInterval(entry.time)).formatted()).font(.caption).foregroundStyle(.secondary)}}}.navigationTitle("交易日誌").toolbar{Button("完成"){dismiss()}} }
+    @State private var emotion=""
+    @State private var orderID=""
+    @State private var attach=false
+    var body: some View {
+        Form{
+            Section("新增本機檢討"){
+                TextField("策略／原因標籤",text:$tags)
+                TextField("情緒與執行評價",text:$emotion)
+                TextField("關聯委託 ID（可留空）",text:$orderID).textInputAutocapitalization(.never)
+                TextEditor(text:$text).frame(minHeight:120).accessibilityIdentifier("journalText")
+                if model.journalScreenshot != nil{Toggle("附加剛擷取的本機圖表",isOn:$attach)}
+                if attach,let data=model.journalScreenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit().frame(maxHeight:220)}
+                Button("保存日誌"){
+                    Task{guard let engine=model.engine,let context=model.context,!text.isEmpty else{return};await model.run{
+                        var entry=JournalEntry(text:text,tags:tags,time:model.now)
+                        entry.emotion=emotion;entry.orderID=orderID.isEmpty ? nil:orderID;entry.instrumentID=model.selectedID.isEmpty ? nil:model.selectedID
+                        entry.screenshot=attach ? model.journalScreenshot:nil
+                        try await engine.recordJournal(entry,context:context)
+                    };if model.error==nil{text="";tags="";emotion="";orderID="";attach=false;model.journalScreenshot=nil}}
+                }
+            }
+            ForEach(Array((model.state?.journals ?? []).reversed())){entry in
+                Section(entry.tags){
+                    Text(entry.text)
+                    if let emotion=entry.emotion,!emotion.isEmpty{Text(emotion).font(.caption)}
+                    if let id=entry.orderID{Text("委託 \(id)").font(.caption.monospaced()).textSelection(.enabled)}
+                    if let data=entry.screenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit();Button("匯出這張模擬圖表"){model.exportDocument=ExportDocument(data:data);model.exportName="ChaiTrade-模擬交易-\(model.settings.activeMode.accountID).png";model.exporting=true}}
+                    Text(Date(timeIntervalSince1970:TimeInterval(entry.time)).formatted()).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }.navigationTitle("交易日誌").toolbar{Button("完成"){dismiss()}}
+    }
 }
+
 struct PerformanceView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
+    @State private var report:PerformanceReport?
+    @State private var span="全部"
+    @State private var date=Date()
+    @State private var calculating=false
+    @State private var generation=UUID()
     var body: some View {
-        List{if let s=model.state{
+        List{
+            Section("歷史成交報表"){
+                Picker("期間",selection:$span){ForEach(["全部","日","週","月"],id:\.self){Text($0)}}
+                if span != "全部"{DatePicker("日期",selection:$date,in:...Date(timeIntervalSince1970:TimeInterval(model.now)),displayedComponents:.date)}
+                Text("期間以 Asia/Taipei 計算；不同幣別分開，不把每次部分成交當獨立勝利。").font(.caption)
+                if calculating{ProgressView("逐筆計算歷史成交與周期…")}
+                if let report{PerformanceDetails(report:report)}
+            }
+            if let s=model.state{
             Section("口徑：加權平均成本；損益依幣別分開"){
                 LabeledContent("成交筆數",value:String((s.history?.fills ?? 0)+s.fills.count))
                 let totals=(try? Analytics.fillTotals(s)) ?? [:]
@@ -145,9 +190,44 @@ struct PerformanceView: View {
                 let nav=Analytics.timeWeighted(s.equity)
                 LabeledContent("單位淨值",value:nav.last.flatMap{$0}.map{String(format:"%.6f",$0)} ?? "估值樣本不足")
                 LabeledContent("最大回撤（扣除資金流）",value:Analytics.maximumDrawdown(nav).map{String(format:"%.2f%%",$0*100)} ?? "估值樣本不足")
-                Chart(Array(nav.enumerated()),id:\.offset){idx,value in if let value{LineMark(x:.value("估值序號",idx),y:.value("單位淨值",value)).foregroundStyle(.orange)}}.frame(height:180)
+                Chart(Array(Analytics.returnSeries(nav).suffix(1000))){point in LineMark(x:.value("估值序號",point.id),y:.value("單位淨值",point.value),series:.value("有效區段",point.segment)).foregroundStyle(.orange)}.frame(height:180)
                 Text("缺價與缺匯率區段保留空缺。沒有有效的完整估值時，不顯示虛構報酬率。").font(.caption).foregroundStyle(.secondary)
             }
         }}.navigationTitle("績效分析").toolbar{Button("完成"){dismiss()}}
+            .task{date=Date(timeIntervalSince1970:TimeInterval(model.now));await calculate()}
+            .onChange(of:span){_,_ in Task{await calculate()}}
+            .onChange(of:date){_,_ in if span != "全部"{Task{await calculate()}}}
+    }
+    func calculate()async{
+        guard let engine=model.engine,let context=model.context else{return}
+        let token=UUID();generation=token;calculating=true
+        var calendar=Calendar(identifier:.gregorian);calendar.timeZone=TimeZone(identifier:"Asia/Taipei")!;calendar.firstWeekday=2
+        let component:Calendar.Component=span == "週" ? .weekOfYear:span == "月" ? .month:.day
+        let period=calendar.dateInterval(of:component,for:date)!
+        let start=span == "全部" ? 0:Int64(period.start.timeIntervalSince1970),end=span == "全部" ? model.now+1:min(model.now+1,Int64(period.end.timeIntervalSince1970))
+        do{let result=try await engine.performance(from:start,until:end,context:context);if generation==token{report=result}}
+        catch{model.error=error.localizedDescription}
+        if generation==token{calculating=false}
+    }
+}
+private struct PerformanceDetails:View{
+    @EnvironmentObject var model:AppModel
+    let report:PerformanceReport
+    var body:some View{
+        ForEach(report.currencies.keys.sorted(),id:\.self){currency in
+            let total=report.currencies[currency]!,cycles=report.cycles[currency]
+            LabeledContent("\(currency) 區間成交／金額",value:"\(total.count) / \(total.notional)")
+            LabeledContent("\(currency) 成交淨損益",value:(try? (total.realized-total.fees-total.taxes).description) ?? "計算失敗")
+            LabeledContent("已結束周期（含持平）",value:String(cycles?.closed ?? 0))
+            LabeledContent("勝率",value:cycles?.winRate.map{String(format:"%.2f%%",$0*100)} ?? "樣本不足")
+            LabeledContent("平均獲利／平均虧損",value:"\(cycles?.averageWin?.description ?? "樣本不足") / \(cycles?.averageLoss?.description ?? "樣本不足")")
+            LabeledContent("總獲利／總虧損比",value:cycles?.profitFactor?.description ?? "樣本不足或無虧損")
+            LabeledContent("平均持有秒數",value:cycles?.averageHoldingSeconds.map{String(format:"%.0f",$0)} ?? "樣本不足")
+        }
+        DisclosureGroup("按商品分布"){
+            ForEach(report.instruments.keys.sorted(),id:\.self){id in LabeledContent(id,value:"\(report.instruments[id]!.count) 筆 · 毛損益 \(report.instruments[id]!.realized)").font(.caption)}
+        }
+        Text(report.policy).font(.caption).foregroundStyle(.secondary)
+        Button("匯出本期績效 JSON"){do{model.exportDocument=ExportDocument(data:try AccountRepository.encode(report));model.exportName="ChaiTrade-模擬績效-\(report.accountID).json";model.exporting=true}catch{model.error=error.localizedDescription}}
     }
 }

@@ -38,6 +38,11 @@ import XCTest
         XCTAssertTrue(app.staticTexts["最近成交（模擬）"].waitForExistence(timeout:5))
         app.tabBars.buttons["資產"].tap()
         XCTAssertTrue(app.buttons["調整虛擬資金／換匯"].waitForExistence(timeout:5))
+        let performance=app.buttons["績效與資金流分析"]
+        for _ in 0..<5 where !performance.isHittable{app.swipeUp()}
+        performance.tap()
+        XCTAssertTrue(app.buttons["匯出本期績效 JSON"].waitForExistence(timeout:15))
+        app.buttons["完成"].tap()
         app.terminate()
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["總覽"].waitForExistence(timeout:30))
@@ -61,6 +66,30 @@ import XCTest
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
         app.tabBars.buttons["資產"].tap()
         XCTAssertTrue(app.staticTexts["SIM:TAIWANSTOCK01"].waitForExistence(timeout:10))
+    }
+
+    func testChartScreenshotCanBeAttachedToLocalJournal()throws{
+        let app=XCUIApplication();app.launchArguments=["--uitest"];app.launch()
+        let start=app.buttons["startTrading"]
+        if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
+        XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30));app.tabBars.buttons["交易"].tap()
+        let capture=app.buttons["截圖"]
+        for _ in 0..<5 where !capture.isHittable{app.swipeUp()}
+        XCTAssertTrue(capture.isHittable);capture.tap()
+        let captured=app.buttons.containing(NSPredicate(format:"label BEGINSWITH %@","已保存本機圖表草稿")).firstMatch
+        XCTAssertTrue(captured.waitForExistence(timeout:10));captured.tap()
+        app.tabBars.buttons["資產"].tap()
+        let journal=app.buttons["本機交易日誌"]
+        for _ in 0..<5 where !journal.isHittable{app.swipeUp()}
+        XCTAssertTrue(journal.isHittable);journal.tap()
+        let attachment=app.switches["附加剛擷取的本機圖表"]
+        XCTAssertTrue(attachment.waitForExistence(timeout:10));attachment.tap()
+        let text=app.textViews["journalText"];text.tap();text.typeText("Synthetic UI chart journal")
+        let save=app.buttons["保存日誌"]
+        for _ in 0..<5 where !save.isHittable{app.swipeUp()}
+        XCTAssertTrue(save.isHittable);save.tap()
+        XCTAssertTrue(app.buttons["匯出這張模擬圖表"].waitForExistence(timeout:10))
+        app.buttons["完成"].tap()
     }
 
 }

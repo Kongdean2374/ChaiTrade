@@ -15,6 +15,8 @@ Date: 2026-10-27. Work is in progress against the entire REQUIREMENTS.md; this i
 | R09 public repository | Kongdean2374/ChaiTrade | Public read/write and independent clone/download verified |
 | R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; Unsigned IPA artifact produced by successful run 40451960851; user signing/device verification still required |
 | R11 no actual assets | NetworkPolicy | Only allowlisted market-data GET requests; policy tests passed |
-| R12 maintenance and verification | CoreTests, backups, docs, scripts | 44 ordinary Linux Swift test functions passed; T45 Release gate and migration/rollback/backup tests passed locally; Apple rerun and device acceptance pending |
+| R12 maintenance and verification | CoreTests, backups, docs, scripts | 55 ordinary core functions; Release T45 includes analytics, concurrent consistent backup, full CSV equality and backup restore. Local gates passed; this feature batch awaits Apple CI and device acceptance |
 
 Technical choice: native SQLite C binding replaces GRDB so the same persistence code can be compiled and executed on Linux and iOS without conditional database engines. Transactions, WAL, schema versioning and account validation remain explicit. This choice does not remove the required behavior; full normalized event reconstruction, query performance and migrations still require further validation.
+
+This iteration adds calendar-correct week/month bars, exact optimized synthetic OHLC, real backwards provider paging, bounded chart caches, persisted chart preferences, journal PNG attachments and local notification dispatch. Trading-cycle statistics use exact fee allocation and exclude the additional cash flows listed in their policy. These new native flows require the new Apple run; they are not covered by the older IPA's UI evidence. See REMAINING_WORK.md for unimplemented requirements and unexecuted acceptance.

@@ -7,12 +7,12 @@
 - A／B 使用不同 SQLite 資料庫，模式切換於下次完整程序啟動生效。
 - 所有資金、委託、成交與資產均為模擬。沒有真實下單、轉帳或錢包功能。
 
-目前開發與驗證狀態見 [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md)。**建置成功不代表計劃書全部功能或實機驗收已完成。**
+目前開發與驗證狀態見 [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md) 及 [未完成與無法實測項目](docs/REMAINING_WORK.md)。**建置成功不代表計劃書全部功能或實機驗收已完成。**
 
 ## 不需要 Mac 的建置方式
 
 1. 開啟本倉庫的 **Actions → Build unsigned IPA → Run workflow**，選 `main`。
-2. 等待核心測試、iPhone 模擬器 UI 測試、iPhoneOS Release 編譯和產物檢查。
+2. 等待核心測試、必要的十萬筆 Release 效能／對帳／備份關卡、iPhone 模擬器 UI 測試、iPhoneOS Release 編譯和產物檢查。
 3. 從成功執行頁下方 **Artifacts** 下載 `ChaiTrade-unsigned-ipa`。
 4. 解壓得到 `ChaiTrade-unsigned.ipa`、`.sha256`、`build-info.json` 及測試摘要。
 5. 使用自己的有效裝機簽署方式重新簽署，再安裝至 iPhone。未簽名 IPA 無法直接安裝。

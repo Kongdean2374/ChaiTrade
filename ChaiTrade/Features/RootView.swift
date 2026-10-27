@@ -31,7 +31,7 @@ struct RootView: View {
                         NavigationStack { OrdersView() }.tabItem{Label("委託",systemImage:"list.bullet.rectangle")}.tag(3)
                         NavigationStack { PortfolioView() }.tabItem{Label("資產",systemImage:"wallet.bifold")}.tag(4)
                     }
-                }.disabled(model.progress != nil || model.catchupTarget != nil)
+                }.disabled(model.progress != nil || model.catchupTarget != nil || model.maintainingAccount)
             }
         }
         .sheet(isPresented:$settings){NavigationStack{SettingsView()}}
@@ -43,7 +43,8 @@ struct RootView: View {
             Button("放棄這段推進，從檢查點繼續",role:.destructive){Task{await model.skipCatchup()}}
         } message:{Text(model.clockWarning ?? "")}
         .overlay(alignment:.top) {
-            if let progress=model.progress {
+            if model.maintainingAccount{ProgressView("建立帳戶恢復點／還原中，暫停帳務操作…").padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:12)).padding()}
+            else if let progress=model.progress {
                 VStack { Text("順序處理離線市場事件").font(.headline);ProgressView(value:progress);Text("已完成事件會逐批保存；此時暫停下單").font(.caption);Button("暫停補算"){model.stopCatchup()} }.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
             } else if model.catchupTarget != nil && model.clockWarning == nil {
                 VStack(spacing:10){Text("市場事件處理已暫停").font(.headline);Button("從檢查點繼續處理"){Task{await model.catchUp()}};Button("放棄未完成的推進",role:.destructive){model.clockWarning="確定放棄尚未處理的推進區段？已完成的行情與交易會保留。"}}.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
@@ -114,7 +115,7 @@ struct DashboardView: View {
                     ForEach(ProviderID.allCases,id:\.self){id in if let status=model.providerStatus[id]{Text("\(id.label)：\(status)").font(.caption).foregroundStyle(.secondary)}}
                 }
                 if let equity=model.state?.equity,!equity.isEmpty {
-                    Chart(Array(equity.enumerated()),id:\.offset){_,point in if let value=point.value{LineMark(x:.value("時間",Date(timeIntervalSince1970:TimeInterval(point.time))),y:.value("實際淨值",value.displayDouble)).foregroundStyle(.orange)}}.frame(height:130)
+                    Chart(Array(Analytics.equitySeries(equity).suffix(1000))){point in LineMark(x:.value("時間",Date(timeIntervalSince1970:TimeInterval(point.time))),y:.value("實際淨值",point.value),series:.value("有效區段",point.segment)).foregroundStyle(.orange)}.frame(height:130)
                 }
                 Text("關注市場").font(.title3.bold())
                 ForEach(Array((model.state?.instruments ?? []).filter { model.state?.watchlist.contains($0.id) == true }.prefix(8))) { instrument in

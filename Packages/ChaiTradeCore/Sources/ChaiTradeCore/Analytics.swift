@@ -14,7 +14,23 @@ public struct FXRate: Codable, Sendable {
     public var source: String
     public init(currency: String, base: String, rate: Amount, time: Int64, source: String) { self.currency = currency; self.base = base; self.rate = rate; self.time = time; self.source = source }
 }
+public struct ChartEquityPoint:Identifiable,Sendable{
+    public var id:Int
+    public var time:Int64
+    public var value:Double
+    public var segment:Int
+}
 public enum Analytics {
+    public static func equitySeries(_ points:[EquityPoint])->[ChartEquityPoint]{
+        var segment=0,result:[ChartEquityPoint]=[]
+        for (n,point) in points.enumerated(){if let value=point.value{result.append(ChartEquityPoint(id:n,time:point.time,value:value.displayDouble,segment:segment))}else{segment+=1}}
+        return result
+    }
+    public static func returnSeries(_ values:[Double?])->[ChartEquityPoint]{
+        var segment=0,result:[ChartEquityPoint]=[]
+        for (n,value) in values.enumerated(){if let value{result.append(ChartEquityPoint(id:n,time:Int64(n),value:value,segment:segment))}else{segment+=1}}
+        return result
+    }
     public static func fillTotals(_ s:AccountState)throws->[String:FillTotals]{
         var totals=s.history?.totals ?? [:]
         let currencies=Dictionary(uniqueKeysWithValues:s.instruments.map{($0.id,$0.currency)})
@@ -78,13 +94,13 @@ public enum Analytics {
         return points.map { point in
             guard let value = point.value?.displayDouble else { last = nil; return nil }
             defer { last = value }
-            if let prior = last, prior > 0 { nav *= (value - point.flow.displayDouble) / prior }
+            if let prior=last{guard prior>0 else{return nil};nav *= (value-point.flow.displayDouble)/prior}else{guard value>0 else{return nil}}
             return nav
         }
     }
     public static func maximumDrawdown(_ nav: [Double?]) -> Double? {
         var peak = 0.0, drawdown = 0.0; var found = false
-        for case let value? in nav where value > 0 { found = true; peak = max(peak,value); drawdown = max(drawdown,(peak-value)/peak) }
+        for case let value? in nav where value.isFinite { peak=max(peak,value);if peak>0{found=true;drawdown=max(drawdown,(peak-value)/peak)} }
         return found ? drawdown : nil
     }
 }

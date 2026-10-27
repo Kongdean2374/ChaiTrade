@@ -241,7 +241,26 @@ public struct JournalEntry: Codable, Identifiable, Sendable {
     public var text: String
     public var tags: String
     public var time: Int64
+    public var instrumentID: String?
+    public var orderID: String?
+    public var emotion: String?
+    public var screenshot: Data?
     public init(id: String = UUID().uuidString, text: String, tags: String, time: Int64) { self.id = id; self.text = text; self.tags = tags; self.time = time }
+}
+public struct ChartPreferences: Codable, Sendable {
+    public var interval:Int64=60
+    public var indicator="MA"
+    public var period=20
+    public var line=false
+    public init(interval:Int64=60,indicator:String="MA",period:Int=20,line:Bool=false){self.interval=interval;self.indicator=indicator;self.period=period;self.line=line}
+}
+public struct LocalNotice:Codable,Identifiable,Sendable{
+    public var id:String
+    public var accountID:String
+    public var event:AuditEvent
+    public var delivered=false
+    public var discoveredDuringCatchup=false
+    public init(accountID:String,event:AuditEvent,catchup:Bool){self.id="\(accountID).\(event.id)";self.accountID=accountID;self.event=event;self.discoveredDuringCatchup=catchup}
 }
 public struct PriceAlert: Codable, Identifiable, Sendable {
     public var id: String = UUID().uuidString
@@ -303,6 +322,9 @@ public struct AccountState: Codable, Sendable {
     public var journals: [JournalEntry] = []
     public var alerts: [PriceAlert] = []
     public var drawings: [Drawing] = []
+    public var chartPreferences: [String:ChartPreferences]?
+    public var notificationEnabled:Bool?
+    public var inbox:[LocalNotice]?
     public var equity: [EquityPoint] = []
     public var simulation: SimulationState?
     public var allowEstimatedExecution = false

@@ -1,29 +1,21 @@
 # Test report
 
-2026-10-27. Core source and evidence hashes are in TEST_EVIDENCE.json. Full 48-case status is in TEST_MATRIX.md; passing a focused core test does not establish UI/device acceptance.
+2026-10-27. Requirements and thresholds remain in REQUIREMENTS.md. TEST_MATRIX.md records acceptance scope; unimplemented/unexecuted cases are not counted as passes.
 
-- Swift 6.1.3 Linux: 40 ordinary test functions passed (one is parameterized across five provider schemas); the opt-in stress function is skipped in ordinary runs and was separately executed successfully.
-- All provider quote fixtures are synthetic, including Coinbase, Fugle stocks/futures, Alpaca, Twelve Data and Binance. Credentials in fixtures are unmistakably synthetic.
-- Separate Release 100,000-fill benchmark passed data count/accounting checks. Repeat measurement: save 9.57 s; full load 11.21 s; CSV 8.14 s; indexed page of 100 fills 0.00523 s. Initial save/load/CSV were 15.28/11.63/7.66 s. These are Linux measurements, not iPhone performance claims. Full-load latency exceeds the requested latency target.
-- Apple Xcode 16.4 / Swift 6.1.2: core suite, two iPhone Simulator UI cases, iPhoneOS Release build, unsigned IPA packaging and artifact validation all passed on commit 3a4f3379c81e64f629a4bab90cc69f660011156b. The Swift Testing summary includes two opt-in functions skipped in the ordinary run; those are not additional executed passes.
-- Simulator UI cases passed: local offline market order → TWD position (37.129 s), and onboarding/navigation → terminate/relaunch (18.690 s). See TOOLCHAIN_NOTES.md for the simulator-only WebKit deployment-target workaround. iPhone 17 Pro device acceptance remains unexecuted.
+## Completed Apple T45 correction
 
-Ordinary tests cover exact arithmetic/overflow/encoding; A/B persistence and epoch; cash/fees/minimum-fee release; idempotency; shadow liquidity; cancel/amend; FOK/IOC/post-only/reduce-only; stop gaps; OCO/brackets; stale/delayed data; external cash flows and missing FX; derivative notional and deficits; margin/carry; business-day settlement; split/dividend; future basis/final expiry; deterministic paths/controls/checkpoints; encrypted and dual backups; corrupt balances; network/CSV policy; indicators; all provider quote parsers and depth gap recovery.
+[Run 40466253220](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40466253220), commit 6296ddcbead29a41ea55b4808ec3c68a885464eb: core, required Release 100,000-fill gate, iPhoneOS unsigned IPA verification and all three UI tests passed. UI cases cover local market order/position, onboarding/navigation/relaunch, and pending A/B switching requiring cold launch while retaining the offline position.
 
-Logs and xcresult bundles are retained as ChaiTrade-test-evidence artifacts for each Actions run. The unsigned IPA artifact is only uploaded after required core and UI steps succeed.
+Apple measurements: hot load 0.0861 s; page-100 p95 0.00696 s; order-write p95 0.0261 s; full CSV 0.3873 s. 30 samples per p95. Bulk import 14.01 s and full integrity reconstruction 14.37 s are explicit background operations, not screen loads.
 
-Live verification: Coinbase HTTP 200; the production Swift adapter separately passed real ticker, level2 snapshot and one-minute candle reads after the test container used the session system CA bundle. Binance returned HTTP 451 from this region. See LIVE_MARKET_PROBE.json.
+## Current feature batch: local evidence, Apple rerun pending
 
-## Successful full GitHub run
+55 ordinary core functions pass locally. The Swift Testing ordinary summary includes two disabled opt-in functions; those are executed separately, not counted as ordinary passes. Release with CHAI_STRESS=1 executes the full suite plus T45, and the production Coinbase test was separately executed with CHAI_LIVE=1 and system CA trust. Synthetic provider fixtures cover all quote adapters; no credentialed provider is declared live-verified.
 
-Commit 3a4f3379c81e64f629a4bab90cc69f660011156b: [run 40451960851](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40451960851) completed successfully. Both UI tests passed. The iPhoneOS Release unsigned IPA passed resource/platform/architecture/signature checks and was uploaded with SHA-256/build-info. [Download artifact](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40451960851/artifacts/12711180423); retention expires 2026-11-03. This artifact is not device-signed or a complete 48-case acceptance declaration.
+The latest Release T45 preserves 100,000 fills/orders and 200,002 ledger entries, compares all CSV bytes against canonical full-state export, restores all records/balances from a compressed backup, checks exact period/cycle counts, and measures 30 actual matched order writes while an independent full snapshot reads concurrently. Local measurements are in STRESS_REPORT.json: hot load 0.0350 s; page p95 0.00226 s; order p95 0.0353 s; CSV 0.1136 s; analytics 0.00783 s. Full integrity reconstruction remains 8.21 s and bulk import 10.56 s.
 
-The final run includes deferred Post-only validation, stale-source handling and backup structure validation. The preceding full successful run was 40450662963 (commit c13cc51522b02c70d7d16731f71a1922c4251181).
+Hard gates remain 3 s cold load, 300 ms page interaction p95 and 150 ms local order-feedback p95, with additional 3 s full CSV and 3 s full analytics gates. These are Linux/Apple CI measurements, not signed iPhone claims. A failed gate blocks IPA upload. The earlier CSV 5.16 s and analytics 3.35 s failures were fixed, not waived.
 
-Repository access was verified by API writes and an independent public Git clone; all 79 tracked files at c13cc515 were compared byte-for-byte with the uploaded local tree, with zero mismatches. Later source changes are recorded in the final build commit above.
+Added tests cover schema-1/schema-2 migration rollback/retry, failed append atomicity, stable equal-time cursors, bounded decompression, partial/flip cycle accounting, every-five-second OHLC equivalence, calendar/DST/leap months, history paging, journal/notification/preference backup isolation, maintenance tokens, queued-request freshness, negative NAV drawdown and missing-valuation chart segments.
 
-## T45 correction (local evidence; Apple rerun pending)
-
-Schema-2 SQLite storage separates complete immutable history from a bounded hot projection, uses prepared batches and an exact pre-escaped CSV report index. Migration, failed append rollback, stable equal-time order cursors and bounded backup expansion tests pass. 44 ordinary functions passed (the summary includes two opt-in skips; stress is separately required in Release).
-
-Latest Release 100,000-fill benchmark: hot load 0.0374 s; 100-row page p95 0.00408 s; actual matched order-write p95 0.0165 s; complete CSV 0.1133 s. 30 samples per p95. Full reconstruction preserved 100,000 fills/orders and 200,002 ledger entries; CSV matched the canonical full-state export; compressed backup restored all records and balances. Bulk import 10.07 s and explicit full-integrity reconstruction 8.31 s are not screen-load or per-order operations. The original 3 s cold, 300 ms interaction and 150 ms order targets remain enforced, with an additional 3 s report gate. CI now requires the Release stress gate before IPA publication.
+Live production Coinbase adapter: actual ticker, level2 snapshot and candles passed; market values were not retained. Binance's regional HTTP 451 and missing entitlements for the other providers remain external verification limits. Logs/xcresult and machine-readable metrics are retained in Actions artifacts. The latest source batch still requires a successful Apple build/UI run before its IPA can be published.

@@ -204,36 +204,69 @@ public struct MarketDataProvider: Sendable {
         guard !result.isEmpty else{throw TradeError.unavailable("來源未提供可用商品，請核對權限與資料格式")}
         return result
     }
-    public func candles(_ instrument: Instrument, interval: Int64, now: Int64) async throws -> [Candle] {
+    private static func iso(_ time:Int64)->String{ISO8601DateFormatter().string(from:Date(timeIntervalSince1970:TimeInterval(time)))}
+    private static func candleTime(_ value:JSONValue,zone:String)throws->Int64{
+        if let text=value.string,text.count==10{let f=DateFormatter();f.locale=Locale(identifier:"en_US_POSIX");f.timeZone=TimeZone(identifier:zone);f.dateFormat="yyyy-MM-dd";if let date=f.date(from:text){return Int64(date.timeIntervalSince1970)}}
+        return try timestamp(value)
+    }
+    /// Bounded read-only paging, then upward aggregation. Never expands daily bars into minutes.
+    public func history(_ instrument:Instrument,interval:Int64,count:Int=160,now:Int64,before:Int64?=nil)async throws->[Candle]{
+        guard count>0,count<=1000,interval>=60 else{throw TradeError.invalid("歷史範圍超過上限")}
+        let native:Int64
+        if interval>=86400{native=86400}
+        else if id == .coinbase{native=[86400,21600,3600,900,300,60].first{interval % $0==0} ?? 60}
+        else if interval==14400 && (id == .fugle || id == .fugleFutures){native=3600}
+        else{native=interval}
+        var cursor=before,all:[Int64:Candle]=[:],result:[Candle]=[]
+        for _ in 0..<20{
+            let page=try await candles(instrument,interval:native,now:now,before:cursor).filter{$0.time<=(cursor ?? now)}
+            guard let oldest=page.map(\.time).min() else{break}
+            for c in page{all[c.time]=c}
+            result=CandleCalendar.aggregate(Array(all.values),interval:interval,zone:instrument.rules.timeZone,now:now)
+            if result.count>=count,oldest <= result.suffix(count).first!.time{break}
+            if cursor != nil && oldest>=cursor!{break}
+            if (id == .fugle || id == .fugleFutures) && native<86400{break}
+            cursor=oldest-1
+            // Coinbase's public limit is three requests per second; sequential reads leave headroom.
+            if id == .coinbase{try await Task.sleep(for:.milliseconds(400))}
+        }
+        let end=before ?? now
+        return Array(result.filter{$0.time<=end}.suffix(count))
+    }
+    public func candles(_ instrument: Instrument, interval: Int64, now: Int64,before:Int64?=nil) async throws -> [Candle] {
         let symbol = instrument.symbol
         let j: JSONValue
         switch id {
         case .coinbase:
             guard [60,300,900,3600,21600,86400].contains(interval) else { throw TradeError.unavailable("此來源不提供該週期；請選擇 1／5／15 分、1／6 小時或日線") }
-            j = try await fetch(path: "/products/\(symbol)/candles", query: ["granularity":String(interval)])
+            j = try await fetch(path: "/products/\(symbol)/candles", query: ["granularity":String(interval),"start":Self.iso((before ?? now)-299*interval),"end":Self.iso(before ?? now)])
             return try j.array.map { row in Candle(time: row[0].integer ?? 0, open: try row[3].amount().displayDouble, high: try row[2].amount().displayDouble, low: try row[1].amount().displayDouble, close: try row[4].amount().displayDouble, volume: try row[5].amount().displayDouble, complete: (row[0].integer ?? 0) + interval <= now) }.sorted { $0.time < $1.time }
         case .fugle,.fugleFutures:
-            guard [60,300,900,1800,3600].contains(interval) else { throw TradeError.unavailable("Fugle 此介面僅供日內分鐘圖") }
             let family = id == .fugle ? "stock" : "futopt"
-            j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/candles/\(symbol)", query: ["timeframe":String(interval/60)])
+            if interval>=86400{
+                j=try await fetch(path:"/marketdata/v1.0/\(family)/historical/candles/\(symbol)",query:["timeframe":"D","from":String(Self.iso((before ?? now)-299*86400).prefix(10)),"to":String(Self.iso(before ?? now).prefix(10))])
+            }else{
+                guard [60,300,900,1800,3600].contains(interval),before==nil else{throw TradeError.unavailable("此 Fugle 分鐘介面只提供當日日內資料；較早歷史需來源授權的歷史介面")}
+                j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/candles/\(symbol)", query: ["timeframe":String(interval/60)])
+            }
         case .alpaca:
             let tf = interval < 3600 ? "\(interval/60)Min" : interval < 86400 ? "\(interval/3600)Hour" : "1Day"
-            j = try await fetch(path: "/v2/stocks/\(symbol)/bars", query: ["timeframe":tf,"feed":"iex","limit":"1000"])
+            j = try await fetch(path: "/v2/stocks/\(symbol)/bars", query: ["timeframe":tf,"feed":"iex","limit":"1000","sort":"desc","start":Self.iso((before ?? now)-2000*interval),"end":Self.iso(before ?? now)])
             return try j["bars"].array.map { Candle(time: try Self.timestamp($0["t"]), open: try $0["o"].amount().displayDouble, high: try $0["h"].amount().displayDouble, low: try $0["l"].amount().displayDouble, close: try $0["c"].amount().displayDouble, volume: try $0["v"].amount().displayDouble) }
         case .twelveData:
             let tf = interval < 3600 ? "\(interval/60)min" : interval < 86400 ? "\(interval/3600)h" : "1day"
-            j = try await fetch(path: "/time_series", query: ["symbol":symbol,"interval":tf,"outputsize":"300","timezone":"UTC"])
+            j = try await fetch(path: "/time_series", query: ["symbol":symbol,"interval":tf,"outputsize":"300","timezone":"UTC","end_date":Self.iso(before ?? now).replacingOccurrences(of:"T",with:" ").replacingOccurrences(of:"Z",with:"")])
             return try j["values"].array.map { row in
-                let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = .gmt; f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = .gmt; f.dateFormat = row["datetime"].string?.count==10 ? "yyyy-MM-dd":"yyyy-MM-dd HH:mm:ss"
                 guard let text = row["datetime"].string, let date = f.date(from:text) else { throw TradeError.unavailable("歷史時間格式變更") }
                 return Candle(time: Int64(date.timeIntervalSince1970), open: try row["open"].amount().displayDouble, high: try row["high"].amount().displayDouble, low: try row["low"].amount().displayDouble, close: try row["close"].amount().displayDouble, volume: nil)
             }.sorted { $0.time < $1.time }
         case .binance:
             let tf = interval < 3600 ? "\(interval/60)m" : interval < 86400 ? "\(interval/3600)h" : "1d"
-            j = try await fetch(path: "/fapi/v1/klines", query: ["symbol":symbol,"interval":tf,"limit":"300"])
+            j = try await fetch(path: "/fapi/v1/klines", query: ["symbol":symbol,"interval":tf,"limit":"300","endTime":String((before ?? now)*1000)])
             return try j.array.map { Candle(time: ($0[0].integer ?? 0)/1000, open: try $0[1].amount().displayDouble, high: try $0[2].amount().displayDouble, low: try $0[3].amount().displayDouble, close: try $0[4].amount().displayDouble, volume: try $0[5].amount().displayDouble) }
         }
-        return try j["data"].array.map { Candle(time: try Self.timestamp($0["date"]), open: try $0["open"].amount().displayDouble, high: try $0["high"].amount().displayDouble, low: try $0["low"].amount().displayDouble, close: try $0["close"].amount().displayDouble, volume: try $0["volume"].amount().displayDouble) }.sorted { $0.time < $1.time }
+        return try j["data"].array.map { Candle(time: try Self.candleTime($0["date"],zone:instrument.rules.timeZone), open: try $0["open"].amount().displayDouble, high: try $0["high"].amount().displayDouble, low: try $0["low"].amount().displayDouble, close: try $0["close"].amount().displayDouble, volume: try $0["volume"].amount().displayDouble) }.sorted { $0.time < $1.time }
     }
 }
 public enum Providers {

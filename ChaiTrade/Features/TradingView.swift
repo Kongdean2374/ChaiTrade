@@ -26,7 +26,8 @@ struct TradingView: View {
                     if let q=model.quote {
                         Text("\(q.source) · \(q.quality.rawValue)\n\(Date(timeIntervalSince1970:TimeInterval(q.time)).formatted()) · \(q.coverage)").font(.caption2).foregroundStyle(.secondary)
                     } else { Text("尚未取得行情。A 不使用合成資料替代，請配置來源後更新。").font(.caption).foregroundStyle(.orange) }
-                    ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(intervals,id:\.1){label,seconds in Button(label){model.interval=seconds;Task{await model.loadChart()}}.font(.caption).buttonStyle(.bordered).tint(model.interval == seconds ? .orange:.gray)}}}
+                    ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(intervals,id:\.1){label,seconds in Button(label){model.interval=seconds;Task{await model.saveChartPreferences(indicator:indicator,period:period,line:line);await model.loadChart()}}.font(.caption).buttonStyle(.bordered).tint(model.interval == seconds ? .orange:.gray)}}}
+                    if model.chartLoading{ProgressView("讀取歷史行情…").font(.caption)}
                     if let error=model.chartError { Text(error).font(.caption).foregroundStyle(.orange).frame(maxWidth:.infinity,minHeight:200) }
                     else { ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:12)) }
                     HStack {
@@ -35,7 +36,7 @@ struct TradingView: View {
                         Button{line.toggle()}label:{Image(systemName:line ? "chart.bar.xaxis":"waveform.path")}.accessibilityLabel("切換線圖與 K 線")
                         Button{fullscreen=true}label:{Image(systemName:"arrow.up.left.and.arrow.down.right")}.accessibilityLabel("全螢幕圖表")
                     }
-                    HStack{Button("更多歷史"){model.chartCount=min(1000,model.chartCount+160);Task{await model.loadChart()}};Spacer();Button("繪圖"){drawing=true};Button("到價提醒"){alert=true}}.font(.caption)
+                    HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}};Spacer();Button("繪圖"){drawing=true};Button("到價提醒"){alert=true};Button("截圖"){Task{await model.captureChart()}}}.font(.caption)
                     if model.state?.simulation != nil { SimulationControls();if let s=model.state?.simulation,!i.rules.isOpen(at:s.time){Button("順序推進至下一交易時段"){Task{await model.nextSession()}}.font(.caption)}}
                     HStack(alignment:.top,spacing:18) {
                         BookSide(title:"買盤",levels:model.quote?.bids ?? [],color:.green)
@@ -55,7 +56,10 @@ struct TradingView: View {
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
             .fullScreenCover(isPresented:$fullscreen){VStack{HStack{Text(model.selected?.name ?? "").font(.headline);Spacer();Button("完成"){fullscreen=false}}.padding();ChartView(indicator:indicator,period:period,line:line)}.background(Color(.systemBackground))}
-            .task(id:model.selectedID){await model.loadChart()}
+            .task(id:model.selectedID){if let p=model.state?.chartPreferences?[model.selectedID]{indicator=p.indicator;period=p.period;line=p.line;model.interval=p.interval};await model.loadChart()}
+            .onChange(of:indicator){_,_ in Task{await model.saveChartPreferences(indicator:indicator,period:period,line:line)}}
+            .onChange(of:period){_,_ in Task{await model.saveChartPreferences(indicator:indicator,period:period,line:line)}}
+            .onChange(of:line){_,_ in Task{await model.saveChartPreferences(indicator:indicator,period:period,line:line)}}
     }
 }
 struct BookSide: View {

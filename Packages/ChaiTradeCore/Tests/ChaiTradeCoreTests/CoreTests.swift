@@ -411,12 +411,23 @@ func stressHistory100000() async throws {
     let csv=try r.repo.csv(kind:"fills",time:200000)
     let exported=clock.now
     #expect(csv.filter{$0==10}.count==100000)
+    let reportStart=clock.now
+    let performance=try r.repo.performance()
+    let reportSeconds=seconds(reportStart,clock.now)
+    #expect(performance.currencies["TWD"]?.count==100000)
+    #expect(performance.cycles["TWD"]?.closed==50000)
+    #expect(performance.cycles["TWD"]?.flat==50000)
+    #expect(reportSeconds<=3,"Full 100,000-row analytics report budget: 3 seconds")
+    let rangeReport=try r.repo.performance(from:50001,until:60001)
+    #expect(rangeReport.currencies["TWD"]?.count==10000)
+    #expect(rangeReport.cycles["TWD"]?.closed==5000)
     let orders=try r.repo.orderPage(limit:100,search:"TEST");#expect(orders.count==100)
     let ctx=AccountContext(mode:.online),engine=try TradingEngine(context:ctx,repository:r.repo,initial:s)
     // The oldest id must remain idempotent after leaving the hot window and after restart.
     let old=try #require(full.orders["stress-0"])
     #expect(try await engine.submit(old.request,time:200000,context:ctx)==old.id)
     try await engine.ingest(r.quote(time:200000),now:200000,context:ctx)
+    let concurrentSnapshot=Task{try await engine.fullSnapshot(context:ctx)}
     var writes:[Double]=[]
     for n in 0..<30{
         let t=clock.now
@@ -425,6 +436,9 @@ func stressHistory100000() async throws {
         _=try await engine.submit(request,time:200000,context:ctx)
         writes.append(seconds(t,clock.now))
     }
+    let concurrentFull=try await concurrentSnapshot.value
+    #expect((100000...100030).contains(concurrentFull.fills.count))
+    try AccountRepository.validate(concurrentFull,mode:.online)
     let restart=try AccountRepository(root:r.root,mode:.online)
     let reopened=try restart.load()!
      #expect(reopened.orders.values.filter{$0.id.hasPrefix("new-") && $0.status == .filled}.count==30)
@@ -442,7 +456,7 @@ func stressHistory100000() async throws {
     #expect(query<=0.3,"Original page-interaction target: 300 ms p95")
     #expect(write<=0.15,"Original local order-feedback target: 150 ms p95")
     #expect(report<=3,"Full 100,000-row report budget: 3 seconds")
-    let metrics:[String:Any]=["fills":100000,"bulkImportSeconds":seconds(start,saved),"hotLoadSeconds":cold,"fullIntegrityLoadSeconds":seconds(paged,fullRead),"csv100000Seconds":report,"page100P95Seconds":query,"orderWriteP95Seconds":write,"samplesPerP95":30,"hotFills":s.fills.count,"hotOrders":s.orders.count,"platform":ProcessInfo.processInfo.operatingSystemVersionString,"passed":cold<=3 && query<=0.3 && write<=0.15 && report<=3,"note":"Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate"]
+    let metrics:[String:Any]=["fills":100000,"bulkImportSeconds":seconds(start,saved),"hotLoadSeconds":cold,"fullIntegrityLoadSeconds":seconds(paged,fullRead),"csv100000Seconds":report,"analytics100000Seconds":reportSeconds,"page100P95Seconds":query,"orderWriteP95Seconds":write,"samplesPerP95":30,"hotFills":s.fills.count,"hotOrders":s.orders.count,"platform":ProcessInfo.processInfo.operatingSystemVersionString,"passed":cold<=3 && query<=0.3 && write<=0.15 && report<=3 && reportSeconds<=3,"note":"Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate"]
     let out=URL(fileURLWithPath:ProcessInfo.processInfo.environment["CHAI_REPORT_DIR"] ?? "/app/.reports")
     try FileManager.default.createDirectory(at:out,withIntermediateDirectories:true)
     try JSONSerialization.data(withJSONObject:metrics,options:[.prettyPrinted,.sortedKeys]).write(to:out.appendingPathComponent("stress-100000.json"))

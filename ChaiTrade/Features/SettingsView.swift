@@ -49,7 +49,13 @@ struct SettingsView: View {
                 if model.state?.mode == .offline{Text("B 不讀取金鑰、不建立網路 Provider。切到 A 並完整重新啟動後配置。").font(.footnote)}
                 else{ForEach(ProviderID.allCases,id:\.self){id in NavigationLink(id.label){ProviderSettings(id:id)}}}
             }
+            Section("目前帳戶通知"){
+                Button("啟用／檢查系統通知權限"){Task{await model.enableNotifications()}}
+                if model.state?.notificationEnabled==true{Button("停用此帳戶系統通知"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.configureNotifications(false,context:context)}}}}
+                Text("只有實際運作中的行情／交易引擎能偵測事件。沒有背景即時監控保證；B 補算事件會標示補算發現。拒絕權限仍保留 App 內事件。").font(.caption)
+            }
             Section("目前帳戶備份與還原") {
+                if model.exportingWork{ProgressView("建立一致性備份中…")}
                 SecureField("備份／還原密碼（可留空）",text:$backupPassword)
                 Text("密碼備份使用 AES-256-GCM 與 PBKDF2-HMAC-SHA256（600,000 次）。密碼遺失無法恢復。API 金鑰不進備份。").font(.caption)
                 Button("匯出目前帳戶備份"){Task{await model.export(kind:"backup",password:backupPassword)}}
@@ -74,14 +80,17 @@ struct SettingsView: View {
     func reset() async {
         guard let engine=model.engine,let context=model.context else{return}
         await model.run{
-            let current=try await engine.fullSnapshot(context:context),time=model.now
+            model.maintainingAccount=true;defer{model.maintainingAccount=false}
+            let (token,current)=try await engine.beginMaintenance(context:context),time=model.now
+            do{
             let backup=try await Task.detached{try BackupService.export(current,password:nil,time:time)}.value
             let dir=model.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
             try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
             try backup.write(to:dir.appendingPathComponent("before-reset-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
             let fresh=try TradingEngine.initial(mode:context.mode,baseCurrency:current.baseCurrency,capital:Amount("1000000"),time:model.now)
-            try await engine.restore(fresh,context:context);try await engine.initializeQuotes(context:context)
+            try await engine.restore(fresh,maintenanceToken:token,context:context);try await engine.initializeQuotes(context:context)
             resetStage=false;resetText="";model.notice="目前帳戶已重設；原資料有本機恢復點"
+            }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }
     }
 }

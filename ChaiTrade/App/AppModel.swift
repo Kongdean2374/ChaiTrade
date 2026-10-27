@@ -1,6 +1,8 @@
 import SwiftUI
+import UIKit
 import ChaiTradeCore
 import Security
+import WebKit
 import UniformTypeIdentifiers
 
 enum KeychainVault {
@@ -46,18 +48,26 @@ struct ChartAmendment: Identifiable {
     @Published var tab=0
     @Published var candles: [Candle]=[]
     @Published var chartError: String?
+    @Published var journalScreenshot: Data?
+    weak var chartWebView:WKWebView?
     @Published var interval: Int64=60
     @Published var chartCount=160
+    @Published var chartBefore:Int64?
+    @Published var chartLoading=false
     @Published var fetching=false
     @Published var providerStatus: [ProviderID:String]=[:]
     @Published var exportDocument: ExportDocument?
     @Published var exportName="ChaiTrade-backup"
     @Published var exporting=false
+    @Published var exportingWork=false
+    @Published var maintainingAccount=false
     @Published var catchupTarget: Int64?
     @Published var clockWarning: String?
     @Published var chartAmendment: ChartAmendment?
     private(set) var engine: TradingEngine?
     private(set) var context: AccountContext?
+    private let notifications=LocalNotifications()
+    private var notifying=false
     private var booted=false
     private var busy=false
     private var foreground=true
@@ -65,6 +75,9 @@ struct ChartAmendment: Identifiable {
     private var fractionalTime=0.0
     private var lastFetch=0.0
     private var chartGeneration=UUID()
+    private var candleTask:Task<[Candle],Error>?
+    private var chartCache:[String:[Candle]]=[:]
+    private var chartCacheOrder:[String]=[]
     private var streamTask: Task<Void,Never>?
     let root: URL
     init() {
@@ -86,10 +99,8 @@ struct ChartAmendment: Identifiable {
         do {
             let target=settings.pendingMode ?? settings.activeMode
             let switched=target != settings.activeMode
-            let repo=try AccountRepository(root:root,mode:target)
-            guard let existing=try repo.load() else { throw TradeError.corrupt("帳戶不存在，請使用備份恢復；不會重建空帳戶覆蓋資料") }
-            let ctx=AccountContext(mode:target)
-            let service=try TradingEngine(context:ctx,repository:repo,initial:existing)
+            let ctx=AccountContext(mode:target),root=self.root
+            let (existing,service)=try await Task.detached{let repo=try AccountRepository(root:root,mode:target);guard let existing=try repo.load() else{throw TradeError.corrupt("帳戶不存在，請使用備份恢復；不會重建空帳戶覆蓋資料")};let service=try TradingEngine(context:ctx,repository:repo,initial:existing,wallClock:{Int64(Date().timeIntervalSince1970)});return (existing,service)}.value
             try await service.initializeQuotes(context:ctx)
             if switched || existing.lastWallTime == nil{try await service.saveWallClock(Int64(Date().timeIntervalSince1970),context:ctx)}
             engine=service;context=ctx;state=await service.snapshot()
@@ -118,8 +129,17 @@ struct ChartAmendment: Identifiable {
         }
         await boot()
     }
-    func refresh() async { if let engine { state=await engine.snapshot() } }
-    func select(_ instrument: Instrument) { selectedID=instrument.id;tab=2;restartStream();Task{await loadChart()} }
+    func refresh() async {
+        guard let engine else{return};state=await engine.snapshot()
+        guard !notifying,state?.notificationEnabled==true,let context else{return}
+        notifying=true;defer{notifying=false}
+        do{let ids=try await notifications.deliver(state?.inbox ?? [],context:context);guard self.context==context,!ids.isEmpty else{return};try await engine.acknowledgeNotices(ids,context:context);state=await engine.snapshot()}catch{notice="系統通知未送達，事件仍保留於 App 內"}
+    }
+    func enableNotifications()async{
+        guard let engine,let context else{return}
+        do{let granted=try await notifications.requestPermission();try await engine.configureNotifications(granted,context:context);await refresh();if !granted{notice="通知權限未開啟；交易與 App 內事件中心仍可使用"}}catch{self.error=error.localizedDescription}
+    }
+    func select(_ instrument: Instrument) { selectedID=instrument.id;chartBefore=nil;chartCount=160;tab=2;restartStream();Task{await loadChart()} }
     func tick() async {
         guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil,catchupTarget == nil else { return }
         busy=true;defer{busy=false}
@@ -144,6 +164,7 @@ struct ChartAmendment: Identifiable {
     }
     func suspend() async {
         foreground=false
+        candleTask?.cancel();candleTask=nil
         streamTask?.cancel();streamTask=nil
         guard let engine,let context else{return}
         await run {
@@ -194,12 +215,12 @@ struct ChartAmendment: Identifiable {
             var cursor=start
             let wallTarget=Int64(Date().timeIntervalSince1970)
             while cursor+5<=target && !Task.isCancelled && progress != nil {
-                cursor=try await engine.advance(to:target,wallTarget:wallTarget,context:context)
+                cursor=try await engine.advance(to:target,wallTarget:wallTarget,catchup:true,context:context)
                 progress=Double(cursor-start)/Double(max(1,target-start))
                 // Simulation, ledger and corresponding wall anchor commit in the same transaction.
                 await refresh();await Task.yield()
             }
-            if cursor+5>target { catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間" }
+            if cursor+5>target { catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間";try await engine.recordNotice("catchupComplete",message:"離線市場補算完成；非背景即時推播",time:cursor,context:context);await refresh() }
         } catch { self.error=error.localizedDescription }
         progress=nil;lastUptime=ProcessInfo.processInfo.systemUptime
     }
@@ -243,27 +264,68 @@ struct ChartAmendment: Identifiable {
         await refresh()
         if tab==2 { await loadChart() }
     }
+    func saveChartPreferences(indicator:String,period:Int,line:Bool)async{
+        guard let engine,let context,!selectedID.isEmpty else{return}
+        await run{try await engine.saveChartPreferences(instrumentID:self.selectedID,preferences:ChartPreferences(interval:self.interval,indicator:indicator,period:period,line:line),context:context)}
+    }
+    func captureChart()async{
+        guard let web=chartWebView,let context else{error="圖表尚未準備完成";return}
+        let id=selectedID,time=now
+        do{
+            let image:UIImage=try await withCheckedThrowingContinuation{continuation in web.takeSnapshot(with:nil){image,error in if let image{continuation.resume(returning:image)}else{continuation.resume(throwing:error ?? TradeError.unavailable("本機圖表截圖失敗"))}}}
+            guard self.context==context,self.selectedID==id else{return}
+            let format=UIGraphicsImageRendererFormat();format.scale=1
+            let renderer=UIGraphicsImageRenderer(size:CGSize(width:image.size.width,height:image.size.height+48),format:format)
+            let marked=renderer.image{ctx in UIColor.systemBackground.setFill();ctx.fill(CGRect(x:0,y:0,width:image.size.width,height:image.size.height+48));image.draw(at:CGPoint(x:0,y:48));let title="ChaiTrade · 模擬交易 · \(context.accountID)\n\(id) · \(time)";title.draw(in:CGRect(x:8,y:4,width:image.size.width-16,height:42),withAttributes:[.font:UIFont.monospacedSystemFont(ofSize:10,weight:.medium),.foregroundColor:UIColor.label])}
+            guard let png=marked.pngData(),png.count<=2_000_000 else{throw TradeError.invalid("截圖超過 2 MB，請縮小圖表後重試")}
+            journalScreenshot=png;notice="已保存本機圖表草稿，可於資產 → 交易日誌附加；尚未匯出至外部"
+        }catch{self.error=error.localizedDescription}
+    }
+    func loadEarlierChart()async{
+        if chartCount<1000{chartCount=min(1000,chartCount+160)}else if let first=candles.first{chartBefore=first.time-1;chartCount=160}
+        await loadChart()
+    }
+    func loadLatestChart()async{chartBefore=nil;chartCount=160;await loadChart()}
     func loadChart() async {
         guard let i=selected,let s=state else{return}
-        let generation=UUID();chartGeneration=generation;chartError=nil
-        let interval=interval,count=chartCount
+        let generation=UUID();chartGeneration=generation;chartError=nil;chartLoading=true
+        defer{if generation==chartGeneration{chartLoading=false}}
+        let interval=interval,count=chartCount,before=chartBefore
         do {
             let values: [Candle]
-            if let sim=s.simulation { values=try await Task.detached(priority:.userInitiated) { try Simulation.candles(i,state:sim,interval:interval,count:count) }.value }
-            else if let id=i.provider { values=try await provider(id).candles(i,interval:interval,now:Int64(Date().timeIntervalSince1970)) }
+            if let sim=s.simulation { candleTask?.cancel();let task=Task.detached(priority:.userInitiated){try Simulation.candles(i,state:sim,interval:interval,count:count,before:before)};candleTask=task;values=try await task.value }
+            else if let id=i.provider {
+                let key="\(s.accountID)|\(i.id)|\(interval)|\(before ?? 0)",service=try provider(id),now=Int64(Date().timeIntervalSince1970)
+                var cached=chartCache[key] ?? []
+                if !cached.isEmpty,cached.count<count,let first=cached.first{
+                    let older=try await service.history(i,interval:interval,count:count-cached.count,now:now,before:first.time-1)
+                    cached=older+cached
+                }
+                let head=try await service.history(i,interval:interval,count:cached.isEmpty ? count:min(count,160),now:now,before:before)
+                var merged=Dictionary(cached.map{($0.time,$0)},uniquingKeysWith:{_,new in new});for c in head{merged[c.time]=c}
+                values=Array(merged.values.sorted{$0.time<$1.time}.suffix(count))
+                chartCache[key]=values;chartCacheOrder.removeAll{$0==key};chartCacheOrder.append(key)
+                while chartCacheOrder.count>8{chartCache.removeValue(forKey:chartCacheOrder.removeFirst())}
+                if values.count<cached.count || (cached.count<count && values.count==cached.count){notice="來源沒有提供更早的可用歷史；不產生替代 K 線"}
+            }
             else { throw TradeError.unavailable("尚無圖表來源") }
             guard generation==chartGeneration else{return};candles=values
             if values.isEmpty { chartError="此範圍沒有行情，請切換週期或載入更多歷史" }
-        } catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
+        } catch is CancellationError {} catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
     }
+    func clearChartCaches(){candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
     func submit(_ request: OrderRequest, oco: OrderRequest? = nil) async {
         guard let engine,let context else{return}
-        await run {
-            if let oco { try await engine.submitOCO(request,oco,time:self.now,context:context) }
-            else { _=try await engine.submit(request,time:self.now,context:context) }
-            self.notice="委託已送入本機引擎；成交與保留請見委託頁"
+        do{
+            if let oco{try await engine.submitOCO(request,oco,time:self.now,context:context)}else{_=try await engine.submit(request,time:self.now,context:context)}
+            notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh()
+        }catch{
+            let message=error.localizedDescription
+            if self.context==context{try? await engine.recordNotice("rejected",message:"委託拒絕："+String(message.prefix(250)),time:now,context:context);await refresh()}
+            self.error=message
         }
     }
+
     func setPending(_ mode: Mode?) {
         do { settings.pendingMode=mode == settings.activeMode ? nil:mode;try settings.save(root:root) }
         catch { self.error=error.localizedDescription }
@@ -279,7 +341,8 @@ struct ChartAmendment: Identifiable {
         let updated=set;await run{try await engine.updatePreferences(watchlist:updated,context:context)}
     }
     func export(kind: String, password: String = "") async {
-        guard let s=state,let engine,let context else{return}
+        guard let s=state,let engine,let context,!exportingWork else{return}
+        exportingWork=true;defer{exportingWork=false}
         await run {
             let data: Data
             switch kind {
@@ -307,15 +370,19 @@ struct ChartAmendment: Identifiable {
         guard let context,let engine else{return}
         await run {
             let granted=url.startAccessingSecurityScopedResource();defer{if granted{url.stopAccessingSecurityScopedResource()}}
+            guard (try url.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0)<=100_000_000 else{throw TradeError.corrupt("備份超過安全大小限制")}
             let data=try Data(contentsOf:url,options:.mappedIfSafe)
             let restored=try await Task.detached{try BackupService.importAccount(data,expectedMode:context.mode,password:password)}.value
-            let current=try await engine.fullSnapshot(context:context)
+            self.maintainingAccount=true;defer{self.maintainingAccount=false}
+            let (token,current)=try await engine.beginMaintenance(context:context)
+            do{
             let time=self.now
             let recovery=try await Task.detached{try BackupService.export(current,password:nil,time:time)}.value
             let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
             try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
             try recovery.write(to:directory.appendingPathComponent("before-restore-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
-            try await engine.restore(restored,context:context);self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
+            try await engine.restore(restored,maintenanceToken:token,context:context);self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
+            }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }
         await loadChart()
     }

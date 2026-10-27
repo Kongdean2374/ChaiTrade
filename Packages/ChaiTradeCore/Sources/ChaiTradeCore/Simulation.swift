@@ -1,5 +1,13 @@
 import Foundation
 
+private final class SimulationCandleCache: @unchecked Sendable {
+    private let lock=NSLock()
+    private var values:[String:Candle]=[:],order:[String]=[]
+    func get(_ key:String)->Candle?{lock.lock();defer{lock.unlock()};guard let value=values[key] else{return nil};order.removeAll{$0==key};order.append(key);return value}
+    func put(_ key:String,_ value:Candle){lock.lock();defer{lock.unlock()};order.removeAll{$0==key};order.append(key);values[key]=value;while order.count>512{values.removeValue(forKey:order.removeFirst())}}
+    func clear(){lock.lock();defer{lock.unlock()};values.removeAll();order.removeAll()}
+}
+
 public struct SimulationState: Codable, Sendable {
     public var seed: UInt64 = 2374
     public var algorithm = "factor-wave-1"
@@ -21,6 +29,8 @@ public struct SimulationChange: Codable, Sendable {
 }
 public enum Simulation {
     public static let step: Int64 = 5
+    private static let candleCache=SimulationCandleCache()
+    public static func clearChartCache(){candleCache.clear()}
     /// Stable FNV-1a identifier mapping and SplitMix64 mixing. No Swift Hasher / mutable UI RNG.
     public static func hash(_ string: String) -> UInt64 {
         string.utf8.reduce(14_695_981_039_346_656_037) { ($0 ^ UInt64($1)) &* 1_099_511_628_211 }
@@ -39,7 +49,7 @@ public enum Simulation {
         let b = random(seed: seed, stream: stream, index: bucket + 1) * 2 - 1
         return a + (b - a) * fraction
     }
-    public static func price(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Amount {
+    private static func priceValue(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Double {
         guard state.algorithm == "factor-wave-1" else { throw TradeError.unavailable("模擬演算法版本不相容，保留檢查點") }
         let stream = hash(instrument.id), category = hash(instrument.asset.rawValue)
         let regime = Int(random(seed: state.seed, stream: 11, index: time / 86400) * 5)
@@ -58,7 +68,10 @@ public enum Simulation {
         let raw = instrument.initialPrice.displayDouble * adjustment * exp(common + sector + slow + fast * amplitudes[regime] * vol + trend)
         let tick = instrument.rules.tick.displayDouble
         guard raw.isFinite, tick > 0 else { throw TradeError.invalid("模擬價格超出範圍") }
-        return try Amount(String(format: "%.12f", locale: Locale(identifier: "en_US_POSIX"), max(tick, (raw / tick).rounded() * tick)))
+        return max(tick, (raw / tick).rounded() * tick)
+    }
+    public static func price(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Amount {
+        try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),priceValue(instrument,at:time,state:state)))
     }
     public static func quote(_ instrument: Instrument, state: SimulationState) throws -> Quote {
         let time = state.time, price = try price(instrument, at: time, state: state)
@@ -80,19 +93,45 @@ public enum Simulation {
     public static func candles(_ instrument: Instrument, state: SimulationState, interval: Int64, count: Int, before: Int64? = nil) throws -> [Candle] {
         guard interval >= 60, count > 0, count <= 2000 else { throw TradeError.invalid("圖表區間不合法") }
         let end = min(before ?? state.time, state.time)
-        let lastStart = (end / interval) * interval
+        let zone=instrument.rules.timeZone
+        let lastStart=CandleCalendar.start(end,interval:interval,zone:zone)
+        var identity=state;identity.time=0;identity.paused=false;identity.speed=1
+        var config=try AccountRepository.encode(identity);config.append(try AccountRepository.encode(instrument))
+        let prefix=BackupService.digest(config)+"|\(interval)|"
         var result: [Candle] = []
         for offset in (0..<count).reversed() {
-            let start = lastStart - Int64(offset) * interval
-            var values: [Double] = []
-            // Authoritative five-second events; history never consumes mutable randomness.
+            try Task.checkCancellation()
+            let start=CandleCalendar.next(lastStart,interval:interval,zone:zone,offset:-offset)
+            if start < state.time-10*366*86400{continue}
+            let next=CandleCalendar.next(start,interval:interval,zone:zone)
+            let key=prefix+String(start)
+            if next<=end,let cached=candleCache.get(key){result.append(cached);continue}
+            var first:Double?,last:Double?,high = -Double.infinity,low=Double.infinity,events=0
+            // Log-price is affine within each minute/control segment. Quantization is monotone.
+            // Exact five-second extrema therefore occur at segment endpoints, not at arbitrary samples.
             var t = start
-            while t <= min(start + interval - step, end) {
-                if instrument.rules.isOpen(at: t) { values.append(try price(instrument, at: t, state: state).displayDouble) }
-                t += step
+            let expiryLast=instrument.rules.expiry.map{(($0-1)/step)*step} ?? Int64.max
+            let final=min(next-step,end/step*step,expiryLast)
+            let continuous = !instrument.rules.weekdaysOnly && instrument.rules.holidays.isEmpty && instrument.rules.openMinute==0 && instrument.rules.closeMinute==1440 && instrument.rules.expiry==nil
+            while t<=final {
+                if t%3600==0{try Task.checkCancellation()}
+                if let expiry=instrument.rules.expiry,t>=expiry{break}
+                let minuteEnd=min((t/60+1)*60-step,final)
+                if continuous || instrument.rules.isOpen(at:t){
+                    var points:Set<Int64>=[t,minuteEnd]
+                    for change in state.changes{
+                        for boundary in [change.time,change.time+3600,change.time+5*86400] where boundary>=t && boundary<=minuteEnd{points.insert(boundary);if boundary-step>=t{points.insert(boundary-step)}}
+                    }
+                    for change in state.priceAdjustments ?? [] where change.instrumentID==instrument.id && change.time>=t && change.time<=minuteEnd{points.insert(change.time);if change.time-step>=t{points.insert(change.time-step)}}
+                    for point in points.sorted(){let value=try priceValue(instrument,at:point,state:state);if first==nil{first=value};last=value;high=max(high,value);low=min(low,value)}
+                    events+=Int((minuteEnd-t)/step+1)
+                }
+                t=minuteEnd+step
             }
-            if let first = values.first, let last = values.last {
-                result.append(Candle(time: start, open: first, high: values.max()!, low: values.min()!, close: last, volume: Double(values.count * instrument.liquidity), complete: start + interval <= state.time))
+            if let first,let last{
+                func canonical(_ x:Double)throws->Double{try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),x)).displayDouble}
+                let candle=try Candle(time:start,open:canonical(first),high:canonical(high),low:canonical(low),close:canonical(last),volume:Double(events*instrument.liquidity),complete:next<=state.time)
+                result.append(candle);if next<=end{candleCache.put(key,candle)}
             }
         }
         return result

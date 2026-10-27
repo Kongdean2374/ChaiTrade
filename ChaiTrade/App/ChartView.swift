@@ -14,12 +14,18 @@ struct ChartView: UIViewRepresentable {
         config.userContentController.add(context.coordinator,name:"intent")
         let view=WKWebView(frame:.zero,configuration:config);view.isOpaque=false;view.backgroundColor = .clear
         view.navigationDelegate=context.coordinator
+        model.chartWebView=view
         if let url=Bundle.main.url(forResource:"index",withExtension:"html",subdirectory:"ChartWeb") {
             view.loadFileURL(url,allowingReadAccessTo:url.deletingLastPathComponent())
         }
         return view
     }
+    static func dismantleUIView(_ web:WKWebView,coordinator:Coordinator){
+        web.configuration.userContentController.removeScriptMessageHandler(forName:"intent");web.navigationDelegate=nil;web.stopLoading()
+        if coordinator.model.chartWebView===web{coordinator.model.chartWebView=nil}
+    }
     func updateUIView(_ web: WKWebView, context: Context) {
+        model.chartWebView=web
         let candles=model.candles
         let values=candles.map(\.close)
         var overlays: [[String:Any]]=[]
