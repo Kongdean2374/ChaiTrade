@@ -42,7 +42,14 @@ import XCTest
         try check(!app.buttons["完成"].isEnabled,"In-flight order allowed a second close/send path")
         app.navigationBars["模擬下單"].swipeDown()
         try check(app.navigationBars["模擬下單"].exists,"Swipe dismissed an in-flight confirmed order")
-        try waitUntil("Order did not settle",timeout:12){app.tabBars.buttons["委託"].isHittable}
+        try waitUntil("Confirmed order did not reach its closed-panel receipt page",timeout:12){
+            let snapshot:[String:Any]=(try? self.state(app)) ?? [:]
+            return snapshot["tab"] as? Int==3 && app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists
+        }
+        app.tabBars.buttons["資產"].tap()
+        try check(app.navigationBars["資產"].waitForExistence(timeout:5),"Receipt left an overlay blocking asset navigation")
+        app.tabBars.buttons["委託"].tap()
+        try check(app.navigationBars["委託與成交"].waitForExistence(timeout:5),"Receipt navigation cannot return to orders")
         let s=try state(app),fills=s["fills"] as? [[String:String]] ?? []
         try check(fills.count==1,"Rapid order produced \(fills.count) fills")
         try check((s["orders"] as? [String])?.count==1,"Rapid order created multiple requests")

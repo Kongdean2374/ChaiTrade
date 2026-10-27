@@ -4,6 +4,7 @@ import ChaiTradeCore
 struct TradingView: View {
     @EnvironmentObject var model: AppModel
     @State private var order=false
+    @State private var showOrdersAfterDismiss=false
     @State private var fullscreen=false
     @State private var details=false
     @State private var drawing=false
@@ -51,7 +52,9 @@ struct TradingView: View {
                 }.padding(18)
             } else { ContentUnavailableView("選擇交易商品",systemImage:"chart.xyaxis.line",description:Text("請先從行情頁選擇商品")) }
         }.navigationTitle("交易").navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented:$order){NavigationStack{OrderForm()}}
+            .sheet(isPresented:$order,onDismiss:{
+                if showOrdersAfterDismiss{showOrdersAfterDismiss=false;model.tab=3}
+            }){NavigationStack{OrderForm(onSubmitted:{showOrdersAfterDismiss=true;order=false})}}
             .sheet(isPresented:$details){NavigationStack{InstrumentDetails()}}
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
@@ -74,6 +77,7 @@ struct BookSide: View {
     }
 }
 struct OrderForm: View {
+    let onSubmitted:@MainActor ()->Void
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) var dismiss
     @State private var side=Side.buy
@@ -173,7 +177,7 @@ struct OrderForm: View {
                 var second=OrderRequest(instrumentID:i.id,side:side,kind:.stopMarket,quantity:r.quantity,trigger:try Amount(stop));second.requestID=ocoRequestID;second.reduceOnly=true;second.leverage=leverage;second.marginMode=margin
                 accepted=await model.submit(r,oco:second)
             }else{accepted=await model.submit(r)}
-            if accepted{submitted=true;dismiss();model.tab=3}
+            if accepted{submitted=true;onSubmitted()}
         }catch{model.error=error.localizedDescription}
     }
 }
