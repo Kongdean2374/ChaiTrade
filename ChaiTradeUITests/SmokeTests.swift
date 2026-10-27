@@ -82,8 +82,11 @@ import XCTest
         let journal=app.buttons["本機交易日誌"]
         for _ in 0..<5 where !journal.isHittable{app.swipeUp()}
         XCTAssertTrue(journal.isHittable);journal.tap()
-        let attachment=app.switches["附加剛擷取的本機圖表"]
-        XCTAssertTrue(attachment.waitForExistence(timeout:10));attachment.tap()
+        let attachment=app.switches["attachJournalChart"]
+        XCTAssertTrue(attachment.waitForExistence(timeout:10))
+        if attachment.value as? String != "1"{attachment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()}
+        XCTAssertEqual(attachment.value as? String,"1")
+        XCTAssertTrue(app.images["journalChartPreview"].waitForExistence(timeout:5))
         let text=app.textViews["journalText"];text.tap();text.typeText("Synthetic UI chart journal")
         let save=app.buttons["保存日誌"]
         for _ in 0..<5 where !save.isHittable{app.swipeUp()}
@@ -92,6 +95,7 @@ import XCTest
         for _ in 0..<6 where !exportImage.isHittable{app.swipeUp()}
         XCTAssertTrue(exportImage.waitForExistence(timeout:10),app.debugDescription)
         XCTAssertFalse(app.alerts["操作未完成"].exists)
+        XCTAssertTrue(app.images["savedJournalChart"].exists)
         app.buttons["完成"].tap()
     }
 

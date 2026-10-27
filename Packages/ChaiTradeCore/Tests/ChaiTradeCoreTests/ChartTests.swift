@@ -58,3 +58,15 @@ private actor PagedCandles:MarketTransport{
     let older=try await service.history(i,interval:1800,count:10,now:now,before:page.first!.time-1)
     #expect(older.last!.time<page.first!.time)
 }
+
+@Test func offlineStockHistoryPagesAcrossClosuresAndWeekends()throws{
+    let instrument=try #require(Simulation.catalog().first{$0.asset == .taiwanStock}),state=SimulationState()
+    let first=try Simulation.candles(instrument,state:state,interval:60,count:160)
+    #expect(first.count==160)
+    #expect(first.allSatisfy{instrument.rules.isOpen(at:$0.time)})
+    #expect(first.first!.time<CandleCalendar.start(state.time,interval:86400,zone:instrument.rules.timeZone))
+    let older=try Simulation.candles(instrument,state:state,interval:60,count:160,before:first.first!.time-1)
+    #expect(older.count==160);#expect(older.last!.time<first.first!.time)
+    #expect(Set((older+first).map(\.time)).count==320)
+    #expect(older.allSatisfy{instrument.rules.isOpen(at:$0.time)})
+}

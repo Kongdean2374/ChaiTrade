@@ -15,7 +15,7 @@ Date: 2026-10-27. Work is in progress against the entire REQUIREMENTS.md; this i
 | R09 public repository | Kongdean2374/ChaiTrade | Public read/write and independent clone/download verified |
 | R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; Unsigned IPA artifact produced by successful run 40451960851; user signing/device verification still required |
 | R11 no actual assets | NetworkPolicy | Only allowlisted market-data GET requests; policy tests passed |
-| R12 maintenance and verification | CoreTests, backups, docs, scripts | 64 ordinary core functions; Release T45 includes analytics, concurrent consistent backup, full CSV equality and backup restore. Local gates passed; this feature batch awaits Apple CI and device acceptance |
+| R12 maintenance and verification | CoreTests, backups, docs, scripts | 65 ordinary core functions; Release T45 includes analytics, concurrent consistent backup, full CSV equality and backup restore. Local gates passed; this feature batch awaits Apple CI and device acceptance |
 
 Technical choice: native SQLite C binding replaces GRDB so the same persistence code can be compiled and executed on Linux and iOS without conditional database engines. Transactions, WAL, schema versioning and account validation remain explicit. This choice does not remove the required behavior; full normalized event reconstruction, query performance and migrations still require further validation.
 
@@ -24,3 +24,5 @@ This iteration adds calendar-correct week/month bars, exact optimized synthetic 
 B now supports configurable signed side-specific carry schedules, exchange-timezone daily settlement and automatic final expiry. New accounts use state schema 2; existing schema-1 worlds keep their persisted rules until explicitly changed. Exact checkpoint/restart tests pass. Funding debits consume free funds before isolated margin, and cross risk excludes another currency's isolated collateral. This does not add official A event synchronization or hedge positions.
 
 Equity history is now normalized under database schema 4. The strengthened T45 includes 100,001 equity points as well as 100,000 fills; full restore and prefix return/drawdown checks pass. Same-time fills retain their fee impact in the curve, and initial B funding uses simulation time. New native equity paging and the screenshot journal's scrolling path await Apple UI verification.
+
+Offline intraday history now counts valid trading bars and skips closures/weekends when paging backwards. The full local Release run executes all 67 tests (stress and production Coinbase enabled) with zero skipped. The final screenshot UI case explicitly checks switch activation and a valid preview before saving, while retaining saved-image/export assertions. Apple rerun remains required.

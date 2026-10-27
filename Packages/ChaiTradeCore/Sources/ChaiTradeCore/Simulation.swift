@@ -99,13 +99,12 @@ public enum Simulation {
         var config=try AccountRepository.encode(identity);config.append(try AccountRepository.encode(instrument))
         let prefix=BackupService.digest(config)+"|\(interval)|"
         var result: [Candle] = []
-        for offset in (0..<count).reversed() {
+        var start=lastStart
+        while result.count<count && start>=state.time-10*366*86400{
             try Task.checkCancellation()
-            let start=CandleCalendar.next(lastStart,interval:interval,zone:zone,offset:-offset)
-            if start < state.time-10*366*86400{continue}
             let next=CandleCalendar.next(start,interval:interval,zone:zone)
             let key=prefix+String(start)
-            if next<=end,let cached=candleCache.get(key){result.append(cached);continue}
+            if next<=end,let cached=candleCache.get(key){result.append(cached);start=CandleCalendar.next(start,interval:interval,zone:zone,offset:-1);continue}
             var first:Double?,last:Double?,high = -Double.infinity,low=Double.infinity,events=0
             // Log-price is affine within each minute/control segment. Quantization is monotone.
             // Exact five-second extrema therefore occur at segment endpoints, not at arbitrary samples.
@@ -133,8 +132,28 @@ public enum Simulation {
                 let candle=try Candle(time:start,open:canonical(first),high:canonical(high),low:canonical(low),close:canonical(last),volume:Double(events*instrument.liquidity),complete:next<=state.time)
                 result.append(candle);if next<=end{candleCache.put(key,candle)}
             }
+            let previous=CandleCalendar.next(start,interval:interval,zone:zone,offset:-1)
+            if first==nil,interval<86400{
+                guard let time=try previousTradingTime(before:start,rules:instrument.rules) else{break}
+                start=min(previous,CandleCalendar.start(time,interval:interval,zone:zone))
+            }else{start=previous}
         }
-        return result
+        return result.reversed()
+    }
+    private static func previousTradingTime(before:Int64,rules:RulePack)throws->Int64?{
+        var calendar=Calendar(identifier:.gregorian);calendar.timeZone=TimeZone(identifier:rules.timeZone)!
+        var cursor=min(before-step,rules.expiry.map{$0-step} ?? Int64.max)
+        for _ in 0..<3700{
+            try Task.checkCancellation()
+            if rules.isOpen(at:cursor){return cursor}
+            let date=Date(timeIntervalSince1970:TimeInterval(cursor)),day=calendar.dateInterval(of:.day,for:date)!
+            let close:Date
+            if rules.closeMinute==1440{close=day.end}else{close=calendar.date(bySettingHour:rules.closeMinute/60,minute:rules.closeMinute%60,second:0,of:date,matchingPolicy:.nextTime,repeatedTimePolicy:.last,direction:.forward)!}
+            let candidate=Int64(close.timeIntervalSince1970)-step
+            if candidate<=cursor,rules.isOpen(at:candidate){return candidate}
+            cursor=Int64(day.start.timeIntervalSince1970)-step
+        }
+        return nil
     }
     public static func catalog() throws -> [Instrument] {
         let groups: [(AssetClass, Int, String, String)] = [(.taiwanStock,30,"TWD","島嶼"),(.usStock,30,"USD","星河"),(.etf,20,"TWD","柴選"),(.crypto,20,"USD","星幣"),(.forex,10,"USD","匯流"),(.perpetual,5,"USD","永續"),(.future,5,"TWD","期契"),(.index,5,"TWD","指標")]

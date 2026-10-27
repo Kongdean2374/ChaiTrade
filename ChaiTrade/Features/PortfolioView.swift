@@ -134,8 +134,8 @@ struct JournalView: View {
                 TextField("情緒與執行評價",text:$emotion)
                 TextField("關聯委託 ID（可留空）",text:$orderID).textInputAutocapitalization(.never)
                 TextEditor(text:$text).frame(minHeight:120).accessibilityIdentifier("journalText")
-                if model.journalScreenshot != nil{Toggle("附加剛擷取的本機圖表",isOn:$attach)}
-                if attach,let data=model.journalScreenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit().frame(maxHeight:220)}
+                if model.journalScreenshot != nil{Toggle("附加剛擷取的本機圖表",isOn:$attach).accessibilityIdentifier("attachJournalChart")}
+                if attach,let data=model.journalScreenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit().frame(maxHeight:220).accessibilityLabel("待儲存的模擬圖表").accessibilityIdentifier("journalChartPreview")}
                 Button("保存日誌"){
                     Task{guard let engine=model.engine,let context=model.context,!text.isEmpty else{return};await model.run{
                         var entry=JournalEntry(text:text,tags:tags,time:model.now)
@@ -150,7 +150,7 @@ struct JournalView: View {
                     Text(entry.text)
                     if let emotion=entry.emotion,!emotion.isEmpty{Text(emotion).font(.caption)}
                     if let id=entry.orderID{Text("委託 \(id)").font(.caption.monospaced()).textSelection(.enabled)}
-                    if let data=entry.screenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit();Button("匯出這張模擬圖表"){model.exportDocument=ExportDocument(data:data);model.exportName="ChaiTrade-模擬交易-\(model.settings.activeMode.accountID).png";model.exporting=true}}
+                    if let data=entry.screenshot,let image=UIImage(data:data){Text("已附模擬圖表").font(.caption);Image(uiImage:image).resizable().scaledToFit().accessibilityLabel("已儲存的模擬圖表").accessibilityIdentifier("savedJournalChart");Button("匯出這張模擬圖表"){model.exportDocument=ExportDocument(data:data);model.exportName="ChaiTrade-模擬交易-\(model.settings.activeMode.accountID).png";model.exporting=true}}
                     Text(Date(timeIntervalSince1970:TimeInterval(entry.time)).formatted()).font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -225,7 +225,9 @@ private struct PerformanceDetails:View{
     var body:some View{
         ForEach(report.currencies.keys.sorted(),id:\.self){currency in
             let total=report.currencies[currency]!,cycles=report.cycles[currency]
-            LabeledContent("\(currency) 區間成交／金額",value:"\(total.count) / \(total.notional)")
+            LabeledContent("\(currency) 區間成交筆數",value:String(total.count))
+            let contracts=report.instruments.keys.contains{id in model.state?.instruments.contains(where:{$0.id==id && $0.currency==currency && ($0.asset.derivative || $0.rules.multiplier != .one)})==true}
+            if !contracts{LabeledContent("現貨成交金額",value:total.notional.description)}
             LabeledContent("\(currency) 成交淨損益",value:(try? (total.realized-total.fees-total.taxes).description) ?? "計算失敗")
             LabeledContent("已結束周期（含持平）",value:String(cycles?.closed ?? 0))
             LabeledContent("勝率",value:cycles?.winRate.map{String(format:"%.2f%%",$0*100)} ?? "樣本不足")

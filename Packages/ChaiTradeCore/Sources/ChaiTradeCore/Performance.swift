@@ -35,7 +35,7 @@ public struct PerformanceReport:Codable,Sendable{
     public var markets:[String:FillTotals]=[:]
     public var cycles:[String:CycleStats]=[:]
     public var recentCycles:[ClosedCycle]=[]
-    public var policy="模擬交易；由首次建倉至同商品部位歸零為一個周期，反向成交拆分新周期；部分成交不重複計為勝利。已結束周期的成本包含區間開始前的建倉費。周期淨額扣成交費稅，不包含股息、持有費、每日結算及標記價強平現金流。不同幣別不相加。"
+    public var policy="模擬交易；由首次建倉至同商品部位歸零為一個周期，反向成交拆分新周期；部分成交不重複計為勝利。已結束周期的成本包含區間開始前的建倉費。周期淨額扣成交費稅，不包含股息、持有費、每日結算及標記價強平現金流。不同幣別不相加。聚合 notional 為價格×數量；舊合約缺少逐筆歷史乘數時不可當作名目本金，介面不顯示該合約金額。"
 }
 struct OpenCycle:Codable,Sendable{var quantity=Amount.zero,net=Amount.zero;var openedAt:Int64}
 struct PerformanceCheckpoint:Codable,Sendable{
