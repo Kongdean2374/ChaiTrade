@@ -19,7 +19,7 @@ struct TradingView: View {
                     HStack(alignment:.top) {
                         VStack(alignment:.leading,spacing:5){Text(i.name).font(.title2.bold());Text("\(i.symbol) / \(i.currency)").font(.caption.monospaced()).foregroundStyle(.secondary)}
                         Spacer()
-                        Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id) == true ? "star.fill":"star")}.accessibilityLabel("切換自選")
+                        Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id) == true ? "star.fill":"star")}.accessibilityLabel("切換自選").accessibilityIdentifier("toggleWatch").accessibilityValue(model.state?.watchlist.contains(i.id)==true ? "已加入":"未加入")
                         Button{details=true}label:{Image(systemName:"info.circle")}.accessibilityLabel("商品規格")
                     }
                     HStack(alignment:.firstTextBaseline){Text(model.quote?.last.description ?? "未提供").font(.system(size:34,weight:.semibold,design:.rounded)).monospacedDigit();Spacer();Text(model.quote?.grade.rawValue ?? "E0").font(.caption.monospaced()).padding(7).background(.quaternary,in:Capsule())}
@@ -97,6 +97,7 @@ struct OrderForm: View {
     @State private var sending=false
     var body: some View {
         Form {
+            UITestCatchupControl()
             if let i=model.selected {
                 Section("\(i.name) · 本機模擬委託") {
                     Picker("方向",selection:$side){ForEach(Side.allCases,id:\.self){Text($0.label)}}.pickerStyle(.segmented)
@@ -133,7 +134,7 @@ struct OrderForm: View {
                 }
                 Section{Button(sending ? "送出中…":"檢查並送出模擬委託"){confirm=true}.font(.headline).disabled(sending).accessibilityIdentifier("submitOrder")}
             }
-        }.navigationTitle("模擬下單").toolbar{Button("完成"){dismiss()}}
+        }.overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{Button("完成"){dismiss()}}
             .onAppear{price=model.quote?.last.description ?? ""}
             .confirmationDialog("確認本機模擬委託",isPresented:$confirm,titleVisibility:.visible){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text("\(model.selected?.symbol ?? "") · \(side.label) · \(quantity)\n不會向交易所傳送委託。")}
     }

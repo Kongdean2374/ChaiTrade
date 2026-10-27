@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
@@ -25,9 +25,9 @@ jobs:
         run: bash scripts/test_stress.sh
       - name: Build and verify unsigned iPhoneOS IPA
         run: bash scripts/build_unsigned_ipa.sh
-      - name: iPhone Simulator UI smoke tests
+      - name: Isolated iPhone UI interaction and smoke tests
         run: bash scripts/test_ui.sh
-        timeout-minutes: 12
+        timeout-minutes: 25
       - name: Read-only public market connectivity evidence
         run: python3 scripts/probe_public_market.py
         timeout-minutes: 1

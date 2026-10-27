@@ -154,7 +154,7 @@ struct JournalView: View {
                     Text(Date(timeIntervalSince1970:TimeInterval(entry.time)).formatted()).font(.caption).foregroundStyle(.secondary)
                 }
             }
-        }.navigationTitle("交易日誌").toolbar{Button("完成"){dismiss()}}
+        }.overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("交易日誌").toolbar{Button("完成"){dismiss()}}
     }
 }
 

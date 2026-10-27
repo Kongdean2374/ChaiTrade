@@ -38,6 +38,10 @@ struct ChartAmendment: Identifiable {
 }
 
 @MainActor final class AppModel: ObservableObject {
+    #if DEBUG
+    @Published var uiTestOperations=0
+    @Published var uiTestMutationStarts=0
+    #endif
     @Published var state: AccountState?
     @Published var settings=AppSettings()
     @Published var error: String?
@@ -83,7 +87,11 @@ struct ChartAmendment: Identifiable {
     let root: URL
     init() {
         let base=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask).first!
-        root=base.appendingPathComponent(ProcessInfo.processInfo.arguments.contains("--uitest") ? "ChaiTradeUITest":"ChaiTrade",isDirectory:true)
+        #if DEBUG
+        root=(try? UITestSupport.root(base:base)) ?? base.appendingPathComponent("UITestSetupFailed",isDirectory:true)
+        #else
+        root=base.appendingPathComponent("ChaiTrade",isDirectory:true)
+        #endif
         do { settings=try AppSettings.load(root:root) } catch { self.error="設定檔無法讀取，保留原資料：\(error.localizedDescription)" }
     }
     var now: Int64 { state?.simulation?.time ?? Int64(Date().timeIntervalSince1970) }
@@ -92,6 +100,10 @@ struct ChartAmendment: Identifiable {
     var valuation: Valuation? { state.flatMap { try? Analytics.valuation($0) } }
     func money(_ value: Amount?) -> String { settings.hideBalances ? "••••••" : value?.description ?? "未提供" }
     func run(_ operation: () async throws -> Void) async {
+        #if DEBUG
+        uiTestOperations+=1;uiTestMutationStarts+=1;defer{uiTestOperations-=1}
+        await UITestSupport.delay()
+        #endif
         do { try await operation();await refresh() } catch { self.error=error.localizedDescription }
     }
     func boot() async {
@@ -216,6 +228,9 @@ struct ChartAmendment: Identifiable {
             var cursor=start
             let wallTarget=Int64(Date().timeIntervalSince1970)
             while cursor+5<=target && !Task.isCancelled && progress != nil {
+                #if DEBUG
+                await UITestSupport.checkpoint()
+                #endif
                 cursor=try await engine.advance(to:target,wallTarget:wallTarget,catchup:true,context:context)
                 progress=Double(cursor-start)/Double(max(1,target-start))
                 // Simulation, ledger and corresponding wall anchor commit in the same transaction.

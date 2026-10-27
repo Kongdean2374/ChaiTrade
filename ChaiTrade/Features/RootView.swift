@@ -34,6 +34,7 @@ struct RootView: View {
                 }.disabled(model.progress != nil || model.catchupTarget != nil || model.maintainingAccount)
             }
         }
+        .overlay(alignment:.bottomLeading){UITestProbe()}
         .sheet(isPresented:$settings){NavigationStack{SettingsView()}}
         .sheet(isPresented:$recovery){NavigationStack{RecoveryView()}}
         .sheet(item:$model.chartAmendment){intent in NavigationStack{ChartAmendConfirm(intent:intent)}}
@@ -169,11 +170,11 @@ struct MarketsView: View {
     var body: some View {
         List {
             Section {
-                Toggle("只看自選",isOn:$favorites)
+                Toggle("只看自選",isOn:$favorites).accessibilityIdentifier("favoritesOnly")
                 Picker("市場分類",selection:$asset){Text("全部").tag(AssetClass?.none);ForEach(AssetClass.allCases,id:\.self){Text($0.label).tag(Optional($0))}}
             }
             Section(model.state?.mode == .offline ? "B 模擬商品商店 · \(filtered.count) 個":"已配置來源範圍 · \(filtered.count) 個") {
-                ForEach(filtered){i in Button{model.select(i)}label:{InstrumentRow(instrument:i)}.buttonStyle(.plain).swipeActions{Button{Task{await model.toggleWatch(i.id)}}label:{Label("自選",systemImage:model.state?.watchlist.contains(i.id) == true ? "star.slash":"star")}.tint(.orange)}}
+                ForEach(filtered){i in Button{model.select(i)}label:{InstrumentRow(instrument:i)}.accessibilityIdentifier("market-"+i.id).buttonStyle(.plain).swipeActions{Button{Task{await model.toggleWatch(i.id)}}label:{Label("自選",systemImage:model.state?.watchlist.contains(i.id) == true ? "star.slash":"star")}.tint(.orange)}}
             }
             if filtered.isEmpty { ContentUnavailableView.search(text:search) }
         }.searchable(text:$search,prompt:"搜尋商品名稱或代碼").navigationTitle("行情")

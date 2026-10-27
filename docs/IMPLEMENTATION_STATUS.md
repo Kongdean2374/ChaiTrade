@@ -30,3 +30,5 @@ This iteration implements:
 Latest local full Release: all 67 tests executed and passed with CHAI_STRESS=1 and CHAI_LIVE=1, zero skipped. Apple run 40481713600 passed core, required strengthened T45, device compilation and all four UI cases. Latest source/IPA links and actual timings are in TEST_REPORT.md and TEST_EVIDENCE.json.
 
 [REMAINING_WORK.md](REMAINING_WORK.md) lists the incomplete product behaviors and unavailable external checks. The plan's 2 s normal B cold launch and other physical-device performance targets remain unverified.
+
+互動專項新增五項對抗性案例及逐案例獨立資料，首次 Apple 執行尚未完成；詳見 INTERACTION_VALIDATION.md。既有四項正常流程證據不涵蓋本輪新增驗證。
