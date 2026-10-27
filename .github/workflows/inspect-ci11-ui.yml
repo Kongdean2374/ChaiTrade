@@ -13,9 +13,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           repository: Kongdean2374/ChaiTrade
-          run-id: 40587436896
+          run-id: 40594659624
           github-token: ${{ github.token }}
-          name: product-visual-1
+          name: product-journey-and-screenshot-evidence
           path: evidence
       - name: Report only known control identifiers and numeric rectangles
         shell: python
@@ -24,7 +24,7 @@ jobs:
           # never read, encode, copy or print any screenshot or arbitrary UI text.
           # These are existing clean XCTest artifacts, not the user's 21 photos.
           import pathlib,re,json,collections
-          controls=("openOrder","orderQuantity","submitOrder","openJournal","journalText","saveJournal","activeModeBanner")
+          controls=("openOrder","orderQuantity","submitOrder","openJournal","journalText","saveJournal","activeModeBanner","openFullscreenChart","fullscreenChartWeb","fullscreenChart","closeFullscreenChart","chartWeb","openPriceAlert","homeBottom","portfolioBottom")
           root=pathlib.Path("evidence")
           count=0
           extensions=collections.Counter(p.suffix if re.fullmatch(r"\\.[a-z0-9]{1,10}",p.suffix) else "<other>" for p in root.rglob("*") if p.is_file())
@@ -36,8 +36,8 @@ jobs:
               if not any(control in text for control in controls): continue
               matches=[]
               for line in text.splitlines():
-                  container=re.match(r"\\s*(ScrollView|CollectionView|Table),",line)
-                  rect=re.search(r"(\\{\\{[-0-9., ]+\\}, \\{[-0-9., ]+\\}\\})",line)
+                  container=re.match(r"\s*(ScrollView|CollectionView|Table|WebView),",line)
+                  rect=re.search(r"(\{\{[-0-9., ]+\}, \{[-0-9., ]+\}\})",line)
                   if container and rect: matches.append({"container":container.group(1),"rect":rect.group(1)})
               for line in text.splitlines():
                   for control in controls:
