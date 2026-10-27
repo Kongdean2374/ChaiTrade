@@ -209,6 +209,7 @@ struct ChartAmendment: Identifiable {
     }
     func suspend() async {
         foreground=false
+        browseSaveTask?.cancel();await flushBrowsing()
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID()
         if let context{await quoteScheduler.cancel(context:context)}
         candleTask?.cancel();candleTask=nil
@@ -357,13 +358,15 @@ struct ChartAmendment: Identifiable {
         } catch is CancellationError {} catch { if generation==chartGeneration { candles=[];chartError=error.localizedDescription } }
     }
     func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartCache.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
-    @discardableResult func submit(_ request: OrderRequest, oco: OrderRequest? = nil) async ->Bool {
+    @discardableResult func submit(_ request: OrderRequest, oco: OrderRequest? = nil, expectedContext:AccountContext?=nil) async ->Bool {
         guard !interactionBlocked else{error="離線市場事件尚未處理完成，暫停新的委託";return false}
         guard let engine,let context else{error="帳戶尚未準備完成";return false}
+        guard expectedContext == nil || expectedContext==context else{error="帳戶已變更，請重新開啟委託面板";return false}
         #if DEBUG
         await UITestSupport.submissionDelay()
         #endif
         guard !interactionBlocked else{error="市場事件處理中，暫停新的委託";return false}
+        guard self.context==context else{error="帳戶已變更，未送出委託";return false}
         if context.mode == .online,let instrument=state?.instruments.first(where:{$0.id==request.instrumentID}),!canTrade(instrument){error="行情或交易條件已變更，請重新確認有效報價後再送出";return false}
         do{
             if let oco{try await engine.submitOCO(request,oco,time:self.now,context:context)}else{_=try await engine.submit(request,time:self.now,context:context)}
@@ -437,6 +440,7 @@ struct ChartAmendment: Identifiable {
             try await engine.restore(restored,maintenanceToken:token,context:context);self.clearChartCaches();self.stateRevision=UUID();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
             }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }
+        if let context{try? await engine.prepareProductExperience(context:context);await refresh();restoreProductBrowsing();loadCredentialReadiness();await ensureQuoteService()}
         await loadChart()
     }
     func recoverFailedAccount(_ url: URL,password: String) async {

@@ -16,6 +16,7 @@ extension AppModel {
     func restoreProductBrowsing(){
         guard let state else{return}
         browsing=Dictionary(uniqueKeysWithValues:MarketDomain.allCases.map{($0,state.productPreferences?.markets[$0.rawValue] ?? MarketBrowsingState())})
+        marketNews=[];newsIssue=nil;lastNewsFetch=0;simulatedSummaries=[:];summaryMinute = -1
         market=state.productPreferences?.activeMarket ?? .stocks
         selectedID=browsing[market]?.selectedID.flatMap{id in state.instruments.first{$0.id==id && $0.market==market}}?.id ?? defaultProduct(in:market)?.id ?? ""
     }
@@ -29,14 +30,18 @@ extension AppModel {
         browseSaveTask?.cancel()
         browseSaveTask=Task{
             do{try await Task.sleep(for:.milliseconds(400))}catch{return}
-            guard let engine,let context else{return}
-            let pending=browsingDirty;browsingDirty=[]
-            for domain in pending.sorted(by:{$0.rawValue<$1.rawValue}){
-                guard let value=browsing[domain],self.context==context else{return}
-                do{try await engine.saveMarketBrowsing(value,market:domain,activate:domain==self.market,context:context)}catch{self.notice="瀏覽偏好尚未保存，請重試"}
-            }
+            await flushBrowsing()
         }
     }
+    func flushBrowsing()async{
+        guard let engine,let context else{return}
+        let pending=browsingDirty;browsingDirty=[]
+        for domain in pending.sorted(by:{$0.rawValue<$1.rawValue}){
+            guard let value=browsing[domain],self.context==context else{return}
+            do{try await engine.saveMarketBrowsing(value,market:domain,activate:domain==self.market,context:context)}catch{browsingDirty.insert(domain);self.notice="瀏覽偏好尚未保存，請重試"}
+        }
+    }
+
     func switchMarket(_ target:MarketDomain){
         guard target != market else{return}
         market=target;visibleOwners=[:]

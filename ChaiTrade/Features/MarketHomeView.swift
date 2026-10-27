@@ -52,7 +52,7 @@ struct MarketProductRow:View {
                     Spacer(minLength:4)
                     VStack(alignment:.trailing,spacing:5){
                         if let quote=model.state?.quotes[instrument.id]{Text(MarketText.number(quote.last)).font(.subheadline.monospacedDigit().weight(.semibold)).foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.6)
-                            if let change=MarketText.change(quote,summary:model.summary(for:instrument)){Text(change.0).font(.caption2.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.redUp ? .red:.green):(model.settings.redUp ? .green:.red)).lineLimit(1).minimumScaleFactor(0.6)}
+                            if let change=MarketText.change(quote,summary:model.summary(for:instrument)){Text(change.0).font(.caption2.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.taiwanColors ? .red:.green):(model.settings.taiwanColors ? .green:.red)).lineLimit(1).minimumScaleFactor(0.6)}
                         }else if model.status(for:instrument) == .loading{ProgressView().controlSize(.small)}
                         QuoteStatusLabel(status:model.status(for:instrument))
                     }.frame(maxWidth:155,alignment:.trailing)
