@@ -11,18 +11,22 @@ Date: 2026-10-27. Work is in progress against the entire REQUIREMENTS.md; this i
 | R05 funding | cashFlow/exchange, CashView | Exact values, cash reservations, external-flow separation tested |
 | R06 full scope | REQUIREMENTS.md and this table | Not yet fully accepted; missing behaviors tracked in KNOWN_LIMITATIONS |
 | R07 order types and markets | TradingEngine, RulePack, OrderForm | Market/limit/stop/trailing/OCO/bracket, FOK/IOC/post/reduce; core tests passed for covered cases |
-| R08 native UI and charts | Features/, ChartView, ChartWeb | Implemented; Simulator compilation and both offline UI flows passed on 3a4f3379 (full run 40451960851) |
+| R08 native UI and charts | Features/, ChartView, ChartWeb | Implemented; Latest native compilation and all four UI cases passed (40481713600); complete device/UI acceptance remains separate |
 | R09 public repository | Kongdean2374/ChaiTrade | Public read/write and independent clone/download verified |
-| R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; Unsigned IPA artifact produced by successful run 40451960851; user signing/device verification still required |
+| R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; Latest unsigned IPA produced by successful run 40481713600; user signing/device verification still required |
 | R11 no actual assets | NetworkPolicy | Only allowlisted market-data GET requests; policy tests passed |
-| R12 maintenance and verification | CoreTests, backups, docs, scripts | 65 ordinary core functions; Release T45 includes analytics, concurrent consistent backup, full CSV equality and backup restore. Local gates passed; this feature batch awaits Apple CI and device acceptance |
+| R12 maintenance and verification | CoreTests, backups, docs, scripts | 65 ordinary core functions; Release T45 includes analytics, concurrent consistent backup, full CSV equality and backup restore. Local full Release and Apple required gates passed (40481713600); complete device acceptance pending |
 
-Technical choice: native SQLite C binding replaces GRDB so the same persistence code can be compiled and executed on Linux and iOS without conditional database engines. Transactions, WAL, schema versioning and account validation remain explicit. This choice does not remove the required behavior; full normalized event reconstruction, query performance and migrations still require further validation.
+Technical choice: native SQLite C bindings keep persistence identical on Linux and iOS. WAL, atomic financial transactions, migration rollback/retry and bounded indexed history are tested. This is not a waiver of full plan acceptance.
 
-This iteration adds calendar-correct week/month bars, exact optimized synthetic OHLC, real backwards provider paging, bounded chart caches, persisted chart preferences, journal PNG attachments and local notification dispatch. Trading-cycle statistics use exact fee allocation and exclude the additional cash flows listed in their policy. These new native flows require the new Apple run; they are not covered by the older IPA's UI evidence. See REMAINING_WORK.md for unimplemented requirements and unexecuted acceptance.
+This iteration implements:
 
-B now supports configurable signed side-specific carry schedules, exchange-timezone daily settlement and automatic final expiry. New accounts use state schema 2; existing schema-1 worlds keep their persisted rules until explicitly changed. Exact checkpoint/restart tests pass. Funding debits consume free funds before isolated margin, and cross risk excludes another currency's isolated collateral. This does not add official A event synchronization or hedge positions.
+- Database schema 4: complete immutable fill/order/ledger/equity history, bounded hot state, indexed paging/search, exact CSV cache, atomic performance checkpoints, independent consistent backup reads and guarded restore/reset.
+- Exact calendar week/month bars and optimized deterministic OHLC; backwards provider history paging; stock history across market closures; bounded chart caches and account/instrument preferences.
+- Watermarked local chart PNGs, journal associations and export; native local notifications with stable event identities and outbox acknowledgement.
+- Day/week/month fill-cycle reports, partial/flip cost allocation, NAV/drawdown prefix state and equity history paging. The UI/policy disclose the cash-flow and historical multiplier gaps in REMAINING_WORK.md.
+- B fixed-clock signed long/short carry, timezone-aware daily/final settlement, stable event replay and canonical set encoding. New state schema 2; older worlds retain their saved rules. Isolated fee handling and cross-currency collateral accounting corrected.
 
-Equity history is now normalized under database schema 4. The strengthened T45 includes 100,001 equity points as well as 100,000 fills; full restore and prefix return/drawdown checks pass. Same-time fills retain their fee impact in the curve, and initial B funding uses simulation time. New native equity paging and the screenshot journal's scrolling path await Apple UI verification.
+Latest local full Release: all 67 tests executed and passed with CHAI_STRESS=1 and CHAI_LIVE=1, zero skipped. Apple run 40481713600 passed core, required strengthened T45, device compilation and all four UI cases. Latest source/IPA links and actual timings are in TEST_REPORT.md and TEST_EVIDENCE.json.
 
-Offline intraday history now counts valid trading bars and skips closures/weekends when paging backwards. The full local Release run executes all 67 tests (stress and production Coinbase enabled) with zero skipped. The final screenshot UI case explicitly checks switch activation and a valid preview before saving, while retaining saved-image/export assertions. Apple rerun remains required.
+[REMAINING_WORK.md](REMAINING_WORK.md) lists the incomplete product behaviors and unavailable external checks. The plan's 2 s normal B cold launch and other physical-device performance targets remain unverified.

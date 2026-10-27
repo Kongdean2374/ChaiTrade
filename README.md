@@ -9,6 +9,8 @@
 
 目前開發與驗證狀態見 [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md) 及 [未完成與無法實測項目](docs/REMAINING_WORK.md)。**建置成功不代表計劃書全部功能或實機驗收已完成。**
 
+最新交付（2026-10-27）：[未簽名 IPA](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600/artifacts/12724585202) · [完整測試報告](docs/TEST_REPORT.md) · [Actions 40481713600](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40481713600)。67 項核心測試跨必要關卡執行，四項 UI 測試通過；實機驗收及計劃書剩餘缺口仍未完成。
+
 ## 不需要 Mac 的建置方式
 
 1. 開啟本倉庫的 **Actions → Build unsigned IPA → Run workflow**，選 `main`。
@@ -30,7 +32,7 @@ bash scripts/test_ui.sh
 bash scripts/build_unsigned_ipa.sh
 ```
 
-核心可在 Swift 6.1 Linux 上測試，需 SQLite、OpenSSL 開發標頭。Linux 測試不代表 Apple 平台程式已編譯。重建 Xcode 專案：`python3 scripts/generate_project.py`。
+核心可在 Swift 6.1 Linux 上測試，需 SQLite、OpenSSL 及 zlib 開發標頭。Linux 測試不代表 Apple 平台程式已編譯。重建 Xcode 專案：`python3 scripts/generate_project.py`。
 
 ## 使用界線
 
