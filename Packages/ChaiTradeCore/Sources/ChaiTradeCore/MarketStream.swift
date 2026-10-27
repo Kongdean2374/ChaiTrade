@@ -49,7 +49,12 @@ public struct CoinbaseMarketStream: Sendable {
                 socket.resume()
                 let heartbeat=Task {
                     while !Task.isCancelled {
-                        do{try await Task.sleep(for:.seconds(20));try await socket.sendPing()}catch{socket.cancel(with:.goingAway,reason:nil);break}
+                        do{
+                            try await Task.sleep(for:.seconds(20))
+                            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void,Error>) in
+                                socket.sendPing { error in if let error{continuation.resume(throwing:error)}else{continuation.resume()} }
+                            }
+                        }catch{socket.cancel(with:.goingAway,reason:nil);break}
                     }
                 }
                 defer{heartbeat.cancel();socket.cancel(with:.goingAway,reason:nil);session.invalidateAndCancel()}
