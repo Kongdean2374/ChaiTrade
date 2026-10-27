@@ -28,6 +28,7 @@ func liveVisibleBTCETHContinuousQuotesChartsRecoveryAndLocalExecution()async thr
     var sequences:[String:Int64]=[:],timestamps:[String:Int64]=[:]
     for round in 0..<3{
         for instrument in [btc,eth]{
+            print("LIVE_PRODUCT_STAGE quote",instrument.symbol,round)
             let now=Int64(Date().timeIntervalSince1970),quote=try await provider.quote(instrument,now:now,includeSummary:true)
             #expect(quote.valid && quote.quality == .realtime && quote.grade == .E1)
             #expect(quote.time<=now+5 && now-quote.time<=quote.maximumAge)
@@ -41,7 +42,7 @@ func liveVisibleBTCETHContinuousQuotesChartsRecoveryAndLocalExecution()async thr
         if round<2{try await Task.sleep(for:.seconds(1))}
     }
     let latest=await engine.snapshot();#expect(latest.quotes.count==2);#expect(latest.quotes[btc.id]?.valid==true)
-    for instrument in [btc,eth]{let candles=try await provider.history(instrument,interval:60,count:40,now:Int64(Date().timeIntervalSince1970));#expect(candles.count>=30);#expect(candles.allSatisfy{$0.high>=max($0.open,$0.close) && $0.low<=min($0.open,$0.close) && $0.volume != nil});#expect(candles.map(\.time)==candles.map(\.time).sorted())}
+    for instrument in [btc,eth]{print("LIVE_PRODUCT_STAGE history",instrument.symbol);let candles=try await provider.history(instrument,interval:60,count:40,now:Int64(Date().timeIntervalSince1970));#expect(candles.count>=30);#expect(candles.allSatisfy{$0.high>=max($0.open,$0.close) && $0.low<=min($0.open,$0.close) && $0.volume != nil});#expect(candles.map(\.time)==candles.map(\.time).sorted())}
     // Refresh after chart reads: an earlier successful quote must not grant indefinite execution.
     let now=Int64(Date().timeIntervalSince1970),quote=try await provider.quote(btc,now:now,includeSummary:true);try await engine.ingest(quote,now:now,context:context)
     var request=OrderRequest(instrumentID:btc.id,side:.buy,kind:.market,quantity:try Amount("0.0001"));request.requestID="live-local-intent-only"
@@ -49,6 +50,7 @@ func liveVisibleBTCETHContinuousQuotesChartsRecoveryAndLocalExecution()async thr
     let filled=await engine.snapshot();#expect(filled.orders.count==1);#expect(filled.positions[btc.id]?.quantity==request.quantity)
     #expect(try sum(filled.fills.map(\.quantity))==request.quantity)
     #expect((filled.cash["USD"] ?? .zero)<(initial.cash["USD"] ?? .zero))
+    print("LIVE_PRODUCT_STAGE official_news")
     let news=try await PublicNewsFeed.fetch(mode:.online,transport:transport,now:Int64(Date().timeIntervalSince1970));#expect(!news.isEmpty);#expect(news.allSatisfy{$0.origin == .real && $0.url?.scheme=="https"})
     print("LIVE_PRODUCT_E2E_HTTP_SUCCESS: BTC + ETH three quote/stat rounds, timestamps, two real K-line histories, local gap recovery, one idempotent local intent and official RSS. No external trade endpoint or fixture used.")
 }

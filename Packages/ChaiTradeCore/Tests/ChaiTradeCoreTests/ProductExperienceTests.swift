@@ -184,3 +184,45 @@ import Testing
     await #expect(throws:TradeError.self){try await PublicNewsFeed.fetch(mode:.offline,transport:transport,now:date)}
     #expect(await transport.called==false)
 }
+
+@Test(arguments:["dividend","split"])
+func simulationCorporateNewsPostsOnceAcrossCheckpointRestartAndSharesItsID(kind:String)async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),context=AccountContext(mode:.offline)
+    var initial=try TradingEngine.initial(mode:.offline,capital:Amount("100000000"),time:1000)
+    let base=initial.simulation!,bucket=base.time/SimulationNews.period
+    let story=try #require((bucket...bucket+200).compactMap{SimulationNews.story(bucket:$0,state:base)}.first{$0.kind==kind})
+    let id=try #require(story.instrumentIDs.first),index=try #require(initial.instruments.firstIndex{$0.id==id})
+    var instrument=initial.instruments[index];instrument.rules.weekdaysOnly=false;instrument.rules.holidays=[];instrument.rules.openMinute=0;instrument.rules.closeMinute=1440;instrument.rules.settlementBusinessDays=0
+    // Restrict this isolated accounting fixture to the affected identity; the immutable event universe remains intact.
+    initial.instruments=[instrument];initial.simulation!.time=story.publishedAt-5;initial.simulation!.newsAccountingFrom=story.publishedAt
+    let repo=try AccountRepository(root:root,mode:.offline),engine=try TradingEngine(context:context,repository:repo,initial:initial)
+    try await engine.initializeQuotes(context:context)
+    let snapshot=await engine.snapshot(),board:TradingBoard?=instrument.usesTaiwanBoards ? .oddLot:nil
+    let q=try #require(snapshot.quotes[instrument.quoteKey(board:board)])
+    var request=OrderRequest(instrumentID:id,side:.buy,kind:.limit,quantity:try Amount(10),price:q.asks[0].price);request.board=board;request.timeInForce = .DAY
+    _=try await engine.submit(request,time:initial.simulation!.time,context:context)
+    let owned=await engine.snapshot();#expect(owned.positions[id]?.quantity == (try Amount(10)))
+    _=try await engine.advance(to:story.publishedAt,context:context)
+    let acted=await engine.snapshot(),action=try #require(acted.lifecycle?.actions.first{$0.id==story.id})
+    #expect(action.source.contains(story.id));#expect(acted.events.contains{$0.id=="published-"+story.id})
+    if kind=="split"{
+        #expect(acted.positions[id]?.quantity == (try Amount(20)))
+        #expect(try acted.positions[id]!.average*Amount(2)==owned.positions[id]!.average)
+        let expected=try Simulation.price(instrument,at:story.publishedAt,state:acted.simulation!)
+        #expect(acted.quotes[id]?.last==expected)
+        #expect(acted.quotes[id]?.causalEventIDs?.contains(story.id)==true)
+    }else{
+        #expect(acted.lifecycle?.settlements.first{$0.id=="dividend-"+story.id}?.receivable == (try Amount("2.5")))
+        let until=try #require(story.endsAt)
+        var time=acted.simulation!.time
+        while time<until{time=try await engine.advance(to:until,context:context)}
+        let paid=await engine.snapshot();#expect(paid.lifecycle?.settlements.first{$0.id=="dividend-"+story.id}?.completedAt != nil)
+        #expect(paid.cash[instrument.currency] == (try (owned.cash[instrument.currency] ?? .zero)+Amount("2.5")))
+    }
+    let before=try await engine.fullSnapshot(context:context),nextContext=AccountContext(mode:.offline)
+    let restarted=try TradingEngine(context:nextContext,repository:AccountRepository(root:root,mode:.offline),initial:repo.load()!)
+    _=try await restarted.advance(to:before.simulation!.time,context:nextContext)
+    let after=try await restarted.fullSnapshot(context:nextContext)
+    #expect(after.cash==before.cash);#expect(after.lifecycle?.actions.filter{$0.id==story.id}.count==1)
+    #expect(after.ledger.filter{$0.eventID==story.id}.count==before.ledger.filter{$0.eventID==story.id}.count)
+}

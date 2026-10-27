@@ -15,6 +15,7 @@ public struct PriceAdjustment: Codable, Sendable {
     public var instrumentID: String
     public var time: Int64
     public var factor: Amount
+    public var eventID:String?
 }
 public struct SettlementEvent: Codable, Identifiable, Sendable {
     public var id: String

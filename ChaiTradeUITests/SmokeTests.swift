@@ -7,6 +7,7 @@ import XCTest
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
         app.tabBars.buttons["交易"].tap()
+        app.buttons["整股（張）"].tap()
         XCTAssertTrue(app.buttons["openOrder"].waitForExistence(timeout:10))
         for _ in 0..<5 where !app.buttons["openOrder"].isHittable{app.swipeUp()}
         app.buttons["openOrder"].tap()
@@ -18,7 +19,7 @@ import XCTest
         app.buttons["確認送出"].tap()
         XCTAssertTrue(app.tabBars.buttons["資產"].waitForExistence(timeout:15))
         app.tabBars.buttons["資產"].tap()
-        XCTAssertTrue(app.staticTexts["SIM:TAIWANSTOCK01"].waitForExistence(timeout:10))
+        XCTAssertEqual((try state(app)["positions"] as? [String:String])?["SIM:TWSE:2330"],"1000")
         let shot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());shot.name="Offline local fill and position";shot.lifetime = .keepAlways;add(shot)
     }
     func testOfflineOnboardingAndNavigation() throws {
@@ -31,7 +32,7 @@ import XCTest
         if !app.tabBars.buttons["行情"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["行情"].waitForExistence(timeout:30),app.debugDescription)
         app.tabBars.buttons["行情"].tap()
-        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout:5))
+        XCTAssertTrue(app.textFields["marketSearch"].waitForExistence(timeout:5))
         app.tabBars.buttons["委託"].tap()
         XCTAssertTrue(app.staticTexts["最近成交（模擬）"].waitForExistence(timeout:5))
         app.tabBars.buttons["資產"].tap()
@@ -51,13 +52,16 @@ import XCTest
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
         app.tabBars.buttons["交易"].tap()
+        app.buttons["整股（張）"].tap()
         let open=app.buttons["openOrder"];for _ in 0..<5 where !open.isHittable{app.swipeUp()};open.tap()
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         let submit=app.buttons["submitOrder"];for _ in 0..<5 where !submit.isHittable{app.swipeUp()};submit.tap();app.buttons["確認送出"].tap()
         XCTAssertTrue(app.tabBars.buttons["總覽"].waitForExistence(timeout:15));app.tabBars.buttons["總覽"].tap()
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
         app.buttons["設定"].tap()
+        app.buttons["模式與帳戶"].tap()
         app.buttons["A 真實行情・模擬交易"].tap()
+        app.navigationBars.buttons.element(boundBy:0).tap()
         app.buttons["完成"].tap()
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
         try waitUntil("Settings sheet did not dismiss before backgrounding"){
@@ -72,12 +76,12 @@ import XCTest
         app.terminate();app.launch()
         XCTAssertTrue(app.staticTexts["activeModeBanner"].waitForExistence(timeout:30))
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"A 真實行情・模擬交易")
-        app.buttons["設定"].tap();app.buttons["B 離線市場・模擬交易"].tap();app.buttons["完成"].tap()
+        app.buttons["設定"].tap();app.buttons["模式與帳戶"].tap();app.buttons["B 離線市場・模擬交易"].tap();app.navigationBars.buttons.element(boundBy:0).tap();app.buttons["完成"].tap()
         app.terminate();app.launch()
         XCTAssertTrue(app.staticTexts["activeModeBanner"].waitForExistence(timeout:30))
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
         app.tabBars.buttons["資產"].tap()
-        XCTAssertTrue(app.staticTexts["SIM:TAIWANSTOCK01"].waitForExistence(timeout:10))
+        XCTAssertEqual((try state(app)["positions"] as? [String:String])?["SIM:TWSE:2330"],"1000")
     }
 
     func testChartScreenshotCanBeAttachedToLocalJournal()throws{

@@ -55,6 +55,7 @@ public enum Simulation {
     }
     private static func priceValue(_ instrument: Instrument, at time: Int64, state: SimulationState) throws -> Double {
         guard ["factor-wave-1","factor-wave-2"].contains(state.algorithm) else { throw TradeError.unavailable("模擬演算法版本不相容，保留檢查點") }
+        if let halt=SimulationNews.active(instrument,at:time,state:state).first(where:{$0.kind=="halt"}){return try priceValue(instrument,at:halt.publishedAt-step,state:state)}
         let stream = hash(instrument.id), category = hash(instrument.asset.rawValue)
         let regime = Int(random(seed: state.seed, stream: 11, index: time / 86400) * 5)
         let amplitudes = [1.0, 1.2, 0.5, 2.8, 1.6]
@@ -79,7 +80,9 @@ public enum Simulation {
         try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),priceValue(instrument,at:time,state:state)))
     }
     public static func quote(_ instrument: Instrument, state: SimulationState,board:TradingBoard?=nil) throws -> Quote {
-        let time = state.time, price = try price(instrument, at: time, state: state)
+        let time = state.time
+        let priceTime=instrument.rules.isOpen(at:time) ? time:(try previousTradingTime(before:time,rules:instrument.rules) ?? time)
+        let price = try price(instrument, at: priceTime, state: state)
         let active=SimulationNews.active(instrument,at:time,state:state)
         let tick=instrument.rules.tick(at:price)
         let shortage=active.map{$0.liquidityMultiplier ?? 1}.min() ?? 1
@@ -99,7 +102,8 @@ public enum Simulation {
         var q = Quote(instrumentID: instrument.id, source: "B 決定性離線市場", time: time, sequence: time / step, last: price, bids: bids, asks: asks)
         q.board=instrument.usesTaiwanBoards ? (board ?? .regular):nil
         if instrument.asset.derivative { q.mark = price }
-        q.causalEventIDs=active.map(\.id)
+        if instrument.asset == .perpetual,let schedule=instrument.rules.carrySchedule{q.fundingRate=schedule.longRate;q.nextFundingTime=((time-schedule.offset)/schedule.interval+1)*schedule.interval+schedule.offset}
+        q.causalEventIDs=Array(Set(active.map(\.id)+(state.priceAdjustments ?? []).filter{$0.instrumentID==instrument.id && $0.time<=time}.compactMap(\.eventID))).sorted()
         if active.contains(where:{$0.kind=="halt"}){q.bids=[];q.asks=[];q.valid=false;q.coverage="模擬暫停交易情境，委託保留"}
         let referenceTime=time-86400
         let reference=try self.price(instrument,at:referenceTime,state:state)

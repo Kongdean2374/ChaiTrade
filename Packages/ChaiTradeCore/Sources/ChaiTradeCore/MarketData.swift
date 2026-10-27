@@ -83,6 +83,7 @@ public struct ReadOnlyTransport: MarketTransport {
         switch http.statusCode {
         case 200..<300: guard data.count <= 8_000_000 else { throw TradeError.unavailable("行情回應過大") }; return data
         default:
+            if ProcessInfo.processInfo.environment["CHAI_LIVE"]=="1"{print("LIVE_HTTP_FAILURE",url.host ?? "",url.path,http.statusCode)}
             let failure=HTTPMarketFailure.classify(status:http.statusCode,retryAfter:http.value(forHTTPHeaderField:"Retry-After"))
             if failure.kind == .rateLimited{await HTTPRequestBudget.shared.throttle(host:url.host ?? "",seconds:failure.retryAfter ?? 60)}
             throw failure
@@ -166,6 +167,7 @@ public struct MarketDataProvider: Sendable {
             let time = try Self.timestamp(mark["time"])
             q = Quote(instrumentID: instrument.id, source: id.label, time: min(time,book["E"].integer.map{$0/1000} ?? time), sequence: book["lastUpdateId"].integer ?? time, last: try ticker["lastPrice"].amount(), bids: try book["bids"].array.map { try Level($0[0].amount(),$0[1].amount()) }, asks: try book["asks"].array.map { try Level($0[0].amount(),$0[1].amount()) }, coverage: "USDⓈ-M 線性永續；僅公開資料", receivedAt: now)
             q.mark = try mark["markPrice"].amount()
+            q.fundingRate=try? mark["lastFundingRate"].amount();q.nextFundingTime=mark["nextFundingTime"].integer.map{$0/1000}
             q.summary=QuoteSummary(open:try? ticker["openPrice"].amount(),high:try? ticker["highPrice"].amount(),low:try? ticker["lowPrice"].amount(),reference:try? ticker["openPrice"].amount(),volume:try? ticker["volume"].amount(),turnover:try? ticker["quoteVolume"].amount(),window:"24小時")
         }
         guard q.last > .zero else{throw TradeError.unavailable("來源未提供有效成交價格；保留最後已知值，不用零代替未知行情")}

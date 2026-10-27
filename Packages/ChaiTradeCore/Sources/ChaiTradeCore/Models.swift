@@ -123,6 +123,8 @@ public struct Quote: Codable, Sendable, Equatable {
     public var summary:QuoteSummary?
     public var board:TradingBoard?
     public var causalEventIDs:[String]?
+    public var fundingRate:Amount?
+    public var nextFundingTime:Int64?
     public var maximumAge: Int64 = 30
     public init(instrumentID: String, source: String, time: Int64, sequence: Int64, last: Amount, bids: [Level], asks: [Level], quality: DataQuality = .realtime, grade: ExecutionGrade = .E1, coverage: String = "模擬市場", receivedAt: Int64? = nil) {
         self.instrumentID = instrumentID; self.source = source; self.time = time; self.receivedAt = receivedAt ?? time

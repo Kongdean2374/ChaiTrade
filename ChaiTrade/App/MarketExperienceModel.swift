@@ -46,19 +46,21 @@ extension AppModel {
     func switchMarket(_ target:MarketDomain){
         guard target != market else{return}
         market=target;visibleOwners=[:]
+        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel()
         let saved=browsing[target]?.selectedID
         selectedID=state?.instruments.first{$0.id==saved && $0.market==target}?.id ?? defaultProduct(in:target)?.id ?? ""
         chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartBefore=nil;chartCount=160
         editBrowsing(target){$0.selectedID=self.selectedID.isEmpty ? nil:self.selectedID}
         selectedBoard=selected?.usesTaiwanBoards==true ? .oddLot:.regular
-        restartStream();Task{await ensureQuoteService();await requestSelectedBoard();if tab==2{await loadChart()}}
+        restartStream();Task{if let context{await quoteScheduler.cancel(context:context)};await ensureQuoteService();await requestSelectedBoard();if tab==2{await loadChart()}}
     }
     func selectProduct(_ instrument:Instrument){
         if market != instrument.market{switchMarket(instrument.market)}
+        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel()
         selectedID=instrument.id;chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartBefore=nil;chartCount=160;tab=2
         editBrowsing(instrument.market){value in value.selectedID=instrument.id;value.recent.removeAll{$0==instrument.id};value.recent.insert(instrument.id,at:0);value.recent=Array(value.recent.prefix(30))}
         selectedBoard=instrument.usesTaiwanBoards ? .oddLot:.regular
-        restartStream();Task{await requestSelectedBoard();await quoteScheduler.retry([instrument.id]);await ensureQuoteService();await loadChart()}
+        restartStream();Task{if let context{await quoteScheduler.cancel(context:context)};await requestSelectedBoard();await quoteScheduler.retry([instrument.id]);await ensureQuoteService();await loadChart()}
     }
     func visible(_ id:String,owner:String,present:Bool){
         if present{visibleOwners[owner,default:[]].insert(id)}else{visibleOwners[owner]?.remove(id)}

@@ -541,10 +541,11 @@ public actor TradingEngine {
                 if sim.time%60==0{try Self.applySimulationNews(&s,at:sim.time)}
                 try Self.settleDue(&s,now:sim.time)
                 try Self.scheduledOfflineLifecycle(&s,previous:sim.time-Simulation.step,now:sim.time)
+                let currentSimulation=s.simulation!
                 for i in s.instruments.sorted(by: { $0.id < $1.id }) where i.rules.isOpen(at: sim.time) && !i.halted {
-                    let q = try Simulation.quote(i, state: sim); s.quotes[i.id] = q
+                    let q = try Simulation.quote(i, state: currentSimulation); s.quotes[i.id] = q
                     try Self.match(&s, quote: q, now: sim.time); try Self.risk(&s, quote: q, now: sim.time)
-                    if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:sim,board:.oddLot);s.quotes[odd.storageKey]=odd;try Self.match(&s,quote:odd,now:sim.time)}
+                    if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:currentSimulation,board:.oddLot);s.quotes[odd.storageKey]=odd;try Self.match(&s,quote:odd,now:sim.time)}
                 }
                 if sim.time % 60 == 0 || s.sequence>financialSequence { try Self.recordEquity(&s,time:sim.time) }
             }
@@ -774,11 +775,11 @@ public actor TradingEngine {
                     if let p=o.request.price{o.request.price=try p/ratio};if let p=o.request.trigger{o.request.trigger=try p/ratio};if let p=o.extreme{o.extreme=try p/ratio};o.referencePrice=try o.referencePrice/ratio
                     if let p=o.request.bracketProfit{o.request.bracketProfit=try p/ratio};if let p=o.request.bracketStop{o.request.bracketStop=try p/ratio}
                     if let d=o.request.trailingDistance,!o.request.trailingPercent{o.request.trailingDistance=try d/ratio}
-                    if try !o.request.quantity.isMultiple(of:i.rules.quantityStep) || !(o.request.price ?? i.rules.tick).isMultiple(of:i.rules.tick){o.status = .cancelled;o.reserved = .zero}
+                    if try !o.request.quantity.isMultiple(of:i.rules.quantityStep) || !(o.request.price ?? i.rules.tick).isMultiple(of:i.rules.tick(at:o.request.price ?? i.rules.tick)){o.status = .cancelled;o.reserved = .zero}
                     o.revision+=1;s.orders[id]=o
                 }
-                if s.simulation != nil{s.simulation!.priceAdjustments=(s.simulation!.priceAdjustments ?? [])+[PriceAdjustment(instrumentID:i.id,time:action.time,factor:try .one/ratio)]}
-                s.quotes.removeValue(forKey:i.id);s.consumed=[:]
+                if s.simulation != nil{s.simulation!.priceAdjustments=(s.simulation!.priceAdjustments ?? [])+[PriceAdjustment(instrumentID:i.id,time:action.time,factor:try .one/ratio,eventID:action.id)]}
+                s.quotes.removeValue(forKey:i.id);s.quotes.removeValue(forKey:i.quoteKey(board:.oddLot));s.consumed=[:]
             case .dividend:
                 guard let amount=action.cashPerUnit,amount >= .zero,let payment=action.paymentTime,payment >= action.time else {throw TradeError.invalid("股息金額或入帳時間不合法")}
                 let income=try (s.positions[i.id]?.quantity ?? .zero)*amount

@@ -14,5 +14,6 @@ xcodebuild test-without-building "${common[@]}" -resultBundlePath build/UIOrderF
   -parallel-testing-enabled NO -test-iterations 2 -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
   2>&1 | tee build/logs/ui-focused-order.log
 xcodebuild test-without-building "${common[@]}" -resultBundlePath build/UITests.xcresult \
+  -only-testing:ChaiTradeUITests/InteractionTests -only-testing:ChaiTradeUITests/SmokeTests \
   -parallel-testing-enabled NO -test-iterations 2 -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
   2>&1 | tee build/logs/ui-tests.log

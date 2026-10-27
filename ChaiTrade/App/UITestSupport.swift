@@ -50,6 +50,11 @@ struct UITestProbe: View {
         let fills=s?.fills ?? [],ids=Set(fills.map(\.id))
         let payload:[String:Any]=[
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
+            "mode":s?.mode.rawValue ?? "", "market":model.market.rawValue,"search":model.currentBrowsing.search,"category":model.currentBrowsing.category,"sort":model.currentBrowsing.sort.rawValue,
+            "instruments":s?.instruments.map{["id":$0.id,"symbol":$0.symbol,"name":$0.name,"market":$0.market.rawValue]} ?? [],
+            "quotes":s?.quotes.mapValues{["price":$0.last.description,"time":String($0.time),"valid":String($0.valid)]} ?? [:],
+            "news":model.filteredNews.map{["id":$0.id,"label":$0.label,"title":$0.title,"origin":$0.origin.rawValue]},
+
             "cash":s?.cash.mapValues(\.description) ?? [:],"watchlist":s?.watchlist.sorted() ?? [],
             "journals":s?.journals.map{["id":$0.id,"text":$0.text]} ?? [],
             "orders":s?.orders.keys.sorted() ?? [],

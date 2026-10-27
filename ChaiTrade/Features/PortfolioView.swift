@@ -57,7 +57,18 @@ struct OrdersView:View{
     }
     private func fillRow(_ fill:Fill)->some View{
         let i=instrument(fill.instrumentID)
-        return VStack(alignment:.leading,spacing:7){Text((i?.name ?? fill.instrumentID)+" · "+(fill.side == .buy ? i?.buyLabel ?? "買入":i?.sellLabel ?? "賣出")).font(.subheadline.bold());Text(MarketText.number(fill.quantity)+(i?.quantityUnit ?? "")+" @ "+MarketText.number(fill.price)+" "+(i?.currency ?? "")).font(.subheadline.monospacedDigit());Text("費用 "+MarketText.number(fill.fee)+" · 稅 "+MarketText.number(fill.tax)).font(.caption);Text(Date(timeIntervalSince1970:TimeInterval(fill.time)).formatted()+" · "+(fill.estimatedExecution ? "參考價估算成交":"本機撮合成交")).font(.caption2).foregroundStyle(.secondary)}
+        let direction=fill.side == .buy ? (i?.buyLabel ?? "買入"):(i?.sellLabel ?? "賣出")
+        let title="\(i?.name ?? fill.instrumentID) · \(direction)"
+        let execution="\(MarketText.number(fill.quantity))\(i?.quantityUnit ?? "") @ \(MarketText.number(fill.price)) \(i?.currency ?? "")"
+        let fees="費用 \(MarketText.number(fill.fee)) · 稅 \(MarketText.number(fill.tax))"
+        let time=Date(timeIntervalSince1970:TimeInterval(fill.time)).formatted()
+        let explanation=fill.estimatedExecution ? "參考價估算成交":"本機撮合成交"
+        return VStack(alignment:.leading,spacing:7){
+            Text(title).font(.subheadline.bold())
+            Text(execution).font(.subheadline.monospacedDigit())
+            Text(fees).font(.caption)
+            Text(time+" · "+explanation).font(.caption2).foregroundStyle(.secondary)
+        }
     }
     private func loadOrders()async{
         guard let engine=model.engine,let context=model.context else{return}
