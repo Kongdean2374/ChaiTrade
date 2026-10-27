@@ -45,10 +45,26 @@ struct RootView: View {
         } message:{Text(model.clockWarning ?? "")}
         .overlay(alignment:.top) {
             if model.maintainingAccount{ProgressView("建立帳戶恢復點／還原中，暫停帳務操作…").padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:12)).padding()}
-            else if let progress=model.progress {
-                VStack { Text("順序處理離線市場事件").font(.headline);ProgressView(value:progress);Text("已完成事件會逐批保存；此時暫停下單").font(.caption);Button("暫停補算"){model.stopCatchup()} }.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
-            } else if model.catchupTarget != nil && model.clockWarning == nil {
-                VStack(spacing:10){Text("市場事件處理已暫停").font(.headline);Button("從檢查點繼續處理"){Task{await model.catchUp()}}.disabled(model.catchingUp);Button("放棄未完成的推進",role:.destructive){model.clockWarning="確定放棄尚未處理的推進區段？已完成的行情與交易會保留。"}.disabled(model.catchingUp)}.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
+            else if model.progress != nil || (model.catchupTarget != nil && model.clockWarning == nil) {
+                VStack(spacing:10){
+                    ZStack{
+                        Text("順序處理離線市場事件").opacity(model.progress != nil ? 1:0).accessibilityHidden(model.progress == nil)
+                        Text("市場事件處理已暫停").opacity(model.progress == nil ? 1:0).accessibilityHidden(model.progress != nil)
+                    }.font(.headline)
+                    ProgressView(value:model.progress ?? 0).opacity(model.progress != nil ? 1:0).accessibilityHidden(model.progress == nil)
+                    ZStack{
+                        Text("已完成事件會逐批保存；此時暫停下單").opacity(model.progress != nil ? 1:0).accessibilityHidden(model.progress == nil)
+                        Text("從已保存的進度繼續，或明確放棄剩餘推進").opacity(model.progress == nil ? 1:0).accessibilityHidden(model.progress != nil)
+                    }.font(.caption)
+                    HStack(spacing:16){
+                        Button{model.stopCatchup()}label:{Text("暫停補算").frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}
+                            .disabled(model.progress == nil).accessibilityIdentifier("catchupPause")
+                        Button{Task{await model.catchUp()}}label:{Text("從檢查點繼續處理").frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}
+                            .disabled(model.progress != nil || model.catchingUp).accessibilityIdentifier("catchupResume")
+                    }.buttonStyle(.bordered)
+                    Button("放棄未完成的推進",role:.destructive){model.clockWarning="確定放棄尚未處理的推進區段？已完成的行情與交易會保留。"}
+                        .disabled(model.progress != nil || model.catchingUp)
+                }.padding().frame(maxWidth:420).background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
             } else if let notice=model.notice {
                 Button{model.notice=nil}label:{Text(notice).font(.caption).padding().foregroundStyle(.primary).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12))}.padding()
             }

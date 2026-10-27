@@ -32,6 +32,9 @@ import XCTest
         try check((try state(app)["fills"] as? [[String:String]])?.isEmpty==true,"Cancelled confirmation created fill")
         try check((try state(app)["cash"] as? [String:String])?["TWD"]==initial,"Cancelled order changed cash")
         submit.tap();let confirm=app.buttons["確認送出"];try check(confirm.waitForExistence(timeout:5),"Second confirmation missing");rapid(confirm,count:5)
+        try waitUntil("Confirmed order never entered its visible in-flight state"){
+            app.buttons["submitOrder"].label=="送出中…"
+        }
         try check(!app.buttons["完成"].isEnabled,"In-flight order allowed a second close/send path")
         app.navigationBars["模擬下單"].swipeDown()
         try check(app.navigationBars["模擬下單"].exists,"Swipe dismissed an in-flight confirmed order")
@@ -100,12 +103,21 @@ import XCTest
         try check(!submit.isEnabled,"Order sheet remains enabled during catchup")
         try check(app.buttons["完成"].isEnabled,"Catchup trapped user inside a disabled sheet");app.buttons["完成"].tap()
         app.tabBars.buttons["行情"].tap();app.tabBars.buttons["交易"].tap()
-        let pause=app.buttons["暫停補算"];try check(pause.waitForExistence(timeout:5),"Cannot pause catchup");rapid(pause)
+        let pause=app.buttons["暫停補算"];try check(pause.waitForExistence(timeout:5),"Cannot pause catchup")
+        let pauseFrame=pause.frame,resume=app.buttons["從檢查點繼續處理"],resumeFrame=resume.frame
+        rapid(pause)
         try check(app.buttons["從檢查點繼續處理"].waitForExistence(timeout:5),"Paused checkpoint missing")
         try waitUntil("Pause did not release the completed checkpoint"){app.buttons["從檢查點繼續處理"].isEnabled}
+        try check(pause.frame==pauseFrame && resume.frame==resumeFrame,"Pause/resume controls moved across state changes")
+        try check(!pause.isEnabled,"Paused control remained active")
         let paused=try state(app);try check(paused["pendingCatchup"] as? Bool==true,"Pause discarded target")
         try check((paused["orders"] as? [String])?.isEmpty==true,"Catchup allowed order mutation")
-        rapid(app.buttons["從檢查點繼續處理"])
+        rapid(resume)
+        try waitUntil("Resume taps did not leave catchup running"){
+            (try? self.state(app)["catchup"] as? Bool)==true
+        }
+        try check(pause.frame==pauseFrame && resume.frame==resumeFrame,"Resume moved onto the pause hit target")
+        try check(!resume.isEnabled && pause.isEnabled,"Repeated resume can hit an opposite active action")
         try waitUntil("Catchup did not finish from checkpoint",timeout:35){
             let s:[String:Any]=(try? self.state(app)) ?? [:]
             return s["pendingCatchup"] as? Bool==false && s["catchup"] as? Bool==false && s["chartLoading"] as? Bool==false

@@ -36,3 +36,5 @@ Latest local full Release: all 67 tests executed and passed with CHAI_STRESS=1 a
 互動基準 run 40488978661 已完成：9 個獨立案例中 3 個失敗，證據先行保留；確認日誌五筆（四筆空白）及補算面板被整體停用，自選另有手勢送達數假設問題。修正後本地 70 項完整 Release 通過、零跳過；Apple 九案例各兩次重跑尚未完成。詳見 INTERACTION_VALIDATION.md 與 INTERACTION_BASELINE.json。
 
 修正版 run 40493670109 的核心、T45 與裝置版建置通過，但 UI 測試程式在 InteractionTests.swift:8 發生 optional／比較式型別推斷錯誤，未執行案例。證據 artifact 12730597113 保留；改成明確的 [String:Any] 與 Int 後重跑，沒有修改 >0 條件或其他門檻。補算案例另增加完成後圖表時間與最後模擬分鐘一致的驗證。
+
+兩輪互動 run 40495754856 已完整執行 18 次、18 個獨立目錄及 36 份帳戶資料庫，15 次通過、3 次失敗，證據 artifact 12732197033（SHA-256 已核對）。日誌、自選、返回／鍵盤及既有正常流程兩次均通過。錄影重現連點繼續會命中新換上的暫停按鈕；改成兩個固定位置的常駐控制項，保持停用而不置換位置，並新增切換前後 frame 相同的斷言。下單另先等待可見的「送出中…」再檢查不可關閉，修正測試早於 Task 呈現的時序；扣款／筆數條件及 35 秒補算完成上限均不變。新一輪完整兩次 UI 重跑待完成，詳見 INTERACTION_RETEST.json。

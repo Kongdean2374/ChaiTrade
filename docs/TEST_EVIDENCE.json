@@ -275,5 +275,114 @@
     "ui": "not executed; test source type inference failure at InteractionTests.swift:8",
     "evidenceArtifactID": 12730597113,
     "ipaPublished": false
+  },
+  "interactionTwoRoundFailure": {
+    "commit": "01231cd7563e7cdd79f8200d65317d66c6f638f4",
+    "runID": 40495754856,
+    "executions": 18,
+    "passed": 15,
+    "failed": 3,
+    "results": {
+      "InteractionTests.testBackNavigationSheetCancelSwipeAndKeyboard": [
+        {
+          "result": "passed",
+          "seconds": 48.205
+        },
+        {
+          "result": "passed",
+          "seconds": 42.364
+        }
+      ],
+      "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": [
+        {
+          "result": "failed",
+          "seconds": 63.766
+        },
+        {
+          "result": "failed",
+          "seconds": 78.056
+        }
+      ],
+      "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": [
+        {
+          "result": "passed",
+          "seconds": 53.302
+        },
+        {
+          "result": "passed",
+          "seconds": 52.208
+        }
+      ],
+      "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": [
+        {
+          "result": "passed",
+          "seconds": 43.238
+        },
+        {
+          "result": "failed",
+          "seconds": 26.367
+        }
+      ],
+      "InteractionTests.testRapidTabsReselectAndFavoritesPersist": [
+        {
+          "result": "passed",
+          "seconds": 44.207
+        },
+        {
+          "result": "passed",
+          "seconds": 40.735
+        }
+      ],
+      "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": [
+        {
+          "result": "passed",
+          "seconds": 38.823
+        },
+        {
+          "result": "passed",
+          "seconds": 33.807
+        }
+      ],
+      "SmokeTests.testOfflineMarketOrderUsesLocalEngine": [
+        {
+          "result": "passed",
+          "seconds": 32.308
+        },
+        {
+          "result": "passed",
+          "seconds": 31.434
+        }
+      ],
+      "SmokeTests.testOfflineOnboardingAndNavigation": [
+        {
+          "result": "passed",
+          "seconds": 28.315
+        },
+        {
+          "result": "passed",
+          "seconds": 32.131
+        }
+      ],
+      "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": [
+        {
+          "result": "passed",
+          "seconds": 116.642
+        },
+        {
+          "result": "passed",
+          "seconds": 53.777
+        }
+      ]
+    },
+    "evidenceArtifactID": 12732197033,
+    "archiveSHA256": "96630efe36d44361aa08ce87cd643c133b1bbc69a4ccefc6566c3e7417e8efbd",
+    "uniqueSessionDirectories": 18,
+    "accountDatabases": 36,
+    "findings": {
+      "catchup": "Both repetitions returned to paused (pending target true, progress nil) after rapid resume; screen recording shows opposite controls replacing the same tap region",
+      "order": "One repetition checked Done before the Task rendered sending; later failure hierarchy already shows sending and disabled Done; database has zero orders because test ended before controlled delay completed",
+      "journal": "Both repetitions passed exact-once save, in-flight dismissal protection, restart and distinct same-text draft",
+      "favorites": "Both repetitions passed four delivered intents, overlapping writes, rapid tabs and persistent favorite"
+    }
   }
 }

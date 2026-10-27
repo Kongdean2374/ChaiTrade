@@ -60,7 +60,14 @@ import XCTest
         app.buttons["A 真實行情・模擬交易"].tap()
         app.buttons["完成"].tap()
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
-        XCUIDevice.shared.press(.home);app.activate()
+        try waitUntil("Settings sheet did not dismiss before backgrounding"){
+            !app.navigationBars["設定"].exists && app.tabBars.buttons["總覽"].isHittable
+        }
+        XCUIDevice.shared.press(.home)
+        try waitUntil("Application never reached the background",timeout:10){
+            let state=app.state;return state == .runningBackground || state == .runningBackgroundSuspended
+        }
+        app.activate()
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
         app.terminate();app.launch()
         XCTAssertTrue(app.staticTexts["activeModeBanner"].waitForExistence(timeout:30))
