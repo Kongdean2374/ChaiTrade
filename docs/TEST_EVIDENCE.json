@@ -1,6 +1,6 @@
 {
   "date": "2026-10-27",
-  "toolchain": "Swift 6.1.3 Linux; Apple verification is tracked separately",
+  "toolchain": "Swift 6.1.3 Linux; Xcode 16.4 / Swift 6.1.2 Apple",
   "sourceSHA256": {
     "Packages/ChaiTradeCore/Package.swift": "4dd335d61169bfa39af43afd55fe7be49cd5900916ce40d2390a60207ff1b645",
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/Amount.swift": "110a2c8ec773f7871a00f687e4f17f6c4e658adae72a0698bd36050699e0abb9",
@@ -15,5 +15,26 @@
     "Packages/ChaiTradeCore/Sources/ChaiTradeCore/TradingEngine.swift": "80726131b17eab9f386127fa0380b091f5a5251cb9de037df123bf4cf1c4f2c0",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/CoreTests.swift": "eb29993afc2b03198a590ab479794ff60c757a675c59ae95260423b9b9d82156",
     "Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/LiveTests.swift": "45e88767940cac60383d03e8e9ee145c60502dc142df3999334d9ebcec1d7f30"
+  },
+  "githubVerification": {
+    "commit": "3a4f3379c81e64f629a4bab90cc69f660011156b",
+    "runID": 40451960851,
+    "conclusion": "success",
+    "coreSuite": "passed; two opt-in functions skipped",
+    "uiTests": {
+      "testOfflineMarketOrderUsesLocalEngine": {
+        "result": "passed",
+        "seconds": 37.129
+      },
+      "testOfflineOnboardingAndNavigation": {
+        "result": "passed",
+        "seconds": 18.69
+      }
+    },
+    "unsignedDeviceIPA": "passed build, packaging, resource, platform, architecture and signature validation",
+    "ipaArtifactID": 12711180423,
+    "evidenceArtifactID": 12710274581,
+    "artifactExpiresAt": "2026-11-03T04:57:09Z",
+    "deviceSignedAcceptance": "not executed"
   }
 }

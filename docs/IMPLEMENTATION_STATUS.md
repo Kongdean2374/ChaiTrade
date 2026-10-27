@@ -7,13 +7,13 @@ Date: 2026-10-27. Work is in progress against the entire REQUIREMENTS.md; this i
 | R01 A real market data / local trading | MarketData.swift, TradingEngine.swift | REST adapters implemented; credentialed live verification blocked by missing user entitlements |
 | R02 B offline market | Simulation.swift, ChartWeb | 120 tradable + 5 indices; deterministic paths, five-second events; core tests passed |
 | R03 A/B isolation | Persistence.swift, AccountContext, CoreTests | Separate database files and epoch validation tested |
-| R04 cold-launch switching | AppModel.boot, AppSettings | Implemented; pending-state unit test passed; UI relaunch validation pending |
+| R04 cold-launch switching | AppModel.boot, AppSettings | Implemented; pending-state unit test and terminate/relaunch UI smoke passed; full A/B switch acceptance pending |
 | R05 funding | cashFlow/exchange, CashView | Exact values, cash reservations, external-flow separation tested |
 | R06 full scope | REQUIREMENTS.md and this table | Not yet fully accepted; missing behaviors tracked in KNOWN_LIMITATIONS |
 | R07 order types and markets | TradingEngine, RulePack, OrderForm | Market/limit/stop/trailing/OCO/bracket, FOK/IOC/post/reduce; core tests passed for covered cases |
-| R08 native UI and charts | Features/, ChartView, ChartWeb | Implemented; Simulator compilation and both offline UI flows passed on c13cc515 (full run 40450662963) |
-| R09 public repository | Kongdean2374/ChaiTrade | Public read/write verified with README round trip |
-| R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; Unsigned IPA artifact produced by successful run 40450662963; user signing/device verification still required |
+| R08 native UI and charts | Features/, ChartView, ChartWeb | Implemented; Simulator compilation and both offline UI flows passed on 3a4f3379 (full run 40451960851) |
+| R09 public repository | Kongdean2374/ChaiTrade | Public read/write and independent clone/download verified |
+| R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; Unsigned IPA artifact produced by successful run 40451960851; user signing/device verification still required |
 | R11 no actual assets | NetworkPolicy | Only allowlisted market-data GET requests; policy tests passed |
 | R12 maintenance and verification | CoreTests, backups, docs, scripts | 40 ordinary Linux Swift test functions passed; 1 stress test separately passed; stress/device/migration acceptance incomplete |
 
