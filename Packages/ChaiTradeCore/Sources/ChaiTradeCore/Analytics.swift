@@ -39,7 +39,8 @@ public enum Analytics {
         return Valuation(total:total,complete:missing.isEmpty,missing:Array(Set(missing)).sorted(),tradingPnL:missing.isEmpty ? try total - flows : nil)
     }
     public static func csvCell(_ value: String) -> String {
-        let dangerous = value.trimmingCharacters(in: .whitespacesAndNewlines).first.map { "=+-@\t\r".contains($0) } ?? false
+        let numeric=value.range(of:#"^-?[0-9]+(\.[0-9]+)?$"#,options:.regularExpression) != nil
+        let dangerous = !numeric && (value.trimmingCharacters(in: .whitespacesAndNewlines).first.map { "=+-@\t\r".contains($0) } ?? false)
         return "\"" + (dangerous ? "'" : "") + value.replacingOccurrences(of:"\"",with:"\"\"") + "\""
     }
     public static func fillsCSV(_ s: AccountState, time: Int64) -> String {
@@ -51,6 +52,11 @@ public enum Analytics {
         var rows = [["模擬交易","accountID","exportedAt","eventID","time","currency","account","amount"]]
         rows += s.ledger.map { ["模擬交易",s.accountID,String(time),$0.eventID,String($0.time),$0.currency,$0.account,$0.amount.description] }
         return rows.map { $0.map(csvCell).joined(separator:",") }.joined(separator:"\r\n")
+    }
+    public static func ordersCSV(_ s: AccountState,time: Int64) -> String {
+        var rows=[["模擬交易","accountID","mode","schema","exportedAt","orderID","instrument","side","kind","status","quantity","filled","price","trigger","timeInForce","ruleVersion"]]
+        rows += s.orders.values.sorted{$0.createdAt<$1.createdAt}.map{["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time),$0.id,$0.request.instrumentID,$0.request.side.rawValue,$0.request.kind.rawValue,$0.status.rawValue,$0.request.quantity.description,$0.filled.description,$0.request.price?.description ?? "",$0.request.trigger?.description ?? "",$0.request.timeInForce.rawValue,$0.ruleVersion]}
+        return rows.map{$0.map(csvCell).joined(separator:",")}.joined(separator:"\r\n")
     }
     /// Time-weighted return removes external flows at each valuation boundary.
     public static func timeWeighted(_ points: [EquityPoint]) -> [Double?] {

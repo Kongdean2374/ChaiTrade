@@ -78,6 +78,7 @@ public struct Instrument: Codable, Identifiable, Equatable, Sendable {
     public var volatility: Double = 0.002
     public var liquidity: Int = 1000
     public var halted = false
+    public var requiresRuleConfirmation: Bool?
     public init(id: String, symbol: String, name: String, asset: AssetClass, currency: String, rules: RulePack, initialPrice: Amount, provider: ProviderID? = nil) {
         self.id = id; self.symbol = symbol; self.name = name; self.asset = asset; self.currency = currency
         self.rules = rules; self.initialPrice = initialPrice; self.provider = provider

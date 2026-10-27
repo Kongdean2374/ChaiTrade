@@ -51,8 +51,9 @@ struct SettingsView: View {
                 SecureField("備份／還原密碼（可留空）",text:$backupPassword)
                 Text("密碼備份使用 AES-256-GCM 與 PBKDF2-HMAC-SHA256（600,000 次）。密碼遺失無法恢復。API 金鑰不進備份。").font(.caption)
                 Button("匯出目前帳戶備份"){Task{await model.export(kind:"backup",password:backupPassword)}}
+                Button("完整備份 A 與 B（各自隔離）"){Task{await model.export(kind:"both",password:backupPassword)}}
                 Button("選擇備份並驗證還原"){importing=true}
-                Text("還原會先驗證模式、版本、校驗碼與帳本，再取代此帳戶。原帳戶會保存本機恢復點；A／B 不可交叉還原。").font(.caption).foregroundStyle(.secondary)
+                Text("還原會先驗證模式、版本、校驗碼與帳本，再取代此帳戶。雙帳戶備份會取出符合目前模式的帳戶；另一帳戶保持不變。原帳戶會保存本機恢復點；A／B 不可交叉還原。").font(.caption).foregroundStyle(.secondary)
             }
             Section("重設目前帳戶") {
                 Button("重設 \(model.settings.activeMode.accountID)",role:.destructive){resetStage=true}
@@ -92,6 +93,7 @@ struct ProviderSettings: View {
             Text("只讀取行情，不使用交易 SDK、帳戶委託或轉帳 API。請使用自己的合法行情權限，勿把金鑰提交到 GitHub。").font(.footnote)
             if id.needsKey{SecureField("API Key",text:$key);if id == .alpaca{SecureField("API Secret",text:$secret)};Button("保存至裝置 Keychain"){save()};Button("刪除此來源金鑰",role:.destructive){key="";secret="";save()}}
             Button("保存並測試讀取行情"){save();Task{await test()}}
+            if id != .alpaca{Button("載入來源商品目錄（最多 2,000 個）"){Task{do{guard let engine=model.engine,let context=model.context else{return};let products=try await model.provider(id).products();try await engine.importOnlineInstruments(products,context:context);await model.refresh();result="已加入 \(products.count) 個來源商品；既有資料未改寫"}catch{result=error.localizedDescription}}}}
             if !result.isEmpty{Text(result).font(.caption)}
             if let status=model.providerStatus[id]{Text(status).font(.caption)}
             Text("\(id == .alpaca ? "IEX 單一市場，不是全美綜合報價。":id == .twelveData ? "外匯參考價，E3 估算預設不成交。":"資料能力、時間戳及授權以實際回應為準。")\n需要授權的來源尚未提供憑證時，不代表已完成實際連線驗證。").font(.footnote).foregroundStyle(.secondary)
@@ -99,7 +101,7 @@ struct ProviderSettings: View {
             .onAppear{guard model.state?.mode == .online else{return};do{key=try KeychainVault.read(id.rawValue+".key");secret=try KeychainVault.read(id.rawValue+".secret")}catch{result=error.localizedDescription}}
     }
     func save(){guard model.state?.mode == .online else{return};do{try KeychainVault.write(key,key:id.rawValue+".key");try KeychainVault.write(secret,key:id.rawValue+".secret");result="金鑰已保存於裝置，不包含在備份內"}catch{result=error.localizedDescription}}
-    func test() async{do{guard let i=model.state?.instruments.first(where:{$0.provider==id})else{return};let quote=try await model.provider(id).quote(i,now:Int64(Date().timeIntervalSince1970));result="成功讀取 \(i.symbol) · \(quote.last) · \(quote.quality.rawValue) · \(quote.grade.rawValue)"}catch{result=error.localizedDescription}}
+    func test() async{do{guard let i=model.state?.instruments.first(where:{$0.provider==id})else{result="請先載入來源商品目錄，並核對確切合約代碼";return};let quote=try await model.provider(id).quote(i,now:Int64(Date().timeIntervalSince1970));result="成功讀取 \(i.symbol) · \(quote.last) · \(quote.quality.rawValue) · \(quote.grade.rawValue)"}catch{result=error.localizedDescription}}
 }
 struct LicenseView: View {
     var license: String { guard let url=Bundle.main.url(forResource:"LightweightCharts-LICENSE",withExtension:nil,subdirectory:"Licenses") else{return "授權資源遺失"};return (try? String(contentsOf:url,encoding:.utf8)) ?? "授權檔無法讀取" }

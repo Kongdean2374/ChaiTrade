@@ -73,6 +73,7 @@ public actor TradingEngine {
     private static func validate(_ r: OrderRequest, in s: AccountState, time: Int64, excluding: String? = nil) throws -> (Instrument, Amount, Amount) {
         let i = try instrument(s, r.instrumentID)
         guard i.asset != .index, !i.halted else { throw TradeError.invalid("此商品目前不可交易（指數只供參考）") }
+        guard i.requiresRuleConfirmation != true else{throw TradeError.invalid("請先核對並保存此合約的乘數、到期日與自訂模擬規則，再建立部位")}
         guard i.rules.expiry == nil || time < i.rules.expiry! else { throw TradeError.invalid("合約已到期") }
         guard r.quantity > .zero, try r.quantity.isMultiple(of: i.rules.quantityStep) else { throw TradeError.invalid("數量不符合商品級距") }
         for p in [r.price, r.trigger].compactMap({$0}) {
@@ -134,9 +135,10 @@ public actor TradingEngine {
     }
     @discardableResult public func submit(_ request: OrderRequest, time: Int64, context: AccountContext) throws -> String {
         try check(context)
+        let eventTime=state.simulation?.time ?? time
         return try transaction { s in
-            let id = try Self.accept(request, in: &s, time: time)
-            if let q = s.quotes[request.instrumentID] { try Self.match(&s, quote: q, now: time) }
+            let id = try Self.accept(request, in: &s, time: eventTime)
+            if let q = s.quotes[request.instrumentID] { try Self.match(&s, quote: q, now: eventTime) }
             return id
         }
     }
@@ -158,13 +160,15 @@ public actor TradingEngine {
             s.audit("cancelled", "本機撤單 \(id)", time: time)
         }
     }
-    public func amend(id: String, quantity: Amount, price: Amount?, time: Int64, context: AccountContext) throws {
+    public func amend(id: String, quantity: Amount, price: Amount?, trigger: Amount? = nil, time: Int64, context: AccountContext) throws {
         try check(context)
         try transaction { s in
             guard var o = s.orders[id], o.status.open, quantity > o.filled else { throw TradeError.invalid("委託已完成或新總量不大於成交量") }
             var r = o.request; r.quantity = try quantity - o.filled; r.price = price
+            if let trigger { r.trigger = trigger }
             let (_, ref, reservation) = try Self.validate(r, in: s, time: time, excluding: id)
             o.request.quantity = quantity; o.request.price = price; o.referencePrice = ref; o.reserved = reservation
+            o.request.trigger = r.trigger
             o.revision += 1; o.updatedAt = time; s.orders[id] = o
             s.audit("amended", "改單第 \(o.revision) 次，重新計算保留", time: time)
             if let q = s.quotes[r.instrumentID] { try Self.match(&s, quote: q, now: time) }
@@ -180,6 +184,14 @@ public actor TradingEngine {
             try Self.match(&s, quote: quote, now: now)
             try Self.risk(&s, quote: quote, now: now)
             try Self.recordEquity(&s,time:now)
+        }
+    }
+    public func markMonitoringGap(instrumentID: String,time: Int64,context: AccountContext) throws {
+        try check(context)
+        try transaction {s in
+            if var quote=s.quotes[instrumentID]{quote.valid=false;quote.quality = .stale;s.quotes[instrumentID]=quote}
+            for id in s.orders.keys where s.orders[id]!.status.open && s.orders[id]!.request.instrumentID==instrumentID{s.orders[id]!.suspension="行情監控曾中斷，等待新快照；不回填缺口成交"}
+            s.audit("monitoringGap","\(instrumentID) 監控中斷；沒有背景成交保證",time:time)
         }
     }
     private static func trigger(_ o: inout Order, _ q: Quote) throws -> Bool {
@@ -416,7 +428,7 @@ public actor TradingEngine {
         try transaction { s in
             s.simulation!.speed = speed; s.simulation!.paused = paused
             if s.simulation!.scenario != scenario || s.simulation!.volatility != volatility || s.simulation!.liquidity != liquidity {
-                s.simulation!.changes.append(SimulationChange(time: s.simulation!.time, scenario: scenario, volatility: volatility, liquidity: liquidity))
+                s.simulation!.changes.append(SimulationChange(time: s.simulation!.time+Simulation.step, scenario: scenario, volatility: volatility, liquidity: liquidity))
                 s.simulation!.scenario = scenario; s.simulation!.volatility = volatility; s.simulation!.liquidity = liquidity
                 s.audit("simulationControl", "未來情境改為 \(scenario)", time: s.simulation!.time)
             }
@@ -442,6 +454,11 @@ public actor TradingEngine {
         try check(context)
         guard state.mode == .offline, i.id.hasPrefix("SIM:"), !state.instruments.contains(where: { $0.id == i.id }), i.initialPrice > .zero, i.rules.tick > .zero, i.rules.quantityStep > .zero else { throw TradeError.invalid("自訂商品規格不合法或代碼重複") }
         try transaction { s in s.instruments.append(i); if let sim = s.simulation { s.quotes[i.id] = try Simulation.quote(i, state: sim) } }
+    }
+    public func importOnlineInstruments(_ instruments: [Instrument],context: AccountContext) throws {
+        try check(context)
+        guard context.mode == .online,instruments.count<=2000,instruments.allSatisfy({$0.provider != nil && !$0.id.hasPrefix("SIM:") && $0.rules.tick > .zero && $0.rules.quantityStep > .zero}) else{throw TradeError.invalid("來源商品不合法或數量過多")}
+        try transaction{s in for i in instruments where !s.instruments.contains(where:{$0.id==i.id}){s.instruments.append(i)};s.audit("catalogImported","匯入來源商品 \(instruments.count) 個；既有商品規格與持倉不改寫",time:Int64(Date().timeIntervalSince1970))}
     }
     public func saveWallClock(_ time: Int64, context: AccountContext) throws { try check(context); try transaction { $0.lastWallTime = time } }
     private static func recordEquity(_ s: inout AccountState,time: Int64) throws {
@@ -471,6 +488,10 @@ public actor TradingEngine {
             guard let n=s.instruments.firstIndex(where:{$0.id==instrumentID}) else { throw TradeError.invalid("找不到商品") }
             guard (s.positions[instrumentID]?.quantity ?? .zero) == .zero,!s.orders.values.contains(where:{$0.status.open && $0.request.instrumentID==instrumentID}) else { throw TradeError.invalid("有持倉或未完成委託時不得直接更改商品規格") }
             s.instruments[n].rules=rules;s.audit("rulesChanged","自訂模擬規則 \(rules.version)",time:s.simulation?.time ?? Int64(Date().timeIntervalSince1970))
+            if s.instruments[n].requiresRuleConfirmation == true {
+                guard s.instruments[n].asset != .future || rules.expiry != nil else{throw TradeError.invalid("到期期貨必須有明確到期日")}
+                s.instruments[n].requiresRuleConfirmation=false
+            }
         }
     }
     public func setFX(_ rate: FXRate,context: AccountContext) throws {

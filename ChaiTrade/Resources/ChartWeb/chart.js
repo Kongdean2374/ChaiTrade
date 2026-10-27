@@ -41,3 +41,17 @@ function draw(){
 }
 document.getElementById('reset').onclick=()=>{if(chart)chart.timeScale().fitContent();};
 new ResizeObserver(draw).observe(root);
+let drag=null;
+root.addEventListener('pointerdown',e=>{
+ if(!lastData||!series)return;
+ const bounds=root.getBoundingClientRect(),yy=e.clientY-bounds.top;
+ const hit=lastData.lines.find(l=>l.id&&Math.abs(series.priceToCoordinate(l.price)-yy)<8);
+ if(hit){drag={id:hit.id,y:yy};root.setPointerCapture(e.pointerId);e.preventDefault();e.stopImmediatePropagation();}
+},true);
+root.addEventListener('pointermove',e=>{if(drag){drag.y=e.clientY-root.getBoundingClientRect().top;e.preventDefault();e.stopImmediatePropagation();}},true);
+root.addEventListener('pointerup',e=>{
+ if(!drag)return;
+ const price=series.coordinateToPrice(e.clientY-root.getBoundingClientRect().top),id=drag.id;drag=null;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(price>0&&Number.isFinite(price)&&window.webkit?.messageHandlers?.intent){window.webkit.messageHandlers.intent.postMessage({type:'amend',account:lastData.account,epoch:lastData.epoch,instrument:lastData.id,orderID:id,price});}
+},true);

@@ -319,3 +319,34 @@ private struct FixtureTransport: MarketTransport {
     let original=try Simulation.price(r.instrument,at:sim.time,state:sim)
     #expect(abs(current.displayDouble*2-original.displayDouble) <= 0.02)
 }
+
+@Test func dualAccountBackupAndCSVNumbers() throws {
+    let r=try Rig();let online=try r.repo.load()!
+    let offline=try TradingEngine.initial(mode:.offline,capital:a("50000"),time:1000)
+    let data=try BackupService.exportBoth([online,offline],password:nil,time:1000)
+    #expect(try BackupService.importAccount(data,expectedMode:.online,password:nil).cash["TWD"] == a("100000"))
+    #expect(try BackupService.importAccount(data,expectedMode:.offline,password:nil).cash["TWD"] == a("50000"))
+    #expect(Analytics.csvCell("-123.45") == "\"-123.45\"")
+    #expect(Analytics.csvCell("-1+CMD()") == "\"'-1+CMD()\"")
+}
+
+@Test func sourceSpecificDepthGapRecovery() throws {
+    var book=OrderBookTracker()
+    try book.snapshot(bids:[Level(a("99"),a("10"))],asks:[Level(a("101"),a("10"))],sequence:10)
+    #expect(book.valid)
+    #expect(throws:TradeError.self){try book.delta(bids:[],asks:[],sequence:12,previousSequence:nil,contiguous:true)}
+    #expect(!book.valid)
+    try book.snapshot(bids:[Level(a("99"),a("10"))],asks:[Level(a("101"),a("10"))],sequence:100)
+    try book.delta(bids:[Level(a("99"),a("5"))],asks:[],sequence:125,previousSequence:100,contiguous:false)
+    #expect(book.bids.first?.quantity == (try a("5")))
+    #expect(throws:TradeError.self){try book.delta(bids:[],asks:[],sequence:130,previousSequence:124,contiguous:false)}
+    #expect(!book.valid)
+    #expect(!NetworkPolicy.permitsWebSocket(URL(string:"wss://ws-feed.exchange.coinbase.com")!,mode:.offline))
+}
+@Test func simulationControlOnlyAffectsFuture() async throws {
+    let r=try Rig(mode:.offline),before=await r.engine.snapshot(),sim=before.simulation!
+    let price=try Simulation.price(r.instrument,at:sim.time,state:sim)
+    try await r.engine.configureSimulation(speed:100,paused:false,scenario:"恐慌",volatility:5,liquidity:0.1,context:r.context)
+    let after=await r.engine.snapshot().simulation!
+    #expect(try Simulation.price(r.instrument,at:sim.time,state:after) == price)
+}

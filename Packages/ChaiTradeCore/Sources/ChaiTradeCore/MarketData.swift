@@ -47,10 +47,10 @@ public enum NetworkPolicy {
         case "api.exchange.coinbase.com":
             return path == "/products" || path == "/time" || path.range(of: #"^/products/[A-Z0-9-]+/(ticker|book|candles|trades)$"#, options: .regularExpression) != nil
         case "api.fugle.tw":
-            return path.range(of: #"^/marketdata/v1\.0/(stock|futopt)/(intraday/(quote|candles|trades|volumes|tickers)|historical/candles)/[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
+            return path.range(of: #"^/marketdata/v1\.0/(stock|futopt)/(intraday/(quote|candles|trades|volumes)|historical/candles)/[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil || path.range(of:#"^/marketdata/v1\.0/(stock|futopt)/intraday/tickers$"#,options:.regularExpression) != nil
         case "data.alpaca.markets":
             return path.range(of: #"^/v2/stocks/[A-Z.]+/(snapshot|bars|quotes/latest|trades/latest)$"#, options: .regularExpression) != nil
-        case "api.twelvedata.com": return ["/quote","/time_series","/exchange_rate"].contains(path)
+        case "api.twelvedata.com": return ["/quote","/time_series","/exchange_rate","/forex_pairs"].contains(path)
         case "fapi.binance.com": return ["/fapi/v1/depth","/fapi/v1/premiumIndex","/fapi/v1/ticker/24hr","/fapi/v1/klines","/fapi/v1/exchangeInfo"].contains(path)
         default: return false
         }
@@ -59,7 +59,7 @@ public enum NetworkPolicy {
 public protocol MarketTransport: Sendable {
     func get(_ url: URL, headers: [String:String]) async throws -> Data
 }
-private final class RedirectBlocker: NSObject, URLSessionTaskDelegate, Sendable {
+final class RedirectBlocker: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) { completionHandler(nil) }
 }
 public struct ReadOnlyTransport: MarketTransport {
@@ -94,8 +94,8 @@ public struct MarketDataProvider: Sendable {
     private let credentials: ProviderCredentials
     private let transport: any MarketTransport
     public init(id: ProviderID, credentials: ProviderCredentials, transport: any MarketTransport) { self.id = id; self.credentials = credentials; self.transport = transport }
-    private func fetch(path: String, query: [String:String] = [:]) async throws -> JSONValue {
-        if id.needsKey && credentials.key.isEmpty { throw TradeError.unavailable("\(id.label) 尚未配置行情金鑰，請至設定加入自己的合法權限") }
+    private func fetch(path: String, query: [String:String] = [:], requiresCredentials: Bool = true) async throws -> JSONValue {
+        if requiresCredentials && id.needsKey && credentials.key.isEmpty { throw TradeError.unavailable("\(id.label) 尚未配置行情金鑰，請至設定加入自己的合法權限") }
         let host: String
         switch id { case .coinbase: host = "api.exchange.coinbase.com"; case .fugle,.fugleFutures: host = "api.fugle.tw"; case .alpaca: host = "data.alpaca.markets"; case .twelveData: host = "api.twelvedata.com"; case .binance: host = "fapi.binance.com" }
         var components = URLComponents(); components.scheme = "https"; components.host = host; components.path = path
@@ -153,13 +153,55 @@ public struct MarketDataProvider: Sendable {
         case .binance:
             let mark = try await fetch(path: "/fapi/v1/premiumIndex", query: ["symbol":symbol])
             let book = try await fetch(path: "/fapi/v1/depth", query: ["symbol":symbol,"limit":"20"])
+            let ticker = try await fetch(path: "/fapi/v1/ticker/24hr",query:["symbol":symbol])
             let time = try Self.timestamp(mark["time"])
-            q = Quote(instrumentID: instrument.id, source: id.label, time: time, sequence: book["lastUpdateId"].integer ?? time, last: try mark["indexPrice"].amount(), bids: try book["bids"].array.map { try Level($0[0].amount(),$0[1].amount()) }, asks: try book["asks"].array.map { try Level($0[0].amount(),$0[1].amount()) }, coverage: "USDⓈ-M 線性永續；僅公開資料", receivedAt: now)
+            q = Quote(instrumentID: instrument.id, source: id.label, time: min(time,book["E"].integer.map{$0/1000} ?? time), sequence: book["lastUpdateId"].integer ?? time, last: try ticker["lastPrice"].amount(), bids: try book["bids"].array.map { try Level($0[0].amount(),$0[1].amount()) }, asks: try book["asks"].array.map { try Level($0[0].amount(),$0[1].amount()) }, coverage: "USDⓈ-M 線性永續；僅公開資料", receivedAt: now)
             q.mark = try mark["markPrice"].amount()
         }
         if now - q.time > q.maximumAge { q.quality = .stale }
         if q.bids.isEmpty || q.asks.isEmpty { q.grade = .E3 }
         return q
+    }
+    public func products() async throws -> [Instrument] {
+        let json: JSONValue,rows: [JSONValue]
+        switch id {
+        case .coinbase: json=try await fetch(path:"/products");rows=json.array
+        case .binance: json=try await fetch(path:"/fapi/v1/exchangeInfo");rows=json["symbols"].array.filter{$0["contractType"].string=="PERPETUAL" && $0["status"].string=="TRADING"}
+        case .fugle:json=try await fetch(path:"/marketdata/v1.0/stock/intraday/tickers",query:["type":"EQUITY","exchange":"TWSE","market":"TSE"]);rows=json["data"].array
+        case .fugleFutures:json=try await fetch(path:"/marketdata/v1.0/futopt/intraday/tickers",query:["type":"FUTURE","exchange":"TAIFEX"]);rows=json["data"].array
+        case .twelveData:json=try await fetch(path:"/forex_pairs",requiresCredentials:false);rows=json["data"].array
+        case .alpaca:throw TradeError.unavailable("Alpaca 資產目錄屬於另一個 API 邊界；請以美股代碼手動加入，行情仍只讀取 data.alpaca.markets")
+        }
+        var result:[Instrument]=[]
+        for row in rows.prefix(2000) {
+            guard let symbol=(id == .coinbase ? row["id"].string:row["symbol"].string),symbol.range(of:#"^[A-Za-z0-9/._-]{1,32}$"#,options:.regularExpression) != nil else{continue}
+            var rules=RulePack(tick:try Amount("0.01"),quantityStep:try Amount("1"))
+            let asset: AssetClass,currency: String,name: String
+            switch id {
+            case .coinbase:
+                rules.tick=try row["quote_increment"].amount();rules.quantityStep=try row["base_increment"].amount()
+                asset = .crypto;currency=row["quote_currency"].string ?? symbol.components(separatedBy:"-").last!;name=row["display_name"].string ?? symbol
+            case .binance:
+                let filters=row["filters"].array
+                guard let pf=filters.first(where:{$0["filterType"].string=="PRICE_FILTER"}),let lot=filters.first(where:{$0["filterType"].string=="LOT_SIZE"}) else{continue}
+                rules.tick=try pf["tickSize"].amount();rules.quantityStep=try lot["stepSize"].amount()
+                if let minimum=filters.first(where:{$0["filterType"].string=="MIN_NOTIONAL"}){rules.minimumNotional=try minimum["notional"].amount()}
+                asset = .perpetual;currency=row["quoteAsset"].string ?? "USDT";name=symbol
+            case .fugle:asset = .taiwanStock;currency="TWD";name=row["name"].string ?? symbol;rules.timeZone="Asia/Taipei";rules.weekdaysOnly=true;rules.openMinute=540;rules.closeMinute=810
+            case .fugleFutures:
+                asset = .future;currency="TWD";name=row["name"].string ?? symbol
+                // The source's contract identifier is preserved. Multiplier must be verified before opening positions.
+                rules.maxLeverage=1
+            case .twelveData:asset = .forex;currency=symbol.components(separatedBy:"/").last ?? "USD";name="\(symbol) 自訂模擬合約";rules.tick=try Amount("0.00001");rules.quantityStep=try Amount("0.001")
+            case .alpaca:continue
+            }
+            rules.source="\(id.label) 商品目錄；精度依可用欄位，其餘為未核驗的自訂模擬規則"
+            var instrument=Instrument(id:"\(id.rawValue):\(symbol)",symbol:symbol,name:name,asset:asset,currency:currency,rules:rules,initialPrice:.zero,provider:id)
+            if asset == .future{instrument.requiresRuleConfirmation=true}
+            result.append(instrument)
+        }
+        guard !result.isEmpty else{throw TradeError.unavailable("來源未提供可用商品，請核對權限與資料格式")}
+        return result
     }
     public func candles(_ instrument: Instrument, interval: Int64, now: Int64) async throws -> [Candle] {
         let symbol = instrument.symbol
@@ -195,7 +237,7 @@ public struct MarketDataProvider: Sendable {
 }
 public enum Providers {
     public static func catalog() throws -> [Instrument] {
-        let items: [(ProviderID,String,String,AssetClass,String)] = [(.coinbase,"BTC-USD","Bitcoin",.crypto,"USD"),(.coinbase,"ETH-USD","Ethereum",.crypto,"USD"),(.fugle,"2330","台積電",.taiwanStock,"TWD"),(.fugle,"0050","元大台灣50",.etf,"TWD"),(.fugleFutures,"TXF","臺股期貨（需核對實際到期合約代碼）",.future,"TWD"),(.alpaca,"AAPL","Apple",.usStock,"USD"),(.alpaca,"SPY","SPDR S&P 500 ETF",.etf,"USD"),(.twelveData,"EUR/USD","歐元／美元自訂模擬合約",.forex,"USD"),(.binance,"BTCUSDT","BTC USDT 線性永續",.perpetual,"USDT")]
+        let items: [(ProviderID,String,String,AssetClass,String)] = [(.coinbase,"BTC-USD","Bitcoin",.crypto,"USD"),(.coinbase,"ETH-USD","Ethereum",.crypto,"USD"),(.fugle,"2330","台積電",.taiwanStock,"TWD"),(.fugle,"0050","元大台灣50",.etf,"TWD"),(.alpaca,"AAPL","Apple",.usStock,"USD"),(.alpaca,"SPY","SPDR S&P 500 ETF",.etf,"USD"),(.twelveData,"EUR/USD","歐元／美元自訂模擬合約",.forex,"USD"),(.binance,"BTCUSDT","BTC USDT 線性永續",.perpetual,"USDT")]
         return try items.map { provider,symbol,name,asset,currency in
             var rule = try RulePack(tick: Amount(asset == .forex ? "0.00001":"0.01"), quantityStep: Amount(asset == .crypto || asset == .forex || asset == .perpetual ? "0.001":"1"))
             rule.source = "未核驗市場規則；自訂模擬；交易前需核對合約規格"

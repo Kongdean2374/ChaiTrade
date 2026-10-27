@@ -7,10 +7,11 @@ struct ChartView: UIViewRepresentable {
     var indicator: String
     var period: Int
     var line: Bool
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(model:model) }
     func makeUIView(context: Context) -> WKWebView {
         let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript=true
+        config.userContentController.add(context.coordinator,name:"intent")
         let view=WKWebView(frame:.zero,configuration:config);view.isOpaque=false;view.backgroundColor = .clear
         view.navigationDelegate=context.coordinator
         if let url=Bundle.main.url(forResource:"index",withExtension:"html",subdirectory:"ChartWeb") {
@@ -41,15 +42,29 @@ struct ChartView: UIViewRepresentable {
         var priceLines: [[String:Any]]=[]
         if let p=model.state?.positions[model.selectedID],p.quantity != .zero {priceLines.append(["price":p.average.displayDouble,"title":"模擬成本","color":"#ffb454"])}
         for order in model.state?.orders.values.filter({$0.status.open && $0.request.instrumentID==model.selectedID}) ?? [] {
-            if let p=order.request.price ?? order.request.trigger {priceLines.append(["price":p.displayDouble,"title":order.request.kind.label,"color":"#82aaff"])}
+            if let p=order.request.price ?? order.request.trigger {priceLines.append(["id":order.id,"price":p.displayDouble,"title":order.request.kind.label,"color":"#82aaff"])}
         }
-        let data: [String:Any]=["id":model.selectedID,"candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme != "light"]
+        let data: [String:Any]=["id":model.selectedID,"account":model.context?.accountID ?? "","epoch":model.context?.epoch.uuidString ?? "","candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme != "light"]
         context.coordinator.payload=data
         context.coordinator.render(web)
     }
-    @MainActor final class Coordinator: NSObject,WKNavigationDelegate {
+    @MainActor final class Coordinator: NSObject,WKNavigationDelegate,WKScriptMessageHandler {
+        let model: AppModel
+        init(model: AppModel){self.model=model}
         var ready=false
         var payload: [String:Any]=[:]
+        func userContentController(_ userContentController: WKUserContentController,didReceive message: WKScriptMessage) {
+            guard message.name=="intent",message.frameInfo.isMainFrame,let body=message.body as? [String:Any],body.count<=8,
+                  body["type"] as? String=="amend",body["account"] as? String==model.context?.accountID,body["epoch"] as? String==model.context?.epoch.uuidString,
+                  body["instrument"] as? String==model.selectedID,let id=body["orderID"] as? String,id.utf8.count<=128,
+                  let price=body["price"] as? Double,price.isFinite,price>0,let order=model.state?.orders[id],order.status.open,order.request.instrumentID==model.selectedID,
+                  let tick=model.selected?.rules.tick else{return}
+            do {
+                let raw=try Amount(String(format:"%.12f",locale:Locale(identifier:"en_US_POSIX"),price))
+                let quantized=try (raw/tick).rounded(0)*tick
+                model.chartAmendment=ChartAmendment(order:order,price:quantized)
+            }catch{model.error=error.localizedDescription}
+        }
         func webView(_ webView: WKWebView,didFinish navigation: WKNavigation!) {ready=true;render(webView)}
         func render(_ web: WKWebView) {
             guard ready else{return}

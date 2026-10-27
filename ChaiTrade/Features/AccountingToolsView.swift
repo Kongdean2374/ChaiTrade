@@ -112,6 +112,7 @@ struct RuleEditor: View {
     @State private var weekdays=false
     @State private var days=0
     @State private var holidays=""
+    @State private var expiry=Date().addingTimeInterval(2592000)
     var body: some View {
         Form{
             Text("自訂模擬規則，不代表交易所已核驗制度。商品有持倉或未完成委託時禁止直接更改規格，避免回頭重寫歷史。").font(.footnote).foregroundStyle(.orange)
@@ -121,8 +122,9 @@ struct RuleEditor: View {
                 Picker("IANA 時區",selection:$zone){ForEach(["UTC","Asia/Taipei","America/New_York","Europe/London","Asia/Tokyo"],id:\.self){Text($0)}}
                 Stepper("開盤分鐘（當日 0 起算）\(open)",value:$open,in:0...1440,step:15);Stepper("收盤分鐘 \(close)",value:$close,in:0...1440,step:15)
                 Toggle("週一至週五",isOn:$weekdays);TextField("休市日 YYYY-MM-DD，以逗號分隔",text:$holidays).autocorrectionDisabled();Stepper(days == 0 ? "即時交割（簡化）":"交割 \(days) 個營業日（自訂日曆）",value:$days,in:0...10)
+                if model.selected?.asset == .future{DatePicker("實際契約到期時間",selection:$expiry)}
             }
-            Button("保存未來規則"){Task{guard let i=model.selected,let engine=model.engine,let context=model.context else{return};await model.run{var r=i.rules;r.tick=try Amount(tick);r.quantityStep=try Amount(step);r.multiplier=try Amount(multiplier);r.fees.maker=try Amount(maker);r.fees.taker=try Amount(taker);r.fees.fixed=try Amount(fixed);r.fees.minimum=try Amount(minimum);r.fees.sellTax=try Amount(tax);r.timeZone=zone;r.openMinute=open;r.closeMinute=close;r.weekdaysOnly=weekdays;r.holidays=holidays.split(separator:",").map{String($0).trimmingCharacters(in:.whitespaces)};r.settlementBusinessDays=days;r.verifiedAt=nil;r.source="使用者自訂模擬規則；非交易所核驗";r.version="custom-\(model.now)";try await engine.updateRules(instrumentID:i.id,rules:r,context:context)}}}
-        }.navigationTitle("自訂模擬規則").onAppear{guard let r=model.selected?.rules else{return};tick=r.tick.description;step=r.quantityStep.description;multiplier=r.multiplier.description;maker=r.fees.maker.description;taker=r.fees.taker.description;fixed=r.fees.fixed.description;minimum=r.fees.minimum.description;tax=r.fees.sellTax.description;zone=r.timeZone;open=r.openMinute;close=r.closeMinute;weekdays=r.weekdaysOnly;days=r.settlementBusinessDays ?? 0;holidays=r.holidays.joined(separator:",")}
+            Button("保存未來規則"){Task{guard let i=model.selected,let engine=model.engine,let context=model.context else{return};await model.run{var r=i.rules;r.tick=try Amount(tick);r.quantityStep=try Amount(step);r.multiplier=try Amount(multiplier);r.fees.maker=try Amount(maker);r.fees.taker=try Amount(taker);r.fees.fixed=try Amount(fixed);r.fees.minimum=try Amount(minimum);r.fees.sellTax=try Amount(tax);r.timeZone=zone;r.openMinute=open;r.closeMinute=close;r.weekdaysOnly=weekdays;r.holidays=holidays.split(separator:",").map{String($0).trimmingCharacters(in:.whitespaces)};r.settlementBusinessDays=days;if i.asset == .future{r.expiry=Int64(expiry.timeIntervalSince1970)};r.verifiedAt=nil;r.source="使用者自訂模擬規則；非交易所核驗";r.version="custom-\(model.now)";try await engine.updateRules(instrumentID:i.id,rules:r,context:context)}}}
+        }.navigationTitle("自訂模擬規則").onAppear{guard let r=model.selected?.rules else{return};tick=r.tick.description;step=r.quantityStep.description;multiplier=r.multiplier.description;maker=r.fees.maker.description;taker=r.fees.taker.description;fixed=r.fees.fixed.description;minimum=r.fees.minimum.description;tax=r.fees.sellTax.description;zone=r.timeZone;open=r.openMinute;close=r.closeMinute;weekdays=r.weekdaysOnly;days=r.settlementBusinessDays ?? 0;holidays=r.holidays.joined(separator:",");if let t=r.expiry{expiry=Date(timeIntervalSince1970:TimeInterval(t))}}
     }
 }

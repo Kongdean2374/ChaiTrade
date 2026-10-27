@@ -30,6 +30,7 @@ struct RootView: View {
             }
         }
         .sheet(isPresented:$settings){NavigationStack{SettingsView()}}
+        .sheet(item:$model.chartAmendment){intent in NavigationStack{ChartAmendConfirm(intent:intent)}}
         .alert("操作未完成",isPresented:Binding(get:{model.error != nil},set:{if !$0{model.error=nil}})) { Button("知道了"){model.error=nil} } message:{Text(model.error ?? "")}
         .alert("時間完整性確認",isPresented:Binding(get:{model.clockWarning != nil},set:{_ in})) {
             Button("依經過時間補算"){Task{await model.catchUp()}}

@@ -29,6 +29,11 @@ struct ExportDocument: FileDocument {
     init(configuration: ReadConfiguration) throws { data=configuration.file.regularFileContents ?? Data() }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents:data) }
 }
+struct ChartAmendment: Identifiable {
+    let id=UUID()
+    let order: Order
+    let price: Amount
+}
 
 @MainActor final class AppModel: ObservableObject {
     @Published var state: AccountState?
@@ -50,6 +55,7 @@ struct ExportDocument: FileDocument {
     @Published var exporting=false
     @Published var catchupTarget: Int64?
     @Published var clockWarning: String?
+    @Published var chartAmendment: ChartAmendment?
     private(set) var engine: TradingEngine?
     private(set) var context: AccountContext?
     private var booted=false
@@ -59,6 +65,7 @@ struct ExportDocument: FileDocument {
     private var fractionalTime=0.0
     private var lastFetch=0.0
     private var chartGeneration=UUID()
+    private var streamTask: Task<Void,Never>?
     let root: URL
     init() {
         let base=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask).first!
@@ -93,6 +100,7 @@ struct ExportDocument: FileDocument {
             if !switched { await prepareCatchup() }
             lastUptime=ProcessInfo.processInfo.systemUptime
             await loadChart()
+            restartStream()
         } catch { self.error=error.localizedDescription;booted=false }
     }
     func onboard(mode: Mode, online: String, offline: String, currency: String) async {
@@ -108,7 +116,7 @@ struct ExportDocument: FileDocument {
         await boot()
     }
     func refresh() async { if let engine { state=await engine.snapshot() } }
-    func select(_ instrument: Instrument) { selectedID=instrument.id;tab=2;Task{await loadChart()} }
+    func select(_ instrument: Instrument) { selectedID=instrument.id;tab=2;restartStream();Task{await loadChart()} }
     func tick() async {
         guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil,catchupTarget == nil else { return }
         busy=true;defer{busy=false}
@@ -133,12 +141,42 @@ struct ExportDocument: FileDocument {
     }
     func suspend() async {
         foreground=false
+        streamTask?.cancel();streamTask=nil
         guard let engine,let context else{return}
-        await run { try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context) }
+        await run {
+            try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context)
+            if context.mode == .online {for id in self.state?.quotes.keys.sorted() ?? []{try await engine.markMonitoringGap(instrumentID:id,time:Int64(Date().timeIntervalSince1970),context:context)}}
+        }
     }
     func resume() async {
         guard !foreground else{return};foreground=true;lastUptime=ProcessInfo.processInfo.systemUptime
         await prepareCatchup()
+        restartStream()
+    }
+    private func restartStream() {
+        streamTask?.cancel();streamTask=nil
+        guard foreground,let i=selected,i.provider == .coinbase,context?.mode == .online,let context,let engine else{return}
+        streamTask=Task{
+            var attempts=0
+            while !Task.isCancelled && self.foreground && self.context==context && self.selectedID==i.id {
+                do{
+                    let stream=try CoinbaseMarketStream(mode:.online).quotes(instrument:i)
+                    for try await quote in stream {
+                        guard !Task.isCancelled,self.foreground,self.context==context else{return}
+                        try await engine.ingest(quote,now:Int64(Date().timeIntervalSince1970),context:context)
+                        self.providerStatus[.coinbase]="WebSocket level2 已同步；本機估算成交"
+                        attempts=0;await self.refresh()
+                    }
+                }catch{
+                    guard !Task.isCancelled else{return}
+                    self.providerStatus[.coinbase]=error.localizedDescription
+                    try? await engine.markMonitoringGap(instrumentID:i.id,time:Int64(Date().timeIntervalSince1970),context:context)
+                    await self.refresh()
+                }
+                attempts+=1
+                do{try await Task.sleep(for:.seconds(min(60,pow(2,Double(min(attempts,6))))+Double.random(in:0...1)))}catch{return}
+            }
+        }
     }
     private func prepareCatchup() async {
         guard let s=state,let sim=s.simulation,!sim.paused,s.continueWhileAway,let wall=s.lastWallTime else{return}
@@ -179,6 +217,7 @@ struct ExportDocument: FileDocument {
         ids.formUnion(s.orders.values.filter{$0.status.open}.map{$0.request.instrumentID});ids.insert(selectedID)
         for i in s.instruments where ids.contains(i.id) {
             guard foreground,let id=i.provider else{continue}
+            if i.provider == .coinbase,i.id==selectedID,let q=s.quotes[i.id],q.source.hasPrefix("Coinbase Exchange WS"),q.valid,Int64(Date().timeIntervalSince1970)-q.receivedAt<10{continue}
             do {
                 let service=try provider(id),received=Int64(Date().timeIntervalSince1970)
                 let q=try await service.quote(i,now:received)
@@ -232,10 +271,16 @@ struct ExportDocument: FileDocument {
             switch kind {
             case "CSV": data=Data(Analytics.fillsCSV(s,time:self.now).utf8)
             case "ledger": data=Data(Analytics.ledgerCSV(s,time:self.now).utf8)
+            case "orders": data=Data(Analytics.ordersCSV(s,time:self.now).utf8)
+            case "both":
+                let otherMode: Mode=s.mode == .online ? .offline:.online
+                let otherRepository=try AccountRepository(root:self.root,mode:otherMode)
+                guard let other=try otherRepository.load() else{throw TradeError.corrupt("另一帳戶不存在，完整備份中止")}
+                data=try BackupService.exportBoth([s,other],password:password.isEmpty ? nil:password,time:self.now)
             case "JSON": var clean=s;if s.mode == .online{clean.quotes=[:];clean.consumed=[:]};data=try AccountRepository.encode(clean)
             default: data=try BackupService.export(s,password:password.isEmpty ? nil:password,time:self.now)
             }
-            self.exportName="ChaiTrade-模擬交易-\(s.accountID)-\(kind).\(kind == "CSV" || kind == "ledger" ? "csv":kind == "JSON" ? "json":"chaitrade")"
+            self.exportName="ChaiTrade-模擬交易-\(s.accountID)-\(kind).\(["CSV","ledger","orders"].contains(kind) ? "csv":kind == "JSON" ? "json":"chaitrade")"
             self.exportDocument=ExportDocument(data:data);self.exporting=true
         }
     }
@@ -244,7 +289,7 @@ struct ExportDocument: FileDocument {
         await run {
             let granted=url.startAccessingSecurityScopedResource();defer{if granted{url.stopAccessingSecurityScopedResource()}}
             let data=try Data(contentsOf:url,options:.mappedIfSafe)
-            let restored=try BackupService.validate(data,expectedMode:context.mode,password:password)
+            let restored=try BackupService.importAccount(data,expectedMode:context.mode,password:password)
             let current=await engine.snapshot()
             let recovery=try BackupService.export(current,password:nil,time:self.now)
             let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")

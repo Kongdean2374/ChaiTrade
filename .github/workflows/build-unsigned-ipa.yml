@@ -23,6 +23,10 @@ jobs:
         run: bash scripts/test.sh
       - name: iPhone Simulator UI smoke tests
         run: bash scripts/test_ui.sh
+        timeout-minutes: 12
+      - name: Read-only public market connectivity evidence
+        run: python3 scripts/probe_public_market.py
+        timeout-minutes: 1
       - name: Build and verify unsigned iPhoneOS IPA
         run: bash scripts/build_unsigned_ipa.sh
       - name: Upload IPA, checksum and build info

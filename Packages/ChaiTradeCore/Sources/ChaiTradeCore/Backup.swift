@@ -20,7 +20,36 @@ public struct BackupEnvelope: Codable, Sendable {
     public var payload: Data
     public var checksum: String
 }
+public struct AccountBackupBundle: Codable, Sendable {
+    public var format = "ChaiTrade 雙帳戶模擬交易備份"
+    public var version = 1
+    public var createdAt: Int64
+    public var accounts: [Data]
+    public var checksums: [String]
+}
 public enum BackupService {
+    public static func exportBoth(_ accounts: [AccountState],password: String?,time: Int64) throws -> Data {
+        guard accounts.count==2,Set(accounts.map(\.mode)).count==2 else{throw TradeError.invalid("完整備份須包含獨立的 A、B 帳戶")}
+        let payloads=try accounts.sorted{$0.mode.rawValue<$1.mode.rawValue}.map{try export($0,password:password,time:time)}
+        return try AccountRepository.encode(AccountBackupBundle(createdAt:time,accounts:payloads,checksums:payloads.map(digest)))
+    }
+    public static func importAccount(_ data: Data,expectedMode: Mode,password: String?) throws -> AccountState {
+        guard data.count<=100_000_000 else{throw TradeError.corrupt("備份超過安全大小限制")}
+        if let bundle=try? JSONDecoder().decode(AccountBackupBundle.self,from:data){
+            guard bundle.version==1,bundle.format=="ChaiTrade 雙帳戶模擬交易備份",bundle.accounts.count==2,bundle.checksums.count==2 else{throw TradeError.corrupt("雙帳戶備份結構不合法")}
+            var result: AccountState?,modes=Set<Mode>()
+            for n in bundle.accounts.indices {
+                let payload=bundle.accounts[n]
+                guard digest(payload)==bundle.checksums[n] else{throw TradeError.corrupt("雙帳戶備份校驗碼不符")}
+                let header=try JSONDecoder().decode(BackupEnvelope.self,from:payload)
+                guard modes.insert(header.mode).inserted else{throw TradeError.corrupt("雙帳戶備份模式重複")}
+                let validated=try validate(payload,expectedMode:header.mode,password:password)
+                if header.mode==expectedMode{result=validated}
+            }
+            guard let result else{throw TradeError.wrongAccount};return result
+        }
+        return try validate(data,expectedMode:expectedMode,password:password)
+    }
     public static func digest(_ data: Data) -> String {
         #if canImport(CryptoKit)
         return SHA256.hash(data:data).map { String(format:"%02x",$0) }.joined()
