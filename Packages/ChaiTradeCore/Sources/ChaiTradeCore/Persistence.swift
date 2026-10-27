@@ -65,7 +65,12 @@ public final class AccountRepository: @unchecked Sendable {
         guard !FileManager.default.fileExists(atPath:url.path) else{throw TradeError.invalid("快照目的地已存在，不覆蓋原檔")}
         try FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
         var target:OpaquePointer?;guard sqlite3_open_v2(url.path,&target,SQLITE_OPEN_CREATE|SQLITE_OPEN_READWRITE,nil)==SQLITE_OK,let target else{throw TradeError.unavailable("無法建立帳戶檔案快照")};defer{sqlite3_close(target)}
-        do{try withArchiveConnection{source in try SQLiteArchiveDatabase.copy(source:source,target:target)}}catch{try? FileManager.default.removeItem(at:url);throw error}
+        do{
+            try withArchiveConnection{source in try SQLiteArchiveDatabase.copy(source:source,target:target)}
+            // This connection owns the snapshot, never the live account. A portable archive
+            // must not depend on WAL/shm sidecars that a read-only platform cannot create.
+            guard try SQLiteArchiveDatabase.strings(target,"PRAGMA journal_mode=DELETE")==["delete"] else{throw TradeError.unavailable("無法完成獨立帳戶快照；原帳戶保留")}
+        }catch{try? FileManager.default.removeItem(at:url);throw error}
     }
     func installArchiveSnapshot(_ verified:VerifiedAccountDatabase)throws->AccountState{
         guard verified.mode==mode else{throw TradeError.wrongAccount}
@@ -78,6 +83,7 @@ public final class AccountRepository: @unchecked Sendable {
         try withArchiveConnection{db in
             guard sqlite3_exec(db,"PRAGMA secure_delete=ON; VACUUM",nil,nil,nil)==SQLITE_OK else{throw TradeError.unavailable("檔案快照整理失敗；原帳戶保留")}
             guard sqlite3_wal_checkpoint_v2(db,"main",SQLITE_CHECKPOINT_TRUNCATE,nil,nil)==SQLITE_OK else{throw TradeError.unavailable("無法完成檔案快照，請稍後重試")}
+            guard try SQLiteArchiveDatabase.strings(db,"PRAGMA journal_mode=DELETE")==["delete"] else{throw TradeError.unavailable("無法完成可攜式帳戶快照")}
         }
     }
     public func readSnapshot()throws->AccountState?{try AccountRepository(reading:path,mode:mode).fullSnapshot()}
