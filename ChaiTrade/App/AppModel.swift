@@ -46,6 +46,7 @@ struct ChartAmendment: Identifiable {
     @Published var progress: Double?
     @Published var selectedID=""
     @Published var tab=0
+    @Published var stateRevision=UUID()
     @Published var candles: [Candle]=[]
     @Published var chartError: String?
     @Published var journalScreenshot: Data?
@@ -381,7 +382,7 @@ struct ChartAmendment: Identifiable {
             let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
             try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
             try recovery.write(to:directory.appendingPathComponent("before-restore-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
-            try await engine.restore(restored,maintenanceToken:token,context:context);self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
+            try await engine.restore(restored,maintenanceToken:token,context:context);self.clearChartCaches();self.stateRevision=UUID();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
             }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }
         await loadChart()

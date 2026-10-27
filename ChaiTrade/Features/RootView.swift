@@ -30,7 +30,7 @@ struct RootView: View {
                         NavigationStack { TradingView() }.tabItem{Label("交易",systemImage:"arrow.left.arrow.right")}.tag(2)
                         NavigationStack { OrdersView() }.tabItem{Label("委託",systemImage:"list.bullet.rectangle")}.tag(3)
                         NavigationStack { PortfolioView() }.tabItem{Label("資產",systemImage:"wallet.bifold")}.tag(4)
-                    }
+                    }.id(model.stateRevision)
                 }.disabled(model.progress != nil || model.catchupTarget != nil || model.maintainingAccount)
             }
         }

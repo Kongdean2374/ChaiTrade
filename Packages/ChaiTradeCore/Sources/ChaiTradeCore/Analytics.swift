@@ -90,14 +90,10 @@ public enum Analytics {
     }
     /// Time-weighted return removes external flows at each valuation boundary.
     public static func timeWeighted(_ points: [EquityPoint]) -> [Double?] {
-        var nav = 1.0, last: Double? = nil
-        return points.map { point in
-            guard let value = point.value?.displayDouble else { last = nil; return nil }
-            defer { last = value }
-            if let prior=last{guard prior>0 else{return nil};nav *= (value-point.flow.displayDouble)/prior}else{guard value>0 else{return nil}}
-            return nav
-        }
+        var metrics=EquityMetrics();return points.map{metrics.consume($0)}
     }
+    public static func timeWeighted(_ state:AccountState)->[Double?]{var metrics=state.history?.equityMetrics ?? EquityMetrics();return state.equity.map{metrics.consume($0)}}
+    public static func equityMetrics(_ state:AccountState)->EquityMetrics{var metrics=state.history?.equityMetrics ?? EquityMetrics();for point in state.equity{metrics.consume(point)};return metrics}
     public static func maximumDrawdown(_ nav: [Double?]) -> Double? {
         var peak = 0.0, drawdown = 0.0; var found = false
         for case let value? in nav where value.isFinite { peak=max(peak,value);if peak>0{found=true;drawdown=max(drawdown,(peak-value)/peak)} }

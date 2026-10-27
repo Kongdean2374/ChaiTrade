@@ -417,6 +417,7 @@ func stressHistory100000() async throws {
         var request=OrderRequest(instrumentID:"TEST",side:side,kind:.limit,quantity:quantity,price:price);request.requestID=id
         s.orders[id]=Order(id:id,accountID:s.accountID,request:request,status:.filled,filled:quantity,cumulativeNotional:price,referencePrice:price,createdAt:time,updatedAt:time,ruleVersion:r.instrument.rules.version)
         let fill=Fill(id:"fill-\(id)",accountID:s.accountID,orderID:id,instrumentID:"TEST",side:side,quantity:quantity,price:price,fee:.zero,tax:.zero,time:time,quoteTime:time,source:"synthetic-stress-fixture",grade:.E1,estimatedExecution:false,liquidityEventID:"liquidity-\(n)",ruleVersion:r.instrument.rules.version,realized:.zero)
+        s.equity.append(EquityPoint(time:time,value:s.cash["TWD"],flow:.zero))
         s.fills.append(fill);s.post(event:fill.id,currency:"TWD",debit:"cash",credit:"spot-clearing",amount:side == .buy ? price.negated:price,time:time);s.audit("fill","合成壓力資料",time:time,id:fill.id)
     }
     let clock=ContinuousClock(),start=clock.now
@@ -424,7 +425,7 @@ func stressHistory100000() async throws {
     let saved=clock.now
     s=try r.repo.load()!
     let read=clock.now
-    #expect(s.fills.count<=100);#expect(s.orders.count<=200);#expect(s.ledger.count<=100);#expect(s.events.count<=100)
+    #expect(s.fills.count<=100);#expect(s.orders.count<=200);#expect(s.ledger.count<=100);#expect(s.events.count<=100);#expect(s.equity.count<=1000)
     #expect((s.history?.fills ?? 0)+s.fills.count==100000)
     var queries:[Double]=[]
     func seconds(_ start:ContinuousClock.Instant,_ end:ContinuousClock.Instant)->Double{let c=start.duration(to:end).components;return Double(c.seconds)+Double(c.attoseconds)/1e18}
@@ -432,7 +433,10 @@ func stressHistory100000() async throws {
     let paged=clock.now
     let full=try r.repo.fullSnapshot()!
     let fullRead=clock.now
-    #expect(full.fills.count==100000);#expect(full.orders.count==100000);#expect(full.ledger.count==200002);#expect(full.cash==s.cash)
+    #expect(try r.repo.equityPage(limit:100).count==100)
+    #expect(abs((Analytics.equityMetrics(s).unit ?? 0)-1)<1e-12)
+    #expect(Analytics.equityMetrics(s).drawdown==0)
+    #expect(full.fills.count==100000);#expect(full.orders.count==100000);#expect(full.ledger.count==200002);#expect(full.cash==s.cash);#expect(full.equity.count==100001)
     let csv=try r.repo.csv(kind:"fills",time:200000)
     let exported=clock.now
     #expect(csv.filter{$0==10}.count==100000)
@@ -474,6 +478,7 @@ func stressHistory100000() async throws {
     let backup=try BackupService.export(full,password:nil,time:200000)
     let restored=try BackupService.validate(backup,expectedMode:.online,password:nil)
     #expect(restored.fills.count==100000);#expect(restored.orders.count==100000);#expect(restored.ledger.count==200002)
+    #expect(restored.equity.count==100001)
     #expect(restored.cash==full.cash);#expect(restored.netFlows==full.netFlows)
     func p95(_ values:[Double])->Double{values.sorted()[Int(ceil(Double(values.count)*0.95))-1]}
     let cold=seconds(saved,read),query=p95(queries),write=p95(writes),report=seconds(fullRead,exported)
@@ -481,7 +486,7 @@ func stressHistory100000() async throws {
     #expect(query<=0.3,"Original page-interaction target: 300 ms p95")
     #expect(write<=0.15,"Original local order-feedback target: 150 ms p95")
     #expect(report<=3,"Full 100,000-row report budget: 3 seconds")
-    let metrics:[String:Any]=["fills":100000,"bulkImportSeconds":seconds(start,saved),"hotLoadSeconds":cold,"fullIntegrityLoadSeconds":seconds(paged,fullRead),"csv100000Seconds":report,"analytics100000Seconds":reportSeconds,"page100P95Seconds":query,"orderWriteP95Seconds":write,"samplesPerP95":30,"hotFills":s.fills.count,"hotOrders":s.orders.count,"platform":ProcessInfo.processInfo.operatingSystemVersionString,"passed":cold<=3 && query<=0.3 && write<=0.15 && report<=3 && reportSeconds<=3,"note":"Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate"]
+    let metrics:[String:Any]=["fills":100000,"bulkImportSeconds":seconds(start,saved),"hotLoadSeconds":cold,"fullIntegrityLoadSeconds":seconds(paged,fullRead),"csv100000Seconds":report,"analytics100000Seconds":reportSeconds,"page100P95Seconds":query,"orderWriteP95Seconds":write,"samplesPerP95":30,"equityPoints":100001,"hotEquityPoints":s.equity.count,"hotFills":s.fills.count,"hotOrders":s.orders.count,"platform":ProcessInfo.processInfo.operatingSystemVersionString,"passed":cold<=3 && query<=0.3 && write<=0.15 && report<=3 && reportSeconds<=3 && s.equity.count<=1000,"note":"Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate"]
     let out=URL(fileURLWithPath:ProcessInfo.processInfo.environment["CHAI_REPORT_DIR"] ?? "/app/.reports")
     try FileManager.default.createDirectory(at:out,withIntermediateDirectories:true)
     try JSONSerialization.data(withJSONObject:metrics,options:[.prettyPrinted,.sortedKeys]).write(to:out.appendingPathComponent("stress-100000.json"))
@@ -557,4 +562,14 @@ func allProviderQuoteSchemas(provider: ProviderID) async throws {
     let s=await r.engine.snapshot()
     #expect(s.orders[id]?.status == .cancelled);#expect(s.fills.isEmpty)
     #expect(try TradingEngine.available(s,currency:"TWD") == a("100000"))
+}
+
+@Test func sameTimestampTradeFeesRemainInTheEquityCurve()async throws{
+    let r=try Rig(fee:"10");try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    let request=try r.buy(quantity:"1",id:"equity-fee")
+    _=try await r.engine.submit(request,time:1000,context:r.context)
+    _=try await r.engine.submit(request,time:1000,context:r.context)
+    let s=await r.engine.snapshot()
+    #expect(s.equity.count==2);#expect(try s.equity.last?.value==a("99990"))
+    #expect(abs((Analytics.timeWeighted(s).last.flatMap{$0} ?? 0)-0.9999)<1e-12)
 }

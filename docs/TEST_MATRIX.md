@@ -43,12 +43,12 @@
 | T37 | 調整手機時間與時區 | 未執行 | 需完整整合／UI／實機驗證 |
 | T38 | A／B 備份還原與完整重設 | 未執行 | dualAccountBackupAndCSVNumbers |
 | T39 | 壞備份、錯密碼、錯模式、路徑穿越 | 通過 | backupRoundTripEncryptionTamperingAndWrongMode |
-| T40 | schema 遷移被中斷 | 核心通過 | injected failures/retries for schema 1 and 2; physical termination acceptance pending |
+| T40 | schema 遷移被中斷 | 核心通過 | injected failures/retries for schema 1, 2 and 3; physical termination acceptance pending |
 | T41 | 指數商品與資料缺失功能 | 未執行 | 需完整整合／UI／實機驗證 |
 | T42 | E3 參考價估算撮合 | 未執行 | MarketData/TradingEngine E3 policy; full UI flow not yet executed |
 | T43 | 交易／資產匯出 | 未執行 | networkWhitelistAndCSVInjection; dualAccountBackupAndCSVNumbers |
 | T44 | 網路政策 | 通過 | networkWhitelistAndCSVInjection |
-| T45 | 100,000 筆交易壓力資料 | Apple 修正版通過；新增報表批次待 CI | stressHistory100000; 3 s cold/report, 300 ms page p95, 150 ms order p95; full integrity/CSV/backup equality |
+| T45 | 100,000 筆交易壓力資料 | Apple 修正版通過；新增報表批次待 CI | stressHistory100000; 100,000 fills + 100,001 equity points; 3 s cold/report, 300 ms page p95, 150 ms order p95; full integrity/CSV/backup equality |
 | T46 | 公開儲存庫乾淨建置 | 通過 | run 40451960851, clean checkout / no secrets / core + UI + device build |
 | T47 | IPA 結構與簽署狀態 | 通過 | run 40451960851, verify_artifact.sh and IPA zip validation |
 | T48 | 使用者簽署後實機操作 | 外部條件阻擋 | 需完整整合／UI／實機驗證 |

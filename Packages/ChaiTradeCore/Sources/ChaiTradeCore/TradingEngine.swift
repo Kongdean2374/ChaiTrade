@@ -15,6 +15,7 @@ public actor TradingEngine {
     public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
         try check(context);return try repository.fillPage(limit:limit,before:before)
     }
+    public func equityPage(limit:Int=100,before:Int64?=nil,context:AccountContext)throws->[EquityPageRow]{try check(context);return try repository.equityPage(limit:limit,before:before)}
     public nonisolated func fullSnapshot(context:AccountContext)async throws->AccountState{
         guard context==self.context else{throw TradeError.wrongAccount}
         let repository=self.repository
@@ -53,7 +54,7 @@ public actor TradingEngine {
     public static func initial(mode: Mode, baseCurrency: String = "TWD", capital: Amount, time: Int64) throws -> AccountState {
         var s = AccountState(mode: mode, baseCurrency: baseCurrency, instruments: try mode == .offline ? Simulation.catalog() : Providers.catalog())
         if mode == .offline{s.schema=2}
-        try adjustCash(&s, currency: baseCurrency, amount: capital, time: time, eventID: "initial-capital")
+        try adjustCash(&s, currency: baseCurrency, amount: capital, time: s.simulation?.time ?? time, eventID: "initial-capital")
         return s
     }
     public static func available(_ state: AccountState, currency: String, excluding: String? = nil) throws -> Amount {
@@ -176,6 +177,7 @@ public actor TradingEngine {
         return try transaction { s in
             let id = try Self.accept(request, in: &s, time: eventTime)
             if let q = s.quotes[request.instrumentID] { try Self.match(&s, quote: q, now: eventTime) }
+            try Self.recordEquity(&s,time:eventTime)
             return id
         }
     }
@@ -191,6 +193,7 @@ public actor TradingEngine {
             a.groupID = group; b.groupID = group
             _ = try Self.accept(a, in: &s, time: time); _ = try Self.accept(b, in: &s, time: time)
             if let q = s.quotes[a.instrumentID] { try Self.match(&s, quote: q, now: time) }
+            try Self.recordEquity(&s,time:time)
         }
     }
     public func cancel(id: String, time: Int64, context: AccountContext) throws {
@@ -215,6 +218,7 @@ public actor TradingEngine {
             o.revision += 1; o.updatedAt = time; s.orders[id] = o
             s.audit("amended", "改單第 \(o.revision) 次，重新計算保留", time: time)
             if let q = s.quotes[r.instrumentID] { try Self.match(&s, quote: q, now: time) }
+            try Self.recordEquity(&s,time:time)
         }
     }
     public func ingest(_ quote: Quote, now: Int64, context: AccountContext) throws {
@@ -480,6 +484,7 @@ public actor TradingEngine {
             let end = min(target - target % Simulation.step, simulation.time + 300)
             while s.simulation!.time + Simulation.step <= end {
                 s.simulation!.time += Simulation.step
+                let financialSequence=s.sequence
                 let sim = s.simulation!
                 try Self.settleDue(&s,now:sim.time)
                 try Self.scheduledOfflineLifecycle(&s,previous:sim.time-Simulation.step,now:sim.time)
@@ -490,7 +495,7 @@ public actor TradingEngine {
                 if sim.time % 21600 == 0 {
                     s.audit("simulationNews", "模擬事件：產業、政策與流動性因子重新定價；非真實新聞", time: sim.time)
                 }
-                if sim.time % 60 == 0 { try Self.recordEquity(&s,time:sim.time) }
+                if sim.time % 60 == 0 || s.sequence>financialSequence { try Self.recordEquity(&s,time:sim.time) }
             }
             if let wallTarget { s.lastWallTime = wallTarget - max(0,target-s.simulation!.time) }
             return s.simulation!.time
@@ -554,8 +559,9 @@ public actor TradingEngine {
     }
     public func saveWallClock(_ time: Int64, context: AccountContext) throws { try check(context); try transaction { $0.lastWallTime = time } }
     private static func recordEquity(_ s: inout AccountState,time: Int64) throws {
-        guard s.equity.last?.time != time else { return }
         let v=try Analytics.valuation(s)
+        let value=v.complete ? v.total:nil
+        if s.equity.last?.time==time,s.equity.last?.value==value{return}
         s.equity.append(EquityPoint(time:time,value:v.complete ? v.total:nil,flow:.zero))
     }
     private static func settleDue(_ s: inout AccountState,now: Int64) throws {

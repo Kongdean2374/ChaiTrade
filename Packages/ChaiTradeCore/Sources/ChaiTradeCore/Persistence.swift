@@ -11,6 +11,8 @@ public struct FillPageRow: Sendable,Identifiable {
 public final class AccountRepository: @unchecked Sendable {
     private var db: OpaquePointer?
     private let lock = NSLock()
+    private var cachedEquity:[EquityPoint]=[]
+    private var cachedEquityOffset=0
     public let mode: Mode
     public let path: String
     public init(root: URL, mode: Mode) throws {
@@ -22,14 +24,14 @@ public final class AccountRepository: @unchecked Sendable {
         do {
             try exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;")
             let version = try scalar("PRAGMA user_version") ?? "0"
-            guard Int(version) ?? 99 <= 3 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
-            try exec("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS account_state (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, account_id TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS fills_time ON fills(time); CREATE INDEX IF NOT EXISTS fills_order ON fills(order_id); CREATE INDEX IF NOT EXISTS fills_instrument_time ON fills(account_id,time); CREATE TABLE IF NOT EXISTS report_state (id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_checkpoints (time INTEGER PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fill_report (id TEXT PRIMARY KEY REFERENCES fills(id), cells TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, time INTEGER NOT NULL, instrument TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS orders_time ON orders(time); CREATE INDEX IF NOT EXISTS orders_time_id ON orders(time DESC,id DESC); CREATE INDEX IF NOT EXISTS fills_instrument ON fills(json_extract(payload,'$.instrumentID')); CREATE TABLE IF NOT EXISTS ledger (ordinal INTEGER PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL); COMMIT;")
-            if Int(version) ?? 0 < 3 {
+            guard Int(version) ?? 99 <= 4 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
+            try exec("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS account_state (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, account_id TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS fills_time ON fills(time); CREATE INDEX IF NOT EXISTS fills_order ON fills(order_id); CREATE INDEX IF NOT EXISTS fills_instrument_time ON fills(account_id,time); CREATE TABLE IF NOT EXISTS equity (ordinal INTEGER PRIMARY KEY,account_id TEXT NOT NULL,metrics TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_state (id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_checkpoints (time INTEGER PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fill_report (id TEXT PRIMARY KEY REFERENCES fills(id), cells TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, time INTEGER NOT NULL, instrument TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS orders_time ON orders(time); CREATE INDEX IF NOT EXISTS orders_time_id ON orders(time DESC,id DESC); CREATE INDEX IF NOT EXISTS fills_instrument ON fills(json_extract(payload,'$.instrumentID')); CREATE TABLE IF NOT EXISTS ledger (ordinal INTEGER PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL); COMMIT;")
+            if Int(version) ?? 0 < 4 {
                 // Old snapshot remains authoritative until the entire migration commits.
                 if let json = try scalar("SELECT payload FROM account_state LIMIT 1") {
                     let old = try JSONDecoder().decode(AccountState.self,from:Data(json.utf8))
                     _ = try save(old,replacing:(Int(version) ?? 0)<2)
-                } else { try exec("PRAGMA user_version=3") }
+                } else { try exec("PRAGMA user_version=4") }
             }
         } catch { sqlite3_close(db); db = nil; throw error }
     }
@@ -65,12 +67,14 @@ public final class AccountRepository: @unchecked Sendable {
         guard let json = try scalar("SELECT payload FROM account_state LIMIT 1") else { return nil }
         let state = try JSONDecoder().decode(AccountState.self, from: Data(json.utf8))
         if let h=state.history {
-            guard h.fills>=0,h.ledger>=0,h.events>=0,
+            guard h.fills>=0,h.ledger>=0,h.events>=0,(h.equityOffset ?? 0)>=0,((h.equityOffset ?? 0)==0 || h.equityMetrics != nil),
+                  Int(try scalar("SELECT count(*) FROM equity") ?? "-1")==(h.equityOffset ?? 0)+state.equity.count,
                   Int(try scalar("SELECT count(*) FROM fills") ?? "-1")==h.fills+state.fills.count,
                   Int(try scalar("SELECT count(*) FROM ledger") ?? "-1")==h.ledger+state.ledger.count,
                   Int(try scalar("SELECT count(*) FROM events") ?? "-1")==h.events+state.events.count else {throw TradeError.corrupt("歷史檢查點與資料表不符，保留原資料")}
         }
         try Self.validate(state, mode: mode)
+        cachedEquity=state.equity;cachedEquityOffset=state.history?.equityOffset ?? 0
         return state
     }
     public func fillPage(limit: Int = 100,before cursor: Int64? = nil,instrumentID:String? = nil) throws -> [FillPageRow] {
@@ -92,6 +96,22 @@ public final class AccountRepository: @unchecked Sendable {
         }
         guard status==SQLITE_DONE else{throw TradeError.corrupt("成交分頁讀取中斷")}
         return rows
+    }
+    public func equityPage(limit:Int=100,before cursor:Int64?=nil)throws->[EquityPageRow]{
+        guard (1...500).contains(limit),cursor==nil || cursor!>0 else{throw TradeError.invalid("估值分頁參數不合法")}
+        lock.lock();defer{lock.unlock()}
+        var statement:OpaquePointer?
+        guard sqlite3_prepare_v2(db,"SELECT ordinal,payload,metrics FROM equity WHERE ordinal<? ORDER BY ordinal DESC LIMIT ?",-1,&statement,nil)==SQLITE_OK else{throw TradeError.corrupt("無法查詢估值歷史")}
+        defer{sqlite3_finalize(statement)}
+        sqlite3_bind_int64(statement,1,cursor ?? Int64.max);sqlite3_bind_int(statement,2,Int32(limit))
+        var rows:[EquityPageRow]=[],status=sqlite3_step(statement)
+        let decoder=JSONDecoder()
+        while status==SQLITE_ROW{
+            guard let p=sqlite3_column_text(statement,1),let m=sqlite3_column_text(statement,2) else{throw TradeError.corrupt("估值資料損壞")}
+            rows.append(EquityPageRow(cursor:sqlite3_column_int64(statement,0),point:try decoder.decode(EquityPoint.self,from:Data(String(cString:p).utf8)),metrics:try decoder.decode(EquityMetrics.self,from:Data(String(cString:m).utf8))))
+            status=sqlite3_step(statement)
+        }
+        guard status==SQLITE_DONE else{throw TradeError.corrupt("估值查詢中斷")};return rows
     }
     public static func encode<T: Encodable>(_ object: T) throws -> Data {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -179,6 +199,11 @@ public final class AccountRepository: @unchecked Sendable {
         while ledgerDrop>0 && ledgerDrop<s.ledger.count && s.ledger[ledgerDrop-1].eventID==s.ledger[ledgerDrop].eventID{ledgerDrop-=1}
         for entry in s.ledger.prefix(ledgerDrop) where entry.account=="cash"{h.cashBefore[entry.currency]=try (h.cashBefore[entry.currency] ?? .zero)+entry.amount}
         h.fills+=fillDrop;h.events+=eventDrop;h.ledger+=ledgerDrop
+        let equityDrop=max(0,s.equity.count-1000)
+        var metrics=h.equityMetrics ?? EquityMetrics()
+        for point in s.equity.prefix(equityDrop){metrics.consume(point)}
+        h.equityOffset=(h.equityOffset ?? 0)+equityDrop;h.equityMetrics=metrics
+        s.equity=Array(s.equity.dropFirst(equityDrop))
         s.fills=Array(s.fills.dropFirst(fillDrop));s.events=Array(s.events.dropFirst(eventDrop));s.ledger=Array(s.ledger.dropFirst(ledgerDrop));s.history=h
         var keep=Set(s.orders.values.filter{$0.status.open}.map(\.id))
         keep.formUnion(s.orders.values.sorted{($0.updatedAt,$0.id)>($1.updatedAt,$1.id)}.prefix(window).map(\.id))
@@ -190,22 +215,36 @@ public final class AccountRepository: @unchecked Sendable {
     }
     @discardableResult public func save(_ state: AccountState, replacing: Bool = false) throws -> AccountState {
         lock.lock(); defer { lock.unlock() }
-        if replacing && (state.history.map{$0.fills>0 || $0.ledger>0 || $0.events>0} ?? false){throw TradeError.corrupt("完整還原不可使用分頁投影")}
+        if replacing && (state.history.map{$0.fills>0 || $0.ledger>0 || $0.events>0 || ($0.equityOffset ?? 0)>0} ?? false){throw TradeError.corrupt("完整還原不可使用分頁投影")}
         try Self.validate(state, mode: mode)
         let compact=try Self.compact(state)
         func json<T:Encodable>(_ x:T)throws->String{String(decoding:try Self.encode(x),as:UTF8.self)}
         try exec("BEGIN IMMEDIATE")
         do {
-            if replacing { try exec("DELETE FROM report_state; DELETE FROM report_checkpoints; DELETE FROM fill_report; DELETE FROM events; DELETE FROM fills; DELETE FROM orders; DELETE FROM ledger;") }
+            if replacing { try exec("DELETE FROM equity; DELETE FROM report_state; DELETE FROM report_checkpoints; DELETE FROM fill_report; DELETE FROM events; DELETE FROM fills; DELETE FROM orders; DELETE FROM ledger;") }
             try batch("INSERT OR IGNORE INTO events(id,account_id,sequence,payload) VALUES(?,?,?,?)",rows:try state.events.map{[$0.id,state.accountID,String($0.sequence),try json($0)]},immutableTable:"events")
             try batch("INSERT OR IGNORE INTO fills(id,order_id,account_id,time,payload) VALUES(?,?,?,?,?)",rows:try state.fills.map{[$0.id,$0.orderID,state.accountID,String($0.time),try json($0)]},immutableTable:"fills")
             try batch("INSERT OR IGNORE INTO fill_report(id,cells) VALUES(?,?)",rows:state.fills.map{[$0.id,Analytics.fillFields($0).map(Analytics.csvCell).joined(separator:",")]})
             try batch("INSERT OR IGNORE INTO ledger(ordinal,account_id,payload) VALUES(?,?,?)",rows:try state.ledger.enumerated().map{[String((state.history?.ledger ?? 0)+$0.offset+1),state.accountID,try json($0.element)]},immutableTable:"ledger",key:"ordinal")
             try batch("INSERT INTO orders(id,account_id,time,instrument,status,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload,time=excluded.time",rows:try state.orders.values.map{[$0.id,state.accountID,String($0.updatedAt),$0.request.instrumentID,$0.status.rawValue,try json($0)]})
             guard Int(try scalar("SELECT count(*) FROM fills") ?? "-1")==((state.history?.fills ?? 0)+state.fills.count),Int(try scalar("SELECT count(*) FROM ledger") ?? "-1")==((state.history?.ledger ?? 0)+state.ledger.count),Int(try scalar("SELECT count(*) FROM events") ?? "-1")==((state.history?.events ?? 0)+state.events.count) else{throw TradeError.corrupt("寫入來源已過期或歷史筆數不符，已回滾")}
+            let offset=state.history?.equityOffset ?? 0,stored=Int(try scalar("SELECT coalesce(max(ordinal),0) FROM equity") ?? "0") ?? 0
+            guard offset>=0,stored>=offset else{throw TradeError.corrupt("估值歷史檢查點不符")}
+            let overlap=min(state.equity.count,stored-offset)
+            if overlap>0{
+                let expected:[EquityPoint]
+                if !replacing,offset>=cachedEquityOffset,offset+overlap<=cachedEquityOffset+cachedEquity.count{expected=Array(cachedEquity[(offset-cachedEquityOffset)..<(offset-cachedEquityOffset+overlap)])}
+                else{expected=try readRows(EquityPoint.self,sql:"SELECT payload FROM equity WHERE ordinal>? AND ordinal<=? ORDER BY ordinal",values:[String(offset),String(offset+overlap)])}
+                guard state.equity.prefix(overlap).elementsEqual(expected) else{throw TradeError.corrupt("不可改寫已存在的估值事件")}
+            }
+            var metrics=state.history?.equityMetrics ?? EquityMetrics(),equityRows:[[String]]=[]
+            for (n,point) in state.equity.enumerated(){metrics.consume(point);let ordinal=offset+n+1;if ordinal>stored{equityRows.append([String(ordinal),state.accountID,try json(metrics),try json(point)])}}
+            try batch("INSERT OR IGNORE INTO equity(ordinal,account_id,metrics,payload) VALUES(?,?,?,?)",rows:equityRows,immutableTable:"equity",key:"ordinal")
+            guard Int(try scalar("SELECT count(*) FROM equity") ?? "-1")==offset+state.equity.count else{throw TradeError.corrupt("估值歷史來源已過期，已回滾")}
             try updatePerformance(state,replacing:replacing)
             try insert("INSERT INTO account_state(account_id,payload) VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(compact)])
-            try exec("PRAGMA user_version=3; COMMIT")
+            try exec("PRAGMA user_version=4; COMMIT")
+            cachedEquity=compact.equity;cachedEquityOffset=compact.history?.equityOffset ?? 0
             return compact
         } catch { try? exec("ROLLBACK"); throw error }
     }
@@ -227,14 +266,16 @@ public final class AccountRepository: @unchecked Sendable {
     public func fullSnapshot()throws->AccountState?{
         lock.lock();defer{lock.unlock()}
         try exec("BEGIN DEFERRED")
-        defer{try? exec("ROLLBACK")}
+        var committed=false
+        defer{if !committed{try? exec("ROLLBACK")}}
         guard let json=try scalar("SELECT payload FROM account_state LIMIT 1") else{return nil}
         var s=try JSONDecoder().decode(AccountState.self,from:Data(json.utf8))
         s.orders=Dictionary(uniqueKeysWithValues:try readRows(Order.self,sql:"SELECT payload FROM orders").map{($0.id,$0)})
         s.fills=try readRows(Fill.self,sql:"SELECT payload FROM fills ORDER BY rowid")
         s.events=try readRows(AuditEvent.self,sql:"SELECT payload FROM events ORDER BY sequence")
         s.ledger=try readRows(LedgerEntry.self,sql:"SELECT payload FROM ledger ORDER BY ordinal")
-        s.history=nil;try Self.validate(s,mode:mode);try exec("COMMIT");return s
+        s.equity=try readRows(EquityPoint.self,sql:"SELECT payload FROM equity ORDER BY ordinal")
+        s.history=nil;try Self.validate(s,mode:mode);try exec("COMMIT");committed=true;return s
     }
     public func order(id:String)throws->Order?{
         lock.lock();defer{lock.unlock()}

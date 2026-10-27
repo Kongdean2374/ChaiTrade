@@ -120,7 +120,7 @@ public enum BackupService {
     }
     public static func export(_ state: AccountState, password: String?, time: Int64) throws -> Data {
         try AccountRepository.validate(state,mode:state.mode)
-        guard state.history.map({$0.fills==0 && $0.ledger==0 && $0.events==0}) ?? true else{throw TradeError.invalid("備份必須先取得完整歷史，不可匯出分頁投影")}
+        guard state.history.map({$0.fills==0 && $0.ledger==0 && $0.events==0 && ($0.equityOffset ?? 0)==0}) ?? true else{throw TradeError.invalid("備份必須先取得完整歷史，不可匯出分頁投影")}
         var clean = state
         clean.history=nil
         // Provider data/cache and credentials are never exported. Offline state is the owned synthetic world.

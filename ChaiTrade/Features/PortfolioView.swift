@@ -166,6 +166,8 @@ struct PerformanceView: View {
     @State private var date=Date()
     @State private var calculating=false
     @State private var generation=UUID()
+    @State private var historicalEquity:[EquityPageRow]=[]
+    @State private var equityCursor:Int64?
     var body: some View {
         List{
             Section("歷史成交報表"){
@@ -187,11 +189,18 @@ struct PerformanceView: View {
                 }
             }
             Section("資金流調整績效"){
-                let nav=Analytics.timeWeighted(s.equity)
-                LabeledContent("單位淨值",value:nav.last.flatMap{$0}.map{String(format:"%.6f",$0)} ?? "估值樣本不足")
-                LabeledContent("最大回撤（扣除資金流）",value:Analytics.maximumDrawdown(nav).map{String(format:"%.2f%%",$0*100)} ?? "估值樣本不足")
+                let nav=Analytics.timeWeighted(s)
+                let metrics=Analytics.equityMetrics(s)
+                LabeledContent("單位淨值",value:metrics.hasGap ? "歷史資料有缺口":nav.last.flatMap{$0}.map{String(format:"%.6f",$0)} ?? "估值樣本不足")
+                LabeledContent("已觀測最大回撤（扣除資金流）",value:metrics.drawdown.map{String(format:"%.2f%%",$0*100)} ?? "估值樣本不足")
                 Chart(Array(Analytics.returnSeries(nav).suffix(1000))){point in LineMark(x:.value("估值序號",point.id),y:.value("單位淨值",point.value),series:.value("有效區段",point.segment)).foregroundStyle(.orange)}.frame(height:180)
-                Text("缺價與缺匯率區段保留空缺。沒有有效的完整估值時，不顯示虛構報酬率。").font(.caption).foregroundStyle(.secondary)
+                Text("圖表只載入最近估值點，累計報酬與回撤保留完整前綴。缺價與缺匯率區段保留空缺；不是完整績效宣告。").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("歷史淨值分頁（按事件序）"){
+                if !historicalEquity.isEmpty{
+                    Chart(Array(historicalEquity.reversed())){row in if let value=row.point.value{LineMark(x:.value("時間",Date(timeIntervalSince1970:TimeInterval(row.point.time))),y:.value("歷史淨值",value.displayDouble),series:.value("有效區段",row.metrics.segment)).foregroundStyle(.orange)}}.frame(height:180)
+                }
+                Button("載入較早淨值區段"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let rows=try await engine.equityPage(limit:100,before:equityCursor,context:context);historicalEquity=Array((historicalEquity+rows).suffix(1000));equityCursor=rows.last?.cursor ?? equityCursor;if rows.isEmpty{model.notice="已到最早淨值事件"}}}}
             }
         }}.navigationTitle("績效分析").toolbar{Button("完成"){dismiss()}}
             .task{date=Date(timeIntervalSince1970:TimeInterval(model.now));await calculate()}

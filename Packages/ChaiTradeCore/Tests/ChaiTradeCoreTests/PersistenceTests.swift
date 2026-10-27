@@ -83,3 +83,17 @@ private func sql(_ path:String,_ command:String)throws{
     #expect(after.cash==before.cash);#expect(after.fills.count==120);#expect(after.ledger.count==before.ledger.count)
     #expect(try migrated.performance().currencies["USD"]?.count==120)
 }
+@Test func schemaThreeEquityMigrationRollsBackAndRetainsAllPoints()throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),repo=try AccountRepository(root:root,mode:.online)
+    var state=try TradingEngine.initial(mode:.online,capital:Amount("1000"),time:1000)
+    for n in 1..<5000{state.equity.append(EquityPoint(time:Int64(1000+n),value:try Amount("1000"),flow:.zero))}
+    try repo.save(state)
+    let old=String(decoding:try AccountRepository.encode(state),as:UTF8.self).replacingOccurrences(of:"'",with:"''")
+    try sql(repo.path,"DELETE FROM equity; UPDATE account_state SET payload='\(old)'; PRAGMA user_version=3; CREATE TRIGGER fail_equity BEFORE INSERT ON equity BEGIN SELECT RAISE(ABORT,'injected migration interruption'); END;")
+    #expect(throws:TradeError.self){_=try AccountRepository(root:root,mode:.online)}
+    try sql(repo.path,"DROP TRIGGER fail_equity")
+    let migrated=try AccountRepository(root:root,mode:.online)
+    #expect(try migrated.load()?.equity.count==1000)
+    #expect(try migrated.fullSnapshot()?.equity==state.equity)
+    #expect(try migrated.equityPage(limit:100).count==100)
+}

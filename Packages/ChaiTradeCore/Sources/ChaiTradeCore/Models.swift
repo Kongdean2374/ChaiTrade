@@ -244,7 +244,7 @@ public struct AuditEvent: Codable, Identifiable, Sendable {
     public var kind: String
     public var message: String
 }
-public struct EquityPoint: Codable, Sendable {
+public struct EquityPoint: Codable, Sendable, Equatable {
     public var time: Int64
     public var value: Amount?
     public var flow: Amount
@@ -300,6 +300,8 @@ public struct HistoryWindow: Codable, Sendable {
     public var events: Int = 0
     public var cashBefore: [String: Amount] = [:]
     public var totals: [String: FillTotals]?
+    public var equityOffset:Int?
+    public var equityMetrics:EquityMetrics?
     public init() {}
 }
 public struct FillTotals: Codable, Sendable {

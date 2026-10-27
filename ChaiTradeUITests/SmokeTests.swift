@@ -88,7 +88,10 @@ import XCTest
         let save=app.buttons["保存日誌"]
         for _ in 0..<5 where !save.isHittable{app.swipeUp()}
         XCTAssertTrue(save.isHittable);save.tap()
-        XCTAssertTrue(app.buttons["匯出這張模擬圖表"].waitForExistence(timeout:10))
+        let exportImage=app.buttons["匯出這張模擬圖表"]
+        for _ in 0..<6 where !exportImage.isHittable{app.swipeUp()}
+        XCTAssertTrue(exportImage.waitForExistence(timeout:10),app.debugDescription)
+        XCTAssertFalse(app.alerts["操作未完成"].exists)
         app.buttons["完成"].tap()
     }
 
