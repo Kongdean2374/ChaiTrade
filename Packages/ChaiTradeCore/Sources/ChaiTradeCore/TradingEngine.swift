@@ -98,6 +98,7 @@ public actor TradingEngine {
         }
         let q = s.quotes[i.id]
         let ref = r.price ?? q?.last ?? i.initialPrice
+        guard ref > .zero else { throw TradeError.unavailable("缺少有效價格，請先更新行情；不使用合成報價估算保留資金") }
         let protection = try Amount("0.05")
         let protected = r.kind == .limit || r.kind == .stopLimit ? ref : try ref * (.one + protection)
         let notional = try protected * r.quantity * i.rules.multiplier
@@ -203,6 +204,7 @@ public actor TradingEngine {
         let ordered = s.orders.values.filter { $0.status.open && $0.request.instrumentID == i.id }.sorted { ($0.updatedAt, $0.id) < ($1.updatedAt, $1.id) }.map(\.id)
         for id in ordered {
             guard var o = s.orders[id], o.status.open else { continue }
+            let startingFilled = o.filled
             let dayExpired = o.request.timeInForce == .DAY && utcDay(o.createdAt, zone: i.rules.timeZone) != utcDay(now, zone: i.rules.timeZone)
             if dayExpired || (o.request.expiresAt.map { now >= $0 } ?? false) {
                 o.status = .expired; o.reserved = .zero; s.orders[id] = o; s.audit("expired", id, time: now); continue
@@ -212,7 +214,9 @@ public actor TradingEngine {
                 s.orders[id] = o; continue
             }
             o.suspension = nil
+            let wasTriggered = o.triggered
             guard try trigger(&o, q) else { s.orders[id] = o; continue }
+            if !wasTriggered && o.triggered && o.request.kind != .stopLimit { o.referencePrice = q.last }
             let key = "\(i.id)|\(o.request.side.rawValue)"
             let stamp = "\(key)|\(q.source)|\(q.sequence)"
             var levels: [Level]
@@ -255,12 +259,18 @@ public actor TradingEngine {
             if [.IOC,.FOK].contains(o.request.timeInForce) && o.status.open { o.status = .cancelled; o.reserved = .zero }
             if !limited && !o.request.kind.conditional && o.status.open { o.status = .cancelled; o.reserved = .zero }
             s.orders[id] = o; s.consumed[stamp] = levels
-            if o.filled > (beforeFilled(s: s, orderID: id, excludingTime: now)) {
+            if o.filled > startingFilled {
                 // Group cancellation is atomic with fills. The first fill wins.
                 if let group = o.request.groupID {
                     for sibling in s.orders.keys where sibling != id && s.orders[sibling]?.request.groupID == group && s.orders[sibling]!.status.open {
                         s.orders[sibling]!.status = .cancelled; s.orders[sibling]!.reserved = .zero
                     }
+                }
+                if let parentID = o.request.parentID, var parent = s.orders[parentID] {
+                    if parent.status.open { parent.status = .cancelled; parent.reserved = .zero; s.orders[parentID] = parent }
+                    // A partially filled exit is replaced by a new, correctly sized protection group.
+                    if s.orders[id]!.status.open { s.orders[id]!.status = .cancelled; s.orders[id]!.reserved = .zero }
+                    try protect(&s, parent: parent, time: now)
                 }
             }
             if o.filled > .zero && o.request.parentID == nil { try protect(&s, parent: o, time: now) }
@@ -269,9 +279,6 @@ public actor TradingEngine {
             let a = s.alerts[idx]
             if a.above ? q.last >= a.price : q.last <= a.price { s.alerts[idx].firedAt = now; s.audit("priceAlert", "\(i.symbol) 到價 \(a.price)", time: now, id: "alert-\(a.id)") }
         }
-    }
-    private static func beforeFilled(s: AccountState, orderID: String, excludingTime: Int64) -> Amount {
-        (try? sum(s.fills.filter { $0.orderID == orderID && $0.time != excludingTime }.map(\.quantity))) ?? .zero
     }
     private static func execute(_ s: inout AccountState, order o: inout Order, quantity: Amount, price: Amount, instrument i: Instrument, quote q: Quote, now: Int64) throws {
         let notional = try quantity * price * i.rules.multiplier
@@ -316,14 +323,19 @@ public actor TradingEngine {
     private static func protect(_ s: inout AccountState, parent: Order, time: Int64) throws {
         guard parent.request.bracketProfit != nil || parent.request.bracketStop != nil,
               let p = s.positions[parent.request.instrumentID], p.quantity != .zero else { return }
-        let group = "bracket-\(parent.id)"
+        let oldChildren = s.orders.values.filter { $0.request.parentID == parent.id }
+        let exited = try sum(oldChildren.map(\.filled))
+        let remainingProtection = min(p.quantity.magnitude, max(.zero, try parent.filled - exited))
+        guard remainingProtection > .zero else { return }
+        let activeChildren = oldChildren.filter { $0.status.open }
+        let group = activeChildren.first?.request.groupID ?? "bracket-\(parent.id)-\(s.sequence)"
         for (suffix, kind, trigger) in [("tp",OrderKind.takeProfit,parent.request.bracketProfit),("sl",.stopMarket,parent.request.bracketStop)] {
             guard let trigger else { continue }
             let id = "\(group)-\(suffix)"
             if var existing = s.orders[id], existing.status.open {
-                existing.request.quantity = try existing.filled + p.quantity.magnitude; s.orders[id] = existing
+                existing.request.quantity = try existing.filled + remainingProtection; s.orders[id] = existing
             } else if s.orders[id] == nil {
-                var request = OrderRequest(instrumentID: p.id, side: p.quantity > .zero ? .sell : .buy, kind: kind, quantity: p.quantity.magnitude, trigger: trigger)
+                var request = OrderRequest(instrumentID: p.id, side: p.quantity > .zero ? .sell : .buy, kind: kind, quantity: remainingProtection, trigger: trigger)
                 request.requestID = id; request.groupID = group; request.parentID = parent.id; request.reduceOnly = true
                 request.leverage = p.leverage; request.marginMode = p.marginMode
                 _ = try accept(request, in: &s, time: time)
@@ -360,7 +372,7 @@ public actor TradingEngine {
         let formatter = ISO8601DateFormatter(); formatter.timeZone = TimeZone(identifier: zone); formatter.formatOptions = [.withFullDate]
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(t)))
     }
-    public func advance(to target: Int64, context: AccountContext) throws -> Int64 {
+    public func advance(to target: Int64, wallTarget: Int64? = nil, context: AccountContext) throws -> Int64 {
         try check(context)
         guard state.mode == .offline, let simulation = state.simulation, target >= simulation.time else { throw TradeError.invalid("模擬時間不可倒退或在 A 推進") }
         // A bounded checkpoint transaction. Call repeatedly; a crash resumes from the last committed five-second event.
@@ -377,6 +389,7 @@ public actor TradingEngine {
                     s.audit("simulationNews", "模擬事件：產業、政策與流動性因子重新定價；非真實新聞", time: sim.time)
                 }
             }
+            if let wallTarget { s.lastWallTime = wallTarget - max(0,target-s.simulation!.time) }
             return s.simulation!.time
         }
     }

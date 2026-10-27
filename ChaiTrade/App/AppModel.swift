@@ -110,7 +110,7 @@ struct ExportDocument: FileDocument {
     func refresh() async { if let engine { state=await engine.snapshot() } }
     func select(_ instrument: Instrument) { selectedID=instrument.id;tab=2;Task{await loadChart()} }
     func tick() async {
-        guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil else { return }
+        guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil,catchupTarget == nil else { return }
         busy=true;defer{busy=false}
         let uptime=ProcessInfo.processInfo.systemUptime, elapsed=max(0,uptime-lastUptime);lastUptime=uptime
         do {
@@ -121,8 +121,7 @@ struct ExportDocument: FileDocument {
                     if seconds > 0 {
                         let target=sim.time+seconds;fractionalTime -= Double(seconds)
                         var cursor=sim.time
-                        while cursor < target && !Task.isCancelled { cursor=try await engine.advance(to:target,context:context) }
-                        try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context)
+                        while cursor < target && !Task.isCancelled { cursor=try await engine.advance(to:target,wallTarget:Int64(Date().timeIntervalSince1970),context:context) }
                         await refresh()
                         if tab==2 { await loadChart() }
                     }
@@ -152,12 +151,11 @@ struct ExportDocument: FileDocument {
         clockWarning=nil;progress=0
         do {
             var cursor=start
+            let wallTarget=Int64(Date().timeIntervalSince1970)
             while cursor+5<=target && !Task.isCancelled && progress != nil {
-                cursor=try await engine.advance(to:target,context:context)
+                cursor=try await engine.advance(to:target,wallTarget:wallTarget,context:context)
                 progress=Double(cursor-start)/Double(max(1,target-start))
-                // Persist the matching wall-clock checkpoint so interrupted catch-up never counts elapsed time twice.
-                let remaining=target-cursor
-                try await engine.saveWallClock(Int64(Date().timeIntervalSince1970)-remaining,context:context)
+                // Simulation, ledger and corresponding wall anchor commit in the same transaction.
                 await refresh();await Task.yield()
             }
             if cursor+5>target { catchupTarget=nil;notice="離線市場補算完成；事件時間為模擬時間" }
