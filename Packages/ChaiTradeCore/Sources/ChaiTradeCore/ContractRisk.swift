@@ -74,7 +74,7 @@ public struct LiquidationEstimate:Sendable{
     public var assumptions:String
 }
 public enum ContractRisk{
-    private static func fresh(_ quote:Quote,now:Int64)->Bool{quote.valid && quote.quality == .realtime && now>=quote.time-5 && now-quote.time<=quote.maximumAge && now-quote.receivedAt<=quote.maximumAge && (quote.mark ?? .zero) > .zero}
+    private static func fresh(_ quote:Quote,now:Int64)->Bool{quote.valid && quote.quality == .realtime && (quote.sourceIssue.map{[MarketIssueKind.ready,.referenceOnly].contains($0)} ?? true) && now>=quote.time-5 && now-quote.time<=quote.maximumAge && now-quote.receivedAt<=quote.maximumAge && (quote.mark ?? .zero) > .zero}
     public static func evaluate(_ state:AccountState,positionKey:String,now:Int64,candidateMark:Amount?=nil)throws->PositionRiskSnapshot{
         guard let position=state.positions[positionKey],position.quantity != .zero,let instrument=state.instruments.first(where:{$0.id==position.instrumentKey}),instrument.asset.derivative,let quote=state.quotes[instrument.id],fresh(quote,now:now) else{throw TradeError.unavailable("缺少有效風險價格，無法評估保證金；不使用過期或未知期間價格")}
         let mark=candidateMark ?? quote.mark!

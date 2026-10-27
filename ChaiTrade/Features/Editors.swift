@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ChaiTradeCore
 
 struct CustomInstrumentView: View {
@@ -35,11 +36,52 @@ struct CustomInstrumentView: View {
     }
 }
 struct AlertEditor: View {
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
-    @State private var price=""
+    @State private var value=""
     @State private var above=true
-    var body: some View{Form{TextField("提醒價",text:$price).keyboardType(.decimalPad);Toggle("向上到價（否則向下）",isOn:$above);Button("建立帳戶內提醒"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{let p=try Amount(price);guard p > .zero else{throw TradeError.invalid("提醒價格需大於零")};try await engine.addAlert(PriceAlert(instrumentID:model.selectedID,price:p,above:above),context:context)};if model.error == nil{dismiss()}}};Text("僅在引擎實際運作時監控；補算發現的事件會保留模擬時間。不保證鎖屏後即時提醒。").font(.footnote)}.navigationTitle("價格提醒").toolbar{Button("完成"){dismiss()}}}
+    @State private var percent=false
+    @State private var basis=AlertPriceBasis.creationPrice
+    @State private var saving=false
+    @State private var instrumentID:String?
+    @State private var owner:AccountContext?
+    @State private var board:TradingBoard?
+    @State private var intentID=UUID().uuidString
+    var body:some View{Form{
+        Section("建立此商品提醒"){
+            Text(model.state?.instruments.first{$0.id==(instrumentID ?? model.selectedID)}?.name ?? "")
+            Picker("提醒方式",selection:$percent){Text("到價").tag(false);Text("百分比變化").tag(true)}.pickerStyle(.segmented).accessibilityIdentifier("priceAlertKind")
+            TextField(percent ? "變化百分比，例如 5":"提醒價",text:$value).keyboardType(.decimalPad).accessibilityIdentifier("priceAlertValue")
+            Toggle(above ? "向上觸發":"向下觸發",isOn:$above)
+            if percent{Picker("固定基準",selection:$basis){ForEach(AlertPriceBasis.allCases,id:\.self){Text($0.label)}};Text("基準與觸發價建立後固定，不會跟隨新報價移動；可在下方查看保存值。").font(.caption).foregroundStyle(.secondary)}
+
+        }
+        Section("此商品的提醒"){
+            let alerts=(model.state?.alerts ?? []).filter{$0.instrumentID==(instrumentID ?? model.selectedID)}
+            if alerts.isEmpty{Text("尚未建立提醒").foregroundStyle(.secondary)}
+            ForEach(alerts){alert in VStack(alignment:.leading,spacing:6){
+                Text("\(alert.above ? "向上":"向下")到價 \(alert.price)")
+                if let percent=alert.percentage,let baseline=alert.baseline{Text("\(alert.basis?.label ?? "固定基準") \(baseline) · \(percent)%").font(.caption);if let time=alert.baselineTime{Text(Date(timeIntervalSince1970:TimeInterval(time)).formatted()).font(.caption2)}}
+                Text(alert.firedAt.map{"已觸發 · "+Date(timeIntervalSince1970:TimeInterval($0)).formatted()} ?? "監控中").font(.caption).foregroundStyle(.secondary)
+                Button("刪除提醒",role:.destructive){Task{guard let engine=model.engine,let context=owner else{return};await model.run{try await engine.removeAlert(id:alert.id,context:context)}}}
+            }}
+        }
+        Text("僅在引擎實際運作時監控；補算發現的事件會保留模擬時間。不保證鎖屏後即時提醒。缺少有效價格時不建立百分比基準。").font(.footnote)
+    }.scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){createButton.padding(.horizontal,16).padding(.vertical,8).background(.bar)}.interactiveDismissDisabled(saving).navigationTitle("價格提醒").toolbar{
+        ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(saving)}
+        ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
+    }.onAppear{if instrumentID==nil{instrumentID=model.selectedID;owner=model.context;board=model.selected?.usesTaiwanBoards==true ? model.selectedBoard:nil}}}
+    private var createButton:some View{
+        Button(saving ? "建立中…":"建立帳戶內提醒"){
+                guard !saving,!value.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else{return};saving=true
+                let id=intentID,product=instrumentID ?? model.selectedID,context=owner,raw=value,percent=percent,above=above,basis=basis,board=board
+                Task{defer{saving=false};guard let engine=model.engine,let context else{return};await model.run{
+                    let amount=try Amount(raw)
+                    if percent{try await engine.addPercentageAlert(id:id,instrumentID:product,percentage:amount,above:above,basis:basis,board:board,time:model.now,context:context)}
+                    else{var alert=PriceAlert(instrumentID:product,price:amount,above:above);alert.id=id;alert.board=board;try await engine.addAlert(alert,context:context)}
+                };if model.error==nil{value="";intentID=UUID().uuidString}}
+            }.disabled(saving || model.interactionBlocked || owner != model.context || value.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty).font(.headline).frame(maxWidth:.infinity,minHeight:48).buttonStyle(.borderedProminent).accessibilityIdentifier("createPriceAlert")
+    }
 }
 struct DrawingEditor: View {
     @EnvironmentObject var model: AppModel

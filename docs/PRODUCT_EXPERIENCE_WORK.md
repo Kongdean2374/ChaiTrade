@@ -46,3 +46,6 @@
 - https://developer.fugle.tw/docs/data/http-api/intraday/quote/
 
 公開中繼資料核對：TWSE 1097 家上市公司中的 30 個內建台股代碼／簡稱均一致；Coinbase 845 組公開商品中的 20 組內建交易對身份與數量／報價精度已核對。此為目錄證據，不是行情或成交驗收。
+
+
+補充研究：TWSE官方交易制度明列市價／限價各可搭配ROD、IOC、FOK，保留合法市價當日委託，不依錯誤假設限制。CME一般週盤參考 https://www.cmegroup.com/education/lessons/product-e-mini-s-and-p ；本機FX週盤參考 https://www.oanda.com/us-en/trading/hours-of-operation/ ，明示非全FX統一交易制度，NZD額外休息及節日仍需核對。B仍只讀內建規則，不連網。

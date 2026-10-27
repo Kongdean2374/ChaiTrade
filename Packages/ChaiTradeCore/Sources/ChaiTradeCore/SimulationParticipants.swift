@@ -35,10 +35,13 @@ public enum SimulationParticipants{
     public static func levels(_ instrument:Instrument,state:SimulationState,board:TradingBoard?,side:Side,price:Amount,spread:Amount,count:Int)throws->[Level]{
         let enabled=state.participantsFrom ?? Int64.max
         var result:[Level]=[]
+        let control=state.changes.last{$0.time<=state.time}?.time ?? 0
+        let news=SimulationNews.active(instrument,at:state.time,state:state).map(\.id).sorted().joined(separator:",")
         for profile in periods.indices{
             let period=periods[profile],birth=max(enabled,state.time/period*period)
             let direction=Simulation.random(seed:state.seed,stream:Simulation.hash(instrument.id)&+UInt64(profile+1700),index:birth/period)>0.5
             if profile==3 && (side == .buy) != direction{continue}
+            let anchor=try Simulation.price(instrument,at:birth,state:state)
             for depth in 1...8{
                 var units=max(0,count*shares[profile]/100/depth)
                 if instrument.usesTaiwanBoards,board != .oddLot{
@@ -49,13 +52,10 @@ public enum SimulationParticipants{
                 if units==0{continue}
                 var size=try instrument.rules.quantityStep*Amount(units)
                 if instrument.usesTaiwanBoards,board == .oddLot{size=min(try Amount(999),size)}
-                let anchor=try Simulation.price(instrument,at:birth,state:state)
                 let distance=try spread*Amount(depth+(profile==2 ? 1:0))
                 let tick=instrument.rules.tick(at:price)
                 let raw=side == .buy ? max(tick,min(try anchor-distance,try price-tick)):max(try anchor+distance,try price+tick)
                 let levelPrice=try instrument.rules.roundedPrice(raw,side == .buy ? .down:.up)
-                let control=state.changes.last{$0.time<=state.time}?.time ?? 0
-                let news=SimulationNews.active(instrument,at:state.time,state:state).map(\.id).sorted().joined(separator:",")
                 let id="\(model)|\(instrument.id)|\(board?.rawValue ?? "default")|\(side.rawValue)|\(profile)|\(depth)|\(birth)|\(control)|\(news)"
                 var level=Level(levelPrice,size);level.liquidityID=id;level.liquidityExpiresAt=birth+period;level.participant="\(model)-\(profile)"
                 result.append(level)

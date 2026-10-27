@@ -37,9 +37,15 @@ struct RootView: View {
             }
         }
         .overlay(alignment:.bottomLeading){UITestProbe()}
-        .sheet(isPresented:$settings){NavigationStack{SettingsView()}}
+        .sheet(isPresented:$settings){NavigationStack{SettingsView()}.modifier(UITestVisualEnvironment())}
         .sheet(isPresented:$recovery){NavigationStack{RecoveryView()}}
         .sheet(item:$model.chartAmendment){intent in NavigationStack{ChartAmendConfirm(intent:intent)}}
+        .sheet(item:$model.openedNotice){destination in NavigationStack{NoticeDetailView(destination:destination)}.modifier(UITestVisualEnvironment())}
+        .onReceive(NoticeTapMailbox.shared.$pending.compactMap{$0}){link in NoticeTapMailbox.shared.pending=nil;Task{await model.handleNoticeLink(link)}}
+        .confirmationDialog("這則通知屬於另一個獨立帳戶",isPresented:Binding(get:{model.requestedAccountNotice != nil},set:{if !$0{model.requestedAccountNotice=nil}}),titleVisibility:.visible){
+            if let link=model.requestedAccountNotice{Button("下次完整啟動切換至 "+link.mode.label){model.queueNoticeAccountSwitch(link)}}
+            Button("取消",role:.cancel){model.requestedAccountNotice=nil}
+        }message:{Text("目前帳戶不會切換或轉移資金。可記錄目的地，完整關閉再啟動後查看原事件。")}
         .alert("操作未完成",isPresented:Binding(get:{model.error != nil},set:{if !$0{model.error=nil}})) { Button("知道了"){model.error=nil} } message:{Text(model.error ?? "")}
         .alert("時間完整性確認",isPresented:Binding(get:{model.clockWarning != nil},set:{_ in})) {
             Button("依經過時間補算"){Task{await model.catchUp()}}

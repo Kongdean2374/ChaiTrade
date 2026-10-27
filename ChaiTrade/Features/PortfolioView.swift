@@ -171,18 +171,7 @@ struct JournalView: View {
                 TextEditor(text:$text).frame(minHeight:120).accessibilityIdentifier("journalText")
                 if model.journalScreenshot != nil{Toggle("附加剛擷取的本機圖表",isOn:$attach).accessibilityIdentifier("attachJournalChart")}
                 if attach,let data=model.journalScreenshot,let image=UIImage(data:data){Image(uiImage:image).resizable().scaledToFit().frame(maxHeight:220).accessibilityLabel("待儲存的模擬圖表").accessibilityIdentifier("journalChartPreview")}
-                Button(saving ? "保存中…":"保存日誌"){
-                    guard !saving,!model.interactionBlocked,!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else{return}
-                    saving=true
-                    var entry=JournalEntry(id:draftID,text:text,tags:tags,time:model.now)
-                    entry.emotion=emotion;entry.orderID=orderID.isEmpty ? nil:orderID;entry.instrumentID=model.selectedID.isEmpty ? nil:model.selectedID
-                    let screenshot=attach ? model.journalScreenshot:nil;entry.screenshot=screenshot
-                    let intent=entry
-                    Task{defer{saving=false};if await model.saveJournal(intent){
-                        text="";tags="";emotion="";orderID="";attach=false;draftID=UUID().uuidString
-                        if screenshot==model.journalScreenshot{model.journalScreenshot=nil}
-                    }}
-                }.disabled(saving || model.interactionBlocked || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty).accessibilityIdentifier("saveJournal")
+
             }.disabled(saving || model.interactionBlocked)
 
             ForEach(Array((model.state?.journals ?? []).reversed())){entry in
@@ -194,7 +183,25 @@ struct JournalView: View {
                     Text(Date(timeIntervalSince1970:TimeInterval(entry.time)).formatted()).font(.caption).foregroundStyle(.secondary)
                 }
             }
-        }.interactiveDismissDisabled(saving).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("交易日誌").toolbar{Button("完成"){dismiss()}.disabled(saving)}
+        }.scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){saveButton.padding(.horizontal,16).padding(.vertical,8).background(.bar)}.interactiveDismissDisabled(saving).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("交易日誌").toolbar{
+            ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(saving)}
+            ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
+        }
+    }
+    private var saveButton:some View{
+        Button(saving ? "保存中…":"保存日誌"){
+                    guard !saving,!model.interactionBlocked,!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else{return}
+                    saving=true
+                    var entry=JournalEntry(id:draftID,text:text,tags:tags,time:model.now)
+                    entry.emotion=emotion;entry.orderID=orderID.isEmpty ? nil:orderID;entry.instrumentID=model.selectedID.isEmpty ? nil:model.selectedID
+                    let screenshot=attach ? model.journalScreenshot:nil;entry.screenshot=screenshot
+                    let intent=entry
+                    Task{defer{saving=false};if await model.saveJournal(intent){
+                        text="";tags="";emotion="";orderID="";attach=false;draftID=UUID().uuidString
+                        if screenshot==model.journalScreenshot{model.journalScreenshot=nil}
+                    }}
+                }.disabled(saving || model.interactionBlocked || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty).accessibilityIdentifier("saveJournal")
+            .font(.headline).frame(maxWidth:.infinity,minHeight:48).buttonStyle(.borderedProminent)
     }
 }
 

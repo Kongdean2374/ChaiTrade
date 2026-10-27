@@ -123,7 +123,7 @@ public struct MarketDataProvider: Sendable {
     }
     public func quote(_ instrument: Instrument, now: Int64,includeSummary:Bool=false,board:TradingBoard?=nil) async throws -> Quote {
         guard instrument.provider == id else { throw TradeError.invalid("來源與商品 ID 不符，禁止合併不同市場") }
-        let symbol = instrument.symbol
+        let symbol = instrument.sourceSymbol ?? instrument.symbol
         guard symbol.range(of: #"^[A-Za-z0-9/._-]{1,32}$"#, options: .regularExpression) != nil else { throw TradeError.invalid("商品代碼不合法") }
         var q: Quote
         switch id {
@@ -142,12 +142,19 @@ public struct MarketDataProvider: Sendable {
             let family = id == .fugle ? "stock" : "futopt"
             let j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/quote/\(symbol)",query:id == .fugle && board == .oddLot ? ["type":"oddlot"]:[:])
             let time = try Self.timestamp(j["lastUpdated"])
-            let bids = try j["bids"].array.map { try Level($0["price"].amount(), $0["size"].amount()) }
-            let asks = try j["asks"].array.map { try Level($0["price"].amount(), $0["size"].amount()) }
-            q = Quote(instrumentID: instrument.id, source: id.label, time: time, sequence: j["lastUpdated"].integer ?? time, last: try j["lastPrice"].amount(), bids: bids, asks: asks, grade: bids.isEmpty || asks.isEmpty ? .E3 : .E1, coverage: "依 Fugle 使用者行情授權及交易盤", receivedAt: now)
+            if let reported=j["symbol"].string,reported != symbol{throw MarketDataFailure(.unsupported)}
+            // Regular TWSE/TPEx lots are normalized to account shares. Odd-lot/ESB and futures stay in native units.
+            let factor:Amount = id == .fugle && [.taiwanStock,.etf].contains(instrument.asset) && board != .oddLot && j["market"].string != "ESB" ? try Amount(1000):.one
+            let bids = try j["bids"].array.map { try Level($0["price"].amount(), $0["size"].amount()*factor) }
+            let asks = try j["asks"].array.map { try Level($0["price"].amount(), $0["size"].amount()*factor) }
+            q = Quote(instrumentID: instrument.id, source: id.label, time: time, sequence: j["lastUpdated"].integer ?? time, last: try j["lastPrice"].amount(), bids: bids, asks: asks, grade: bids.isEmpty || asks.isEmpty ? .E3 : .E1, coverage: instrument.asset.derivative ? "依 Fugle 期貨授權與實際合約；數量單位為口":"依 Fugle 股票授權及交易盤；數量以股保存，整股張數已換算", receivedAt: now)
             q.board=id == .fugle ? (board ?? .regular):nil
-            q.summary=QuoteSummary(open:try? j["openPrice"].amount(),high:try? j["highPrice"].amount(),low:try? j["lowPrice"].amount(),reference:(try? j["referencePrice"].amount()) ?? (try? j["previousClose"].amount()),volume:try? j["total"]["tradeVolume"].amount(),turnover:try? j["total"]["tradeValue"].amount(),window:"當日")
-            if case .bool(true)=j["isTrial"]{q.valid=false;q.quality = .unavailable}
+            q.summary=QuoteSummary(open:try? j["openPrice"].amount(),high:try? j["highPrice"].amount(),low:try? j["lowPrice"].amount(),reference:(try? j["referencePrice"].amount()) ?? (try? j["previousClose"].amount()),volume:instrument.asset == .index ? nil:(try? j["total"]["tradeVolume"].amount()*factor),turnover:try? j["total"]["tradeValue"].amount(),window:"當日")
+            if case .bool(true)=j["isTrial"]{q.valid=false;q.quality = .unavailable;q.sourceIssue = .auction}
+            if case .bool(true)=j["isDelayedOpen"]{q.valid=false;q.sourceIssue = .auction}
+            if case .bool(true)=j["isDelayedClose"]{q.valid=false;q.sourceIssue = .auction}
+            if case .bool(true)=j["isClose"]{q.quality = .historical;q.sourceIssue = .closed;q.summary?.marketStatus="有效收盤參考資料，非即時可成交報價"}
+            if case .bool(true)=j["tradingHalt"]["isHalted"]{q.valid=false;q.sourceIssue = .halted}
             if case .bool(true)=j["isDelayed"]{q.quality = .delayed}
         case .alpaca:
             let j = try await fetch(path: "/v2/stocks/\(symbol)/snapshot", query: ["feed":"iex"])
@@ -172,6 +179,7 @@ public struct MarketDataProvider: Sendable {
             q.summary=QuoteSummary(open:try? ticker["openPrice"].amount(),high:try? ticker["highPrice"].amount(),low:try? ticker["lowPrice"].amount(),reference:try? ticker["openPrice"].amount(),volume:try? ticker["volume"].amount(),turnover:try? ticker["quoteVolume"].amount(),window:"24小時")
         }
         guard q.last > .zero else{throw TradeError.unavailable("來源未提供有效成交價格；保留最後已知值，不用零代替未知行情")}
+        if q.bids.contains(where:{$0.price <= .zero || $0.quantity < .zero}) || q.asks.contains(where:{$0.price <= .zero || $0.quantity < .zero}) || (q.bids.first != nil && q.asks.first != nil && q.bids[0].price>=q.asks[0].price){q.valid=false;q.sourceIssue = .invalidData}
         if now - q.time > q.maximumAge,q.quality == .realtime { q.quality = .stale }
         if q.bids.isEmpty || q.asks.isEmpty { q.grade = .E3 }
         return q
@@ -261,7 +269,7 @@ public struct MarketDataProvider: Sendable {
         return Array(result.filter{$0.time<=end}.suffix(count))
     }
     public func candles(_ instrument: Instrument, interval: Int64, now: Int64,before:Int64?=nil,board:TradingBoard?=nil) async throws -> [Candle] {
-        let symbol = instrument.symbol
+        let symbol = instrument.sourceSymbol ?? instrument.symbol
         if id == .fugle,board == .oddLot,interval>=86400{throw TradeError.unavailable("來源未提供零股日K，請切回整股查看日線；不以整股資料冒充零股")}
         let j: JSONValue
         switch id {
@@ -294,7 +302,9 @@ public struct MarketDataProvider: Sendable {
             j = try await fetch(path: "/fapi/v1/klines", query: ["symbol":symbol,"interval":tf,"limit":"300","endTime":String((before ?? now)*1000)])
             return try j.array.map { Candle(time: ($0[0].integer ?? 0)/1000, open: try $0[1].amount().displayDouble, high: try $0[2].amount().displayDouble, low: try $0[3].amount().displayDouble, close: try $0[4].amount().displayDouble, volume: try $0[5].amount().displayDouble) }
         }
-        return try j["data"].array.map { Candle(time: try Self.candleTime($0["date"],zone:instrument.rules.timeZone), open: try $0["open"].amount().displayDouble, high: try $0["high"].amount().displayDouble, low: try $0["low"].amount().displayDouble, close: try $0["close"].amount().displayDouble, volume: try $0["volume"].amount().displayDouble) }.sorted { $0.time < $1.time }
+        // Fugle minute stock bars are lots; daily stock bars are shares. Never mix these during aggregation.
+        let factor:Amount = id == .fugle && interval<86400 && board != .oddLot && [.taiwanStock,.etf].contains(instrument.asset) && j["market"].string != "ESB" ? try Amount(1000):.one
+        return try j["data"].array.map { Candle(time: try Self.candleTime($0["date"],zone:instrument.rules.timeZone), open: try $0["open"].amount().displayDouble, high: try $0["high"].amount().displayDouble, low: try $0["low"].amount().displayDouble, close: try $0["close"].amount().displayDouble, volume: try ($0["volume"].amount()*factor).displayDouble) }.sorted { $0.time < $1.time }
     }
 }
 public enum Providers {

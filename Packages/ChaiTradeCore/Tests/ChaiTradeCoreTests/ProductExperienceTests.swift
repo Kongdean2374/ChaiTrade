@@ -247,8 +247,33 @@ func simulationCorporateNewsPostsOnceAcrossCheckpointRestartAndSharesItsID(kind:
     let before=await engine.snapshot()
     try await engine.adoptCatalogRules(instrumentID:old.id,context:context)
     let upgraded=await engine.snapshot(),product=try #require(upgraded.instruments.first{$0.id==old.id})
-    #expect(product.usesTaiwanBoards);#expect(product.identity?.catalogVersion==1)
+    #expect(product.usesTaiwanBoards);#expect(product.identity?.catalogVersion==InstrumentCatalog.version)
     #expect(try product.rules.tick(at:Amount("1000"))==Amount("5"))
     #expect(upgraded.cash==before.cash);#expect(upgraded.orders[request.requestID]?.status == .cancelled)
     #expect(upgraded.quotes[old.id]==nil);#expect(upgraded.fills.map(\.id)==before.fills.map(\.id))
+}
+
+@Test func restStatisticsCannotResetAHealthyStreamLiquidityPool()async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),context=AccountContext(mode:.online)
+    var state=try TradingEngine.initial(mode:.online,baseCurrency:"USD",capital:Amount("100000"),time:1000)
+    let rules=try RulePack(tick:Amount("0.01"),quantityStep:.one)
+    let instrument=Instrument(id:"coinbase:TEST-USD",symbol:"TEST-USD",name:"Synthetic stream recovery fixture",asset:.crypto,currency:"USD",rules:rules,initialPrice:.zero,provider:.coinbase)
+    state.instruments=[instrument]
+    let engine=try TradingEngine(context:context,repository:AccountRepository(root:root,mode:.online),initial:state)
+    let stream=Quote(instrumentID:instrument.id,source:"Coinbase Exchange WS synthetic-connection",time:1000,sequence:1,last:try Amount("100"),bids:[Level(try Amount("99"),try Amount("5"))],asks:[Level(try Amount("100"),try Amount("5"))])
+    try await engine.ingest(stream,now:1000,context:context)
+    _=try await engine.submit(OrderRequest(instrumentID:instrument.id,side:.buy,kind:.market,quantity:try Amount("3")),time:1000,context:context)
+    var rest=stream;rest.source=ProviderID.coinbase.label;rest.sequence=100;rest.time=1001;rest.receivedAt=1001;rest.last=try Amount("101");rest.summary=QuoteSummary(reference:try Amount("90"),volume:try Amount("100"),window:"synthetic24h")
+    try await engine.ingest(rest,now:1001,context:context)
+    let current=await engine.snapshot().quotes[instrument.id]
+    #expect(current?.source==stream.source);#expect(current?.last==stream.last);#expect(current?.summary?.reference==rest.summary?.reference)
+    _=try await engine.submit(OrderRequest(instrumentID:instrument.id,side:.buy,kind:.market,quantity:try Amount("3")),time:1001,context:context)
+    #expect(try await engine.snapshot().positions[instrument.id]?.quantity==Amount("5"))
+    #expect(try await engine.snapshot().fills.map(\.quantity).reduce(.zero){try $0+$1}==Amount("5"))
+    try await engine.markMonitoringGap(instrumentID:instrument.id,time:1002,expectedSourcePrefix:"Coinbase Exchange WS ",context:context)
+    rest.sequence=101;rest.time=1002;rest.receivedAt=1002
+    try await engine.ingest(rest,now:1002,context:context)
+    #expect(await engine.snapshot().quotes[instrument.id]?.source==ProviderID.coinbase.label)
+    try await engine.markMonitoringGap(instrumentID:instrument.id,time:1003,expectedSourcePrefix:"Coinbase Exchange WS ",context:context)
+    #expect(await engine.snapshot().quotes[instrument.id]?.valid==true)
 }

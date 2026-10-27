@@ -65,7 +65,7 @@ struct TradingView:View{
         }}
     }
     @ViewBuilder private var bookSection:some View{
-        if let q=model.quote,q.valid,[ExecutionGrade.E1,.E2].contains(q.grade),!q.bids.isEmpty,!q.asks.isEmpty{
+        if let i=model.selected,model.canTrade(i),let q=model.quote,q.valid,[ExecutionGrade.E1,.E2].contains(q.grade),!q.bids.isEmpty,!q.asks.isEmpty{
             let subtitle=model.state?.mode == .offline ? "本機模擬對手盤；數量依商品單位":"來源提供的買賣盤；本機成交會消耗可用流動性"
             MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:subtitle);HStack(alignment:.top,spacing:18){BookSide(title:"買盤",levels:(try? SimulationParticipants.displayLevels(q.bids,usage:model.state?.participantUsage)) ?? [],color:.green);BookSide(title:"賣盤",levels:(try? SimulationParticipants.displayLevels(q.asks,usage:model.state?.participantUsage)) ?? [],color:.red)}}
         }else if model.state?.mode == .online{Text("目前沒有可供撮合的可靠買賣盤。可查看既有部位、委託與歷史，也可撤銷本機委託。").font(.footnote).foregroundStyle(.secondary)}
@@ -90,12 +90,13 @@ struct TradingView:View{
         }}
     }
     private func relatedNews(_ i:Instrument)->some View{
-        let stories=model.filteredNews.filter{$0.instrumentIDs.isEmpty || $0.instrumentIDs.contains(i.id)}
+        let category=i.asset == .perpetual ? "合約":i.asset == .crypto ? "現貨":"全部"
+        let stories=model.news(category:category,favoritesOnly:false).filter{$0.instrumentIDs.isEmpty || $0.instrumentIDs.contains(i.id)}
         return VStack(alignment:.leading,spacing:16){
             MarketSectionTitle(title:"相關新聞與事件")
             ForEach(Array(stories.prefix(3))){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain)}
             if stories.isEmpty{Text("目前沒有已取得的相關新聞。").font(.footnote).foregroundStyle(.secondary)}
-            NavigationLink("查看全部市場新聞"){MarketNewsView()}
+            NavigationLink("查看全部市場新聞"){MarketNewsView(initialCategory:category)}
         }
     }
     private func saveChart(){Task{await model.saveChartPreferences(indicator:indicator,period:period,line:line)}}
@@ -114,7 +115,7 @@ struct TradingView:View{
         if model.chartLoading{ProgressView("讀取K線…").font(.caption)}
         if let error=model.chartError{ContentUnavailableView("此範圍暫無K線",systemImage:"chart.xyaxis.line",description:Text(error)).frame(minHeight:200)}else{ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:10))}
         ViewThatFits(in:.horizontal){chartTools;VStack(alignment:.leading,spacing:10){indicatorPicker;chartActions}}
-        HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}};Spacer();Button("繪圖"){drawing=true};Button("到價提醒"){alert=true};Button("截圖"){Task{await model.captureChart()}}}.font(.caption)
+        HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}};Spacer();Button("繪圖"){drawing=true};Button("到價提醒"){alert=true}.accessibilityIdentifier("openPriceAlert");Button("截圖"){Task{await model.captureChart()}}}.font(.caption)
     }}
     private var indicatorPicker:some View{HStack{Picker("指標",selection:$indicator){ForEach(["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"],id:\.self){Text($0)}}.labelsHidden();Stepper("\(period)",value:$period,in:2...100).font(.caption).frame(maxWidth:150)}}
     private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption)}
@@ -185,8 +186,7 @@ struct OrderForm:View{
         contractRiskSection
         advancedSection
         summarySection
-        submitSection
-    }.disabled(sending).scrollDismissesKeyboard(.immediately).interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.navigationTitle("模擬下單").toolbar{
+    }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").toolbar{
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
         ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
@@ -246,7 +246,8 @@ struct OrderForm:View{
         }
     }
     private var submitSection:some View{
-        Section{Button(sending ? "送出中…":"檢查並送出模擬委託"){confirm=true}.font(.headline).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder")}    }
+        Button(sending ? "送出中…":"檢查並送出模擬委託"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirm=true}.font(.headline).frame(maxWidth:.infinity,minHeight:48).buttonStyle(.borderedProminent).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder").padding(.horizontal,16).padding(.vertical,8).background(.bar)
+    }
     private var riskDraft:OrderRequest?{guard let size=orderQuantity else{return nil};var request=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:kind,quantity:size);request.positionSide=hedge ? contractAction.positionSide:nil;request.reduceOnly=effectiveReduceOnly;request.leverage=leverage;request.marginMode=margin;return request}
     private var preview:(Amount,Amount,Amount,Amount)?{
         guard let q=orderQuantity,let p=(kind == .market ? quote?.last:(try? Amount(price))),q > .zero else{return nil}
@@ -294,8 +295,9 @@ struct InstrumentDetails:View{
             }
             Section("交易規則"){
                 LabeledContent("規則版本",value:instrument.rules.version);Text(instrument.rules.source)
+                if let years=instrument.rules.calendarYears{Text("已核對假日日曆："+years.map(String.init).joined(separator:"、")+"；其他年度與臨時休市不冒充已驗證。").font(.caption)}
                 Text(instrument.rules.verifiedAt == nil ? "規則尚未完成所有官方現行制度核驗，請查看模擬規則與限制。":"規則已記錄核驗時間").foregroundStyle(.orange)
-                if instrument.identity?.catalogVersion==0{
+                if (instrument.identity?.catalogVersion ?? InstrumentCatalog.version)<InstrumentCatalog.version && instrument.identity?.legacy != true{
                     Text("此商品保留舊版交易單位與委託規格，尚未套用新的股／張分盤。原有部位與委託不會因更新而改寫。").font(.footnote)
                     Button(upgrading ? "升級中…":"核對並升級此商品規則"){confirmUpgrade=true}.disabled(upgrading || model.interactionBlocked)
                 }

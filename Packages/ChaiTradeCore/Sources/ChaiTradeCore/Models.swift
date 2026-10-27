@@ -61,6 +61,10 @@ public struct RulePack: Codable, Sendable, Equatable {
     public var closeMinute = 1440
     public var weekdaysOnly = false
     public var holidays: [String] = []
+    public var settlementHolidays:[String]?
+    public var sessions:[TradingSession]?
+    public var sessionOverrides:[String:[TradingSession]]?
+    public var calendarYears:[Int]?
     public var expiry: Int64? = nil
     public var settlementBusinessDays: Int? = nil
     public var carrySchedule:CarrySchedule?
@@ -70,6 +74,7 @@ public struct RulePack: Codable, Sendable, Equatable {
         maintenance = try! Amount("0.005")
     }
     public func isOpen(at seconds: Int64) -> Bool {
+        if sessions != nil || sessionOverrides != nil{return TradingSessions.isOpen(self,at:seconds)}
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: timeZone) ?? .gmt
         let date = Date(timeIntervalSince1970: TimeInterval(seconds))
         let day = c.component(.weekday, from: date)
@@ -89,6 +94,7 @@ public struct Instrument: Codable, Identifiable, Equatable, Sendable {
     public var asset: AssetClass
     public var currency: String
     public var provider: ProviderID?
+    public var sourceSymbol:String?
     public var identity:InstrumentIdentity?
     public var rules: RulePack
     public var initialPrice: Amount
@@ -130,6 +136,7 @@ public struct Quote: Codable, Sendable, Equatable {
     public var causalEventIDs:[String]?
     public var fundingRate:Amount?
     public var nextFundingTime:Int64?
+    public var sourceIssue:MarketIssueKind?
     public var maximumAge: Int64 = 30
     public init(instrumentID: String, source: String, time: Int64, sequence: Int64, last: Amount, bids: [Level], asks: [Level], quality: DataQuality = .realtime, grade: ExecutionGrade = .E1, coverage: String = "模擬市場", receivedAt: Int64? = nil) {
         self.instrumentID = instrumentID; self.source = source; self.time = time; self.receivedAt = receivedAt ?? time
@@ -266,6 +273,8 @@ public struct AuditEvent: Codable, Identifiable, Sendable {
     public var time: Int64
     public var kind: String
     public var message: String
+    public var instrumentID:String?
+    public var orderID:String?
 }
 public struct EquityPoint: Codable, Sendable, Equatable {
     public var time: Int64
@@ -304,6 +313,11 @@ public struct PriceAlert: Codable, Identifiable, Sendable {
     public var price: Amount
     public var above: Bool
     public var firedAt: Int64?
+    public var board:TradingBoard?
+    public var percentage:Amount?
+    public var baseline:Amount?
+    public var baselineTime:Int64?
+    public var basis:AlertPriceBasis?
     public init(instrumentID: String, price: Amount, above: Bool) { self.instrumentID = instrumentID; self.price = price; self.above = above }
 }
 public struct Drawing: Codable, Identifiable, Sendable {
@@ -369,6 +383,7 @@ public struct AccountState: Codable, Sendable {
     public var chartPreferences: [String:ChartPreferences]?
     public var notificationEnabled:Bool?
     public var inbox:[LocalNotice]?
+    public var marginWarningLevels:[String:Int]?
     public var equity: [EquityPoint] = []
     public var simulation: SimulationState?
     public var allowEstimatedExecution = false
@@ -383,9 +398,9 @@ public struct AccountState: Codable, Sendable {
         self.mode = mode; self.accountID = mode.accountID; self.baseCurrency = baseCurrency; self.instruments = instruments
         if mode == .offline { self.simulation = SimulationState() }
     }
-    public mutating func audit(_ kind: String, _ message: String, time: Int64, id: String? = nil) {
+    public mutating func audit(_ kind: String, _ message: String, time: Int64, id: String? = nil,instrumentID:String?=nil,orderID:String?=nil) {
         sequence += 1
-        events.append(AuditEvent(id: id ?? "event-\(sequence)", sequence: sequence, time: time, kind: kind, message: message))
+        events.append(AuditEvent(id: id ?? "event-\(sequence)", sequence: sequence, time: time, kind: kind, message: message,instrumentID:instrumentID,orderID:orderID))
     }
     public mutating func post(event: String, currency: String, debit: String, credit: String, amount: Amount, time: Int64) {
         ledger.append(LedgerEntry(eventID: event, accountID: accountID, time: time, currency: currency, account: debit, amount: amount))

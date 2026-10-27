@@ -10,3 +10,5 @@ if [[ "$(uname -s)" == Darwin ]]; then
   xcrun --sdk iphoneos --show-sdk-version
   xcodebuild -list -project ChaiTrade.xcodeproj
 fi
+
+node scripts/test_chart_web.js

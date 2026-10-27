@@ -4,7 +4,7 @@ private struct CatalogEntry {
     var asset:String,symbol:String,name:String,exchange:String,currency:String,sector:String,base:String,tick:String,step:String,price:String,provider:String,multiplier:String
 }
 public enum InstrumentCatalog {
-    public static let version=1
+    public static let version=2
     private static let entries:[CatalogEntry]=[
         CatalogEntry(asset:"taiwanStock",symbol:"2330",name:"台積電",exchange:"TWSE",currency:"TWD",sector:"半導體",base:"2330",tick:"0.01",step:"1",price:"100",provider:"fugle",multiplier:"1"),
         CatalogEntry(asset:"taiwanStock",symbol:"2317",name:"鴻海",exchange:"TWSE",currency:"TWD",sector:"電子",base:"2317",tick:"0.01",step:"1",price:"113",provider:"fugle",multiplier:"1"),
@@ -138,26 +138,42 @@ public enum InstrumentCatalog {
             let namespace=entry.exchange.replacingOccurrences(of:" ",with:"_")
             let identifier=mode == .offline ? "SIM:\(namespace):\(entry.symbol)":"\(provider?.rawValue ?? namespace):\(entry.symbol)"
             var rules=try RulePack(tick:Amount(entry.tick),quantityStep:Amount(entry.step))
-            rules.version="catalog-sim-1";rules.multiplier=try Amount(entry.multiplier)
+            rules.version="catalog-sim-2";rules.multiplier=try Amount(entry.multiplier)
             rules.source="ChaiTrade 本機模擬費率與契約；商品身份參考官方目錄，非真實委託服務"
             if entry.exchange=="TWSE"{
                 rules.timeZone="Asia/Taipei";rules.weekdaysOnly=true;rules.openMinute=540;rules.closeMinute=810
-                rules.priceTicks=try (asset == .etf ? [("50","0.01"),(nil,"0.05")]:[("10","0.01"),("50","0.05"),("100","0.1"),("500","0.5"),("1000","1"),(nil,"5")]).map{PriceTickBand(below:try $0.0.map(Amount.init),tick:try Amount($0.1))}
+                if asset != .index{rules.priceTicks=try (asset == .etf ? [("50","0.01"),(nil,"0.05")]:[("10","0.01"),("50","0.05"),("100","0.1"),("500","0.5"),("1000","1"),(nil,"5")]).map{PriceTickBand(below:try $0.0.map(Amount.init),tick:try Amount($0.1))}}
                 rules.fees.taker=try Amount("0.001425");rules.fees.maker=rules.fees.taker;rules.fees.minimum=try Amount("1")
                 rules.fees.sellTax=try Amount(asset == .etf ? "0.001":"0.003")
-                rules.settlementBusinessDays=2
-            }else if [.usStock,.etf].contains(asset){rules.timeZone="America/New_York";rules.weekdaysOnly=true;rules.openMinute=570;rules.closeMinute=960;rules.settlementBusinessDays=1}
+                rules.settlementBusinessDays=2;ExchangeCalendarFacts.applyTaiwan(to:&rules)
+            }else if [.usStock,.etf].contains(asset) || (asset == .index && entry.currency=="USD"){rules.timeZone="America/New_York";rules.weekdaysOnly=true;rules.openMinute=570;rules.closeMinute=960;rules.settlementBusinessDays=1;ExchangeCalendarFacts.applyUS(to:&rules)}
             if asset == .crypto || asset == .perpetual{rules.fees.taker=try Amount("0.001");rules.fees.maker=try Amount("0.0005")}
             if asset.derivative{
                 rules.riskTiers=[RiskTier(upperNotional:try Amount("50000"),initialRate:try Amount("0.05"),maintenanceRate:try Amount("0.005"),maxLeverage:20),RiskTier(upperNotional:try Amount("250000"),initialRate:try Amount("0.1"),maintenanceRate:try Amount("0.01"),maxLeverage:10),RiskTier(upperNotional:nil,initialRate:try Amount("0.2"),maintenanceRate:try Amount("0.025"),maxLeverage:5)]
                 rules.collateralFactor = .one
             }
             if mode == .offline,asset == .perpetual{rules.carrySchedule=CarrySchedule(longRate:try Amount("0.0001"),shortRate:try Amount("-0.0001"))}
-            if mode == .offline,asset == .forex{rules.weekdaysOnly=true;rules.carrySchedule=CarrySchedule(interval:86400,longRate:try Amount("0.00005"),shortRate:try Amount("0.00005"),kind:"interest")}
-            if asset == .future{rules.expiry=entry.exchange=="CME" ? 1797604200:1794980700;if mode == .offline{rules.dailySettlementMinute=entry.exchange=="CME" ? 960:825};rules.timeZone=entry.exchange=="CME" ? "America/Chicago":"Asia/Taipei"}
+            if asset == .forex{
+                rules.timeZone="America/New_York";rules.sessions=[TradingSession(openMinute:1025,closeMinute:1019,weekdays:[1,2,3,4,5])]
+                rules.source+="；本機週盤採紐約週日17:05至週五16:59、每日16:59–17:05休息；參考OANDA一般時段，非全外匯統一制度，節日與NZD額外休息未套用"
+                if mode == .offline{rules.carrySchedule=CarrySchedule(interval:86400,longRate:try Amount("0.00005"),shortRate:try Amount("0.00005"),kind:"interest")}
+            }
+            if asset == .future{rules.expiry=entry.exchange=="CME" ? 1797604200:1794979800;if mode == .offline{rules.dailySettlementMinute=entry.exchange=="CME" ? 960:825};rules.timeZone=entry.exchange=="CME" ? "America/Chicago":"Asia/Taipei"}
+            if asset == .future,entry.exchange=="CME"{
+                rules.sessions=[TradingSession(openMinute:1020,closeMinute:960,weekdays:[1,2,3,4,5])]
+                rules.source+="；CME一般盤芝加哥週日17:00至週五16:00，每日16:00–17:00休息；節日例外須另核對，本機每日結算時點為模擬模型"
+            }
+            if asset == .future,entry.exchange=="TAIFEX"{
+                rules.weekdaysOnly=true;rules.openMinute=525;rules.closeMinute=825
+                rules.sessions=[TradingSession(openMinute:525,closeMinute:825),TradingSession(openMinute:900,closeMinute:300)]
+                rules.holidays=ExchangeCalendarFacts.taiwanTradingHolidays;rules.calendarYears=[2026]
+                rules.source+="；日盤08:45–13:45／夜盤15:00–次日05:00，到期日13:30；節前夜盤例外待核驗"
+            }
             var instrument=Instrument(id:identifier,symbol:entry.symbol,name:entry.name,asset:asset,currency:entry.currency,rules:rules,initialPrice:mode == .offline ? try Amount(entry.price):.zero,provider:mode == .online ? provider:nil)
             let market:MarketDomain=[.crypto,.perpetual].contains(asset) ? .crypto:[.forex,.future].contains(asset) ? .other:.stocks
             instrument.identity=InstrumentIdentity(exchange:entry.exchange,market:market,baseAsset:entry.base,unit:asset == .crypto || asset == .perpetual ? entry.base:asset == .forex ? "單位":asset == .future ? "口":asset == .index ? "點":"股",boardLot:entry.exchange=="TWSE" && asset != .index ? 1000:1,sector:entry.sector)
+            instrument.identity!.catalogVersion=version
+            if entry.exchange=="TAIFEX"{instrument.sourceSymbol=["TXF202611":"TXFK6","MXF202611":"MXFK6","TE202611":"EXFK6","TF202611":"FXFK6"][entry.symbol]}
             if mode == .offline,[.crypto,.perpetual].contains(asset){instrument.liquidity=Int(min(1e12,max(1000,10000/instrument.initialPrice.displayDouble/rules.quantityStep.displayDouble)))}
             if mode == .online && asset == .future{instrument.requiresRuleConfirmation=true}
             return instrument

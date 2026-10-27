@@ -22,6 +22,25 @@ private struct ContractRig{
         var request=OrderRequest(instrumentID:instrument.id,side:side,kind:.market,quantity:try Amount(quantity));request.positionSide=positionSide;request.reduceOnly=reduce;request.leverage=leverage;return request
     }
 }
+@Test func marginWarningPrecedesLiquidationDoesNotRepeatAcrossRestartAndRearmsAfterRecovery()async throws{
+    let r=try ContractRig(tiers:true),ctx=r.context
+    try await r.engine.ingest(r.quote(),now:1000,context:ctx)
+    _=try await r.engine.submit(r.request(side:.buy,positionSide:nil,leverage:5),time:1000,context:ctx)
+    try await r.engine.ingest(r.quote(mark:"86",sequence:1001),now:1001,context:ctx)
+    var full=try await r.engine.fullSnapshot(context:ctx)
+    #expect(full.events.filter{$0.kind=="marginRisk"}.count==1);#expect(full.events.allSatisfy{$0.kind != "liquidation"})
+    let next=AccountContext(mode:.online),reopened=try TradingEngine(context:next,repository:r.repository,initial:#require(try r.repository.load()))
+    try await reopened.ingest(r.quote(mark:"85",sequence:1002),now:1002,context:next)
+    #expect(try await reopened.fullSnapshot(context:next).events.filter{$0.kind=="marginRisk"}.count==1)
+    try await reopened.ingest(r.quote(mark:"100",sequence:1003),now:1003,context:next)
+    try await reopened.ingest(r.quote(mark:"86",sequence:1004),now:1004,context:next)
+    #expect(try await reopened.fullSnapshot(context:next).events.filter{$0.kind=="marginRisk"}.count==2)
+    try await reopened.ingest(r.quote(mark:"84",sequence:1005),now:1005,context:next)
+    full=try await reopened.fullSnapshot(context:next)
+    #expect(full.events.filter{$0.kind=="liquidation"}.count==1)
+    #expect(full.inbox?.filter{$0.event.kind=="marginRisk"}.count==3)
+    #expect(full.heldPositions(r.instrument.id).isEmpty)
+}
 @Test func hedgeSidesCloseIndependentlyAndLiquidationHasOnePermanentOrderAndFill()async throws{
     let rig=try ContractRig(tiers:true),ctx=rig.context
     try await rig.engine.setPositionMode(.hedge,context:ctx);try await rig.engine.ingest(rig.quote(),now:1000,context:ctx)

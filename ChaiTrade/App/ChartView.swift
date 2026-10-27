@@ -4,6 +4,7 @@ import ChaiTradeCore
 
 struct ChartView: UIViewRepresentable {
     @EnvironmentObject var model: AppModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var indicator: String
     var period: Int
     var line: Bool
@@ -50,7 +51,7 @@ struct ChartView: UIViewRepresentable {
         for order in model.state?.orders.values.filter({$0.status.open && $0.request.instrumentID==model.selectedID}) ?? [] {
             if let p=order.request.price ?? order.request.trigger {priceLines.append(["id":order.id,"price":p.displayDouble,"title":order.request.kind.label,"color":"#82aaff"])}
         }
-        let data: [String:Any]=["id":model.selectedID,"account":model.context?.accountID ?? "","epoch":model.context?.epoch.uuidString ?? "","candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume.map{$0 as Any} ?? NSNull()]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme == "system" ? web.traitCollection.userInterfaceStyle == .dark:model.settings.theme != "light"]
+        let data: [String:Any]=["id":model.selectedID,"account":model.context?.accountID ?? "","epoch":model.context?.epoch.uuidString ?? "","candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume.map{$0 as Any} ?? NSNull()]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"timeZone":model.selected?.rules.timeZone ?? "UTC","fontSize":dynamicTypeSize.isAccessibilitySize ? 16:12,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme == "system" ? web.traitCollection.userInterfaceStyle == .dark:model.settings.theme != "light"]
         context.coordinator.payload=data
         context.coordinator.render(web)
     }

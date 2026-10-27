@@ -95,6 +95,8 @@ struct ChartAmendment: Identifiable {
     @Published var clockWarning: String?
     @Published private(set) var catchingUp=false
     @Published var chartAmendment: ChartAmendment?
+    @Published var requestedAccountNotice:NoticeLink?
+    @Published var openedNotice:NoticeDestination?
     private(set) var engine: TradingEngine?
     private(set) var context: AccountContext?
     private let notifications=LocalNotifications()
@@ -168,6 +170,7 @@ struct ChartAmendment: Identifiable {
             lastUptime=ProcessInfo.processInfo.systemUptime
             if tab==2{await loadChart()}
             restartStream();await ensureQuoteService()
+            if let link=settings.pendingNotice{await handleNoticeLink(link)}
         } catch { self.error=error.localizedDescription;booted=false }
     }
     func onboard(mode: Mode, online: String, offline: String, currency: String) async {
@@ -399,7 +402,7 @@ struct ChartAmendment: Identifiable {
     }
 
     func setPending(_ mode: Mode?) {
-        do { settings.pendingMode=mode == settings.activeMode ? nil:mode;try settings.save(root:root) }
+        do { settings.pendingMode=mode == settings.activeMode ? nil:mode;if settings.pendingNotice?.mode != settings.pendingMode{settings.pendingNotice=nil};try settings.save(root:root) }
         catch { self.error=error.localizedDescription }
     }
     func saveSettings() { do{try settings.save(root:root)}catch{self.error=error.localizedDescription} }

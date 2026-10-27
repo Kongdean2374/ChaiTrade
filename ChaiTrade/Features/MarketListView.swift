@@ -47,9 +47,9 @@ struct MarketsView:View {
             LazyVStack(alignment:.leading,spacing:14){
                 VStack(alignment:.leading,spacing:12){
                     HStack{Text(domain.label).font(.largeTitle.bold());Spacer();Button{catalog=true}label:{Label("商品目錄",systemImage:"books.vertical")}.accessibilityIdentifier("openCatalog")}
-                    HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField("代碼或名稱，例如 BTC、ETH、2330",text:search).textInputAutocapitalization(.never).autocorrectionDisabled().focused($searching).submitLabel(.search).onSubmit{searching=false}.accessibilityIdentifier("marketSearch");if !search.wrappedValue.isEmpty{Button{search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
+                    HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField("代碼或名稱，例如 BTC、ETH、2330",text:search).textInputAutocapitalization(.never).autocorrectionDisabled().focused($searching).submitLabel(.search).onSubmit{searching=false}.accessibilityIdentifier("marketSearch");if !search.wrappedValue.isEmpty{Button{searching=false;search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
                         .padding(12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12))
-                    ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(categories,id:\.self){category in Button(category){model.editBrowsing(domain){$0.category=category;$0.scrollID=nil};pageSize=40}.buttonStyle(.bordered).tint(preferences.category==category || (domain == .crypto && preferences.category == "全部" && category == "現貨") ? .orange:.gray)}}}
+                    ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(categories,id:\.self){category in Button(category){searching=false;model.editBrowsing(domain){$0.category=category;$0.scrollID=nil};pageSize=40}.buttonStyle(.bordered).tint(preferences.category==category || (domain == .crypto && preferences.category == "全部" && category == "現貨") ? .orange:.gray)}}}
                     HStack{
                         Toggle("自選",isOn:Binding(get:{preferences.favoritesOnly},set:{value in model.editBrowsing(domain){$0.favoritesOnly=value;$0.scrollID=nil}})).toggleStyle(.button).accessibilityIdentifier("marketFavorites")
                         Menu{ForEach(MarketSort.allCases,id:\.self){sort in Button(sort.label){model.editBrowsing(domain){$0.sort=sort;$0.scrollID=nil};pageSize=40}}}label:{Label(preferences.sort.label,systemImage:"arrow.up.arrow.down")}
@@ -68,7 +68,8 @@ struct MarketsView:View {
                 if (model.state?.instruments ?? []).contains(where:{$0.identity?.legacy==true && $0.market==domain}){NavigationLink("舊版自訂商品與原有身份"){LegacyProductsView()}.font(.footnote)}
                 Text("已到目前列表底部").font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity).accessibilityIdentifier("marketBottom")
             }.scrollTargetLayout().padding(16).padding(.bottom,20)
-        }.scrollPosition(id:scroll,anchor:.top).scrollDismissesKeyboard(.interactively).background(Color(.systemGroupedBackground)).navigationTitle("行情").navigationBarTitleDisplayMode(.inline)
+        }.scrollPosition(id:scroll,anchor:.top).scrollDismissesKeyboard(.immediately).background(Color(.systemGroupedBackground)).navigationTitle("行情").navigationBarTitleDisplayMode(.inline)
+            .toolbar{ToolbarItemGroup(placement:.keyboard){Spacer();Button("完成搜尋"){searching=false}}}
             .sheet(isPresented:$catalog){NavigationStack{ProductCatalogView()}}
             .sheet(isPresented:$groups){NavigationStack{WatchGroupsView()}}
             .task(id:domain){if let id=preferences.scrollID,let index=products.firstIndex(where:{$0.id==id}){pageSize=max(40,(index/40+1)*40)};await model.ensureQuoteService()}

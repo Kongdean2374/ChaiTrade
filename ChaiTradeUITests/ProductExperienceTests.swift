@@ -12,6 +12,30 @@ import XCTest
         for field in ["orders","fills","journals","watchlist"]{try check((s[field] as? [Any])?.isEmpty==true,"New case inherited "+field)}
         capture("PRODUCT clean fresh "+(online ? "A":"B"))
     }
+    func testPercentageAlertRapidCreateRemoveAndNotificationCenterIsolation()throws{
+        let app=launchClean();defer{finish()};try onboard(app)
+        let original=try state(app)["cash"] as? [String:String]
+        let product=app.buttons["market-SIM:TWSE:2330"].firstMatch;try reveal(product,in:app);product.tap()
+        let alert=app.buttons["openPriceAlert"];try reveal(alert,in:app);alert.tap()
+        app.buttons["百分比變化"].tap();let input=app.textFields["priceAlertValue"];input.tap();input.typeText("5")
+        let create=app.buttons["createPriceAlert"];try check(create.isHittable,"Keyboard hides percentage alert creation");rapid(create)
+        try waitUntil("Rapid alert creation did not persist exactly once"){
+            (try? self.state(app)["alerts"] as? [[String:String]])?.count==1
+        }
+        let saved=try XCTUnwrap((try state(app)["alerts"] as? [[String:String]])?.first)
+        try check(saved["instrument"]=="SIM:TWSE:2330" && saved["percentage"]=="5","Alert belongs to wrong product or type")
+        let baseline=number(try XCTUnwrap(saved["baseline"])),threshold=number(try XCTUnwrap(saved["price"]))
+        try check(threshold==baseline.multiplying(by:number("1.05")),"Percentage basis or threshold was not fixed exactly")
+        capture("AFTER percentage alert fixed basis and keyboard")
+        app.buttons["收起鍵盤"].tap();let remove=app.buttons["刪除提醒"];try reveal(remove,in:app);rapid(remove)
+        try waitUntil("Repeated alert deletion left an active reminder"){(try? self.state(app)["alerts"] as? [[String:String]])?.isEmpty==true}
+        app.buttons["完成"].tap();app.tabBars.buttons["資產"].tap()
+        try check((try state(app)["cash"] as? [String:String])==original,"Price alert changed cash")
+        app.buttons["設定"].tap();app.buttons["外觀與通知"].tap();let inbox=app.buttons["通知中心"];try reveal(inbox,in:app);inbox.tap()
+        try check(app.navigationBars["通知中心"].exists,"Account inbox is not reachable")
+        try check((try state(app)["inbox"] as? [[String:String]])?.allSatisfy{$0["account"]=="account-offline"}==true,"Inbox leaked another account")
+        capture("AFTER account notification center")
+    }
     func testOfflineThreeActionDiscoveryAndFullStockJourney()throws{
         let app=launchClean();defer{finish()};try onboard(app)
         // Home's first stock is reachable directly; no hidden settings or catalog prerequisite.

@@ -40,7 +40,7 @@ public enum SimulationNews {
     private static let cache=SimulationNewsCache()
     public static func story(bucket:Int64,state:SimulationState)->MarketNewsStory?{
         guard let universe=state.newsUniverse,!universe.isEmpty,let enabled=state.newsFrom else{return nil}
-        let key="\(state.seed)|\(state.newsWorldID ?? "legacy")|\(bucket)"
+        let key="\(state.seed)|\(state.newsWorldID ?? "legacy")|\(enabled)|\(bucket)"
         return cache.value(key){
             let r=Simulation.random(seed:state.seed,stream:713,index:bucket)
             let published=bucket*period+Int64(Int(r*20)+1)*60
@@ -76,6 +76,23 @@ public enum SimulationNews {
         active(instrument,at:time,state:state).reduce(0){sum,event in
             let elapsed=Double(time-event.publishedAt),remaining=Double((event.endsAt ?? time)-time)
             return sum+(event.logPriceImpact ?? 0)*max(0,min(1,elapsed/600,remaining/600))
+        }
+    }
+}
+
+
+public enum MarketNewsSelection{
+    public static func filter(_ stories:[MarketNewsStory],instruments:[Instrument],market:MarketDomain,category:String,watchlist:Set<String>,favoritesOnly:Bool,now:Int64,origin:NewsOrigin)->[MarketNewsStory]{
+        let eligible=Set(instruments.filter{instrument in
+            guard instrument.market==market else{return false}
+            if market == .crypto{return category=="合約" ? instrument.asset == .perpetual:instrument.asset == .crypto}
+            switch category{case "台股":return instrument.asset == .taiwanStock;case "美股":return instrument.asset == .usStock;case "ETF":return instrument.asset == .etf;case "外匯":return instrument.asset == .forex;case "期貨":return instrument.asset == .future;default:return true}
+        }.map(\.id))
+        return stories.filter{story in
+            guard story.publishedAt<=now,story.markets.contains(market),story.origin==origin else{return false}
+            if !story.instrumentIDs.isEmpty && eligible.isDisjoint(with:story.instrumentIDs){return false}
+            if favoritesOnly{return !watchlist.intersection(eligible).intersection(story.instrumentIDs).isEmpty}
+            return true
         }
     }
 }

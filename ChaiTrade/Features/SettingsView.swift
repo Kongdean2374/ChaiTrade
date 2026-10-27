@@ -89,6 +89,7 @@ struct AppearanceNotificationSettings:View{
                 Toggle("遮蔽資產金額",isOn:$model.settings.hideBalances).onChange(of:model.settings.hideBalances){_,_ in model.saveSettings()}
             }
             Section("目前帳戶通知"){
+                NavigationLink("通知中心"){AccountInboxView()}
                 Button("啟用／檢查系統通知權限"){Task{await model.enableNotifications()}}
                 if model.state?.notificationEnabled==true{Button("停用此帳戶系統通知"){Task{guard let engine=model.engine,let context=model.context else{return};await model.run{try await engine.configureNotifications(false,context:context)}}}}
                 Text("只有實際運作中的行情／交易引擎能偵測事件。沒有背景即時監控保證；B 補算事件會標示補算發現。拒絕權限仍保留 App 內事件。").font(.caption)

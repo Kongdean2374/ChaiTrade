@@ -4,6 +4,10 @@ import ChaiTradeCore
 
 private final class NoticePresenter:NSObject,UNUserNotificationCenterDelegate,@unchecked Sendable{
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,willPresent notification:UNNotification)async->UNNotificationPresentationOptions{[.banner,.list]}
+    nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,didReceive response:UNNotificationResponse)async{
+        guard response.actionIdentifier==UNNotificationDefaultActionIdentifier,let account=response.notification.request.content.userInfo["account"] as? String,let event=response.notification.request.content.userInfo["event"] as? String,let link=try? NoticeLink(accountID:account,eventID:event) else{return}
+        await MainActor.run{NoticeTapMailbox.shared.pending=link}
+    }
 }
 @MainActor final class LocalNotifications {
     private let center=UNUserNotificationCenter.current()
@@ -26,7 +30,8 @@ private final class NoticePresenter:NSObject,UNUserNotificationCenterDelegate,@u
             if !delivered.contains(notice.id) && !pending.contains(notice.id){
                 let content=UNMutableNotificationContent()
                 content.title=notice.discoveredDuringCatchup ? "ChaiTrade · 補算發現（模擬）":"ChaiTrade · 模擬交易"
-                content.body="\(notice.event.message)\n\(context.mode.label) · 事件時間 \(notice.event.time)"
+                let time=Date(timeIntervalSince1970:TimeInterval(notice.event.time)).formatted(date:.abbreviated,time:.shortened)
+                content.body="\(notice.event.message)\n\(context.mode.label) · \(notice.discoveredDuringCatchup ? "補算事件時間":"事件時間") \(time)"
                 content.threadIdentifier=context.accountID
                 content.userInfo=["account":context.accountID,"event":notice.event.id]
                 try await withCheckedThrowingContinuation{(continuation:CheckedContinuation<Void,Error>) in

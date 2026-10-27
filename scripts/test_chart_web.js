@@ -1,0 +1,21 @@
+'use strict';
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const nodes=new Map(),styles={},options=[];
+function node(id){if(!nodes.has(id))nodes.set(id,{style:{},clientWidth:375,clientHeight:300,replaceChildren(){},append(){},setAttribute(){},addEventListener(){},getBoundingClientRect(){return{top:0}}});return nodes.get(id);}
+const plotted=[],series=[];
+const document={body:{style:{}},documentElement:{style:{setProperty(k,v){styles[k]=v}}},getElementById:node,createElementNS:()=>node('svg')};
+const sandbox={document,Intl,Date,console,ResizeObserver:class{observe(){}},window:{},LightweightCharts:{LineSeries:'line',CandlestickSeries:'candle',HistogramSeries:'volume',CrosshairMode:{Normal:0},createChart(root,config){options.push(config);return{remove(){},subscribeCrosshairMove(){},timeScale(){return{subscribeVisibleLogicalRangeChange(){},fitContent(){},timeToCoordinate(){return 0}}},addSeries(kind,config){const object={kind,config,setData(data){plotted.push({kind,config,data})},priceScale(){return{applyOptions(){}}},priceToCoordinate(){return 0},createPriceLine(){},removePriceLine(){}};series.push(object);return object;},removeSeries(){}};}}};
+vm.runInNewContext(fs.readFileSync('ChaiTrade/Resources/ChartWeb/chart.js','utf8'),sandbox);
+const candle={time:Date.parse('2026-10-27T01:30:00Z')/1000,open:100,high:102,low:99,close:101,volume:10};
+const data={id:'synthetic-chart-test',account:'test',epoch:'test',candles:[candle],overlays:[],drawings:[],lines:[],line:false,taiwan:true,dark:false,timeZone:'Asia/Taipei',fontSize:16};
+sandbox.window.render(data);
+assert.equal(document.body.style.background,'#fff');assert.equal(options[0].layout.fontSize,16);
+assert.match(options[0].timeScale.tickMarkFormatter(candle.time,3),/09:30/);
+assert.match(options[0].localization.timeFormatter(candle.time),/2026.*10.*27.*09:30/);
+assert.equal(series.find(s=>s.kind==='volume').config.lastValueVisible,false);
+assert.equal(plotted.find(s=>s.kind==='volume').data[0].color,'#e65c6638');
+sandbox.window.render({...data,taiwan:false,timeZone:'America/New_York',dark:true});
+assert.equal(document.body.style.background,'#101318');assert.match(options.at(-1).timeScale.tickMarkFormatter(candle.time,3),/21:30/);
+assert.equal(plotted.filter(s=>s.kind==='volume').at(-1).data[0].color,'#35b79238');
+assert.equal(styles['--chart-font'],'16px');assert.match(node('credit').textContent,/模擬交易.*America\/New_York/);
+console.log('Chart timezone, theme, accessibility font, volume axis/colors and local rendering checks passed.');

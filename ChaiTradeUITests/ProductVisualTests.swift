@@ -24,6 +24,7 @@ import XCTest
         let app=launchClean(flags:["--uitest-dark","--uitest-large-type"]);defer{finish()};try start(app,theme:"dark",large:true)
         app.tabBars.buttons["交易"].tap();let open=app.buttons["openOrder"];try reveal(open,in:app);open.tap()
         let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap()
+        try check(try state(app)["visualType"] as? String=="accessibility3","Order sheet did not inherit accessibility text size")
         capture("AFTER VISUAL dark accessibility order keyboard")
         let submit=app.buttons["submitOrder"];try reveal(submit,in:app);try check(submit.isHittable,"Keyboard covers order review at large text size")
         capture("AFTER VISUAL dark accessibility order bottom")
@@ -44,6 +45,7 @@ import XCTest
     func testLongChineseJournalAtLargeTextPreservesContentOnce()throws{
         let app=launchClean(flags:["--uitest-dark","--uitest-large-type"]);defer{finish()};try start(app,theme:"dark",large:true)
         try journal(app)
+        try check(try state(app)["visualType"] as? String=="accessibility3","Journal sheet did not inherit accessibility text size")
         let text="這是一段較長的中文交易日誌，用來驗證小螢幕與大字體的鍵盤、捲動及內容保存。觀察市場變化後，再記錄風險、進出場理由與後續檢討。"
         let editor=app.textViews["journalText"];editor.tap();editor.typeText(text)
         try check(editor.value as? String==text,"Long Chinese input differs before saving")

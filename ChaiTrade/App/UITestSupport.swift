@@ -67,6 +67,8 @@ struct UITestProbe: View {
             "quotes":s?.quotes.mapValues{["price":$0.last.description,"time":String($0.time),"valid":String($0.valid)]} ?? [:],
             "news":model.filteredNews.map{["id":$0.id,"label":$0.label,"title":$0.title,"origin":$0.origin.rawValue]},
 
+            "alerts":s?.alerts.map{["id":$0.id,"instrument":$0.instrumentID,"price":$0.price.description,"baseline":$0.baseline?.description ?? "","percentage":$0.percentage?.description ?? ""]} ?? [],
+            "inbox":s?.inbox?.map{["account":$0.accountID,"event":$0.event.id,"kind":$0.event.kind]} ?? [],
             "cash":s?.cash.mapValues(\.description) ?? [:],"watchlist":s?.watchlist.sorted() ?? [],
             "journals":s?.journals.map{["id":$0.id,"text":$0.text]} ?? [],
             "orders":s?.orders.keys.sorted() ?? [],

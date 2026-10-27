@@ -83,7 +83,7 @@ public actor TradingEngine {
     @discardableResult private func transaction<T>(catchup:Bool=false,_ body: (inout AccountState) throws -> T) throws -> T {
         var next = state
         let result = try body(&next)
-        let kinds:Set<String>=["fill","priceAlert","liquidation","monitoringGap","rejected","catchupComplete"]
+        let kinds:Set<String>=["fill","priceAlert","marginRisk","liquidation","monitoringGap","rejected","catchupComplete"]
         let added=next.events.filter{$0.sequence>state.sequence && kinds.contains($0.kind)}
         if !added.isEmpty{
             if next.inbox==nil{next.inbox=[]}
@@ -299,7 +299,19 @@ public actor TradingEngine {
         }
         try transaction { s in
             try Self.settleDue(&s, now:now)
-            if let old = s.quotes[quote.storageKey],old.source == quote.source {if old.sequence>quote.sequence{return};if old.sequence==quote.sequence && old.valid && old.quality == .realtime{return}}
+            if let old=s.quotes[quote.storageKey],Self.fresh(old,now:now),old.source.hasPrefix("Coinbase Exchange WS "),quote.source==ProviderID.coinbase.label{
+                // REST supplements list statistics while a healthy stream owns the executable book.
+                // It must not reset already consumed WS liquidity or replace newer stream prices.
+                if let summary=quote.summary,summary.reference != nil || summary.volume != nil{var merged=old;merged.summary=summary;s.quotes[quote.storageKey]=merged}
+                return
+            }
+            if let old=s.quotes[quote.storageKey],old.source==quote.source{
+                if old.sequence>quote.sequence{return}
+                if old.sequence==quote.sequence && old.valid && old.quality == .realtime && quote.valid && quote.quality == .realtime && old.grade==quote.grade && old.sourceIssue==quote.sourceIssue{
+                    if let summary=quote.summary{var merged=old;merged.summary=summary;s.quotes[quote.storageKey]=merged}
+                    return
+                }
+            }
             s.quotes[quote.storageKey] = quote
             try Self.match(&s, quote: quote, now: now)
             try Self.risk(&s, quote: quote, now: now)
@@ -336,7 +348,7 @@ public actor TradingEngine {
         return o.triggered
     }
     private static func fresh(_ q: Quote,now: Int64) -> Bool {
-        q.quality == .realtime && q.valid && now >= q.time-5 && now-q.time <= q.maximumAge && now-q.receivedAt <= q.maximumAge
+        q.quality == .realtime && q.valid && (q.sourceIssue.map{[MarketIssueKind.ready,.referenceOnly].contains($0)} ?? true) && now >= q.time-5 && now-q.time <= q.maximumAge && now-q.receivedAt <= q.maximumAge
     }
     private static func match(_ s: inout AccountState, quote q: Quote, now: Int64) throws {
         let i = try instrument(s, q.instrumentID)
@@ -432,9 +444,9 @@ public actor TradingEngine {
             }
             if o.filled > .zero && o.request.parentID == nil { try protect(&s, parent: o, time: now) }
         }
-        for idx in s.alerts.indices where fresh && q.last > .zero && s.alerts[idx].instrumentID == i.id && s.alerts[idx].firedAt == nil {
+        for idx in s.alerts.indices where fresh && q.last > .zero && s.alerts[idx].instrumentID == i.id && s.alerts[idx].firedAt == nil && (!i.usesTaiwanBoards || (s.alerts[idx].board ?? .regular)==(q.board ?? .regular)) {
             let a = s.alerts[idx]
-            if a.above ? q.last >= a.price : q.last <= a.price { s.alerts[idx].firedAt = now; s.audit("priceAlert", "\(i.symbol) 到價 \(a.price)", time: now, id: "alert-\(a.id)") }
+            if a.above ? q.last >= a.price : q.last <= a.price { s.alerts[idx].firedAt = now;let detail=a.percentage.map{"（相對固定基準 \(a.baseline ?? .zero)，\(a.above ? "上漲":"下跌") \($0)%）"} ?? "";s.audit("priceAlert", "\(i.symbol) 到價 \(a.price)\(detail)", time: now, id: "alert-\(a.id)",instrumentID:i.id) }
         }
     }
     private static func execute(_ s: inout AccountState, order o: inout Order, quantity: Amount, price: Amount, instrument i: Instrument, quote q: Quote, now: Int64,liquidity:Level?=nil) throws {
@@ -474,6 +486,7 @@ public actor TradingEngine {
         let newPayable = delayedSettlement && o.request.side == .buy ? notional:.zero
         guard try (i.asset.derivative && closing > .zero && openingQuantity == .zero) || newCash >= otherLocks + p.margin + newPayable else { throw TradeError.insufficient("成交時可用資金不足，保留原帳務") }
         s.cash[i.currency] = newCash; s.positions[positionKey] = p
+        if p.quantity == .zero{s.marginWarningLevels?.removeValue(forKey:positionKey)}
         o.filled = try o.filled + quantity; o.cumulativeNotional = totalNotional; o.fees = cumulativeFee
         o.updatedAt = now
         let rem = try o.remaining
@@ -507,7 +520,7 @@ public actor TradingEngine {
             s.post(event: fillID, currency: i.currency, debit: "cash", credit: i.asset.derivative ? "derivative-clearing" : "spot-clearing", amount: tradeCash, time: now)
         }
         s.post(event: fillID, currency: i.currency, debit: "fees", credit: "cash", amount: try fee + tax, time: now)
-        s.audit("fill", "\(i.symbol) \(o.request.side.label) \(quantity) @ \(price)；\(q.grade.rawValue)", time: now, id: fillID)
+        s.audit("fill", "\(i.symbol) \(o.request.side.label) \(quantity) @ \(price)；\(q.grade.rawValue)", time: now, id: fillID,instrumentID:i.id,orderID:o.id)
     }
     private static func protect(_ s: inout AccountState, parent: Order, time: Int64) throws {
         guard parent.request.bracketProfit != nil || parent.request.bracketStop != nil,
@@ -541,6 +554,13 @@ public actor TradingEngine {
         guard let p = s.positions[key], p.quantity != .zero, let mark = q.mark,
               q.quality == .realtime, q.valid, now - q.time <= q.maximumAge else { return }
         guard let evaluation=try? ContractRisk.evaluate(s,positionKey:p.id,now:now) else{return}
+        let maintenance=evaluation.maintenanceAndClosingFee,previous=s.marginWarningLevels?[key] ?? 0
+        let level=evaluation.equity<=maintenance ? 2:evaluation.equity <= (try maintenance*Amount(2)) ? 1:0
+        if s.marginWarningLevels==nil{s.marginWarningLevels=[:]}
+        if level>previous{
+            s.audit("marginRisk","\(i.symbol) \(p.side?.label ?? "淨倉") \(level==2 ? "已達本機強平條件":"保證金高風險")；權益 \(evaluation.equity)，維持保證金及預估平倉費 \(maintenance) \(i.currency)。請檢查部位或調整保證金。",time:now,instrumentID:i.id)
+            s.marginWarningLevels![key]=level
+        }else if level==0,evaluation.equity > (try maintenance*Amount("2.5")){s.marginWarningLevels!.removeValue(forKey:key)}
         guard evaluation.equity<=evaluation.maintenanceAndClosingFee else{return}
         let event="liquidation-\(p.id)-\(q.sequence)"
         guard !s.appliedEvents.contains(event) else{return}
@@ -553,7 +573,8 @@ public actor TradingEngine {
         try execute(&s,order:&order,quantity:p.quantity.magnitude,price:mark,instrument:i,quote:riskQuote,now:now)
         order.status = .filled;s.orders[event]=order
         if let last=s.fills.indices.last{s.fills[last].modelVersion="mark-liquidation-2"}
-        s.appliedEvents.insert(event);s.audit("liquidation","\(i.symbol) \(p.side?.label ?? "淨倉") 本機標記價強平估算；費用 \(order.fees)，穿倉餘額保留",time:now,id:event)
+        s.marginWarningLevels!.removeValue(forKey:key)
+        s.appliedEvents.insert(event);s.audit("liquidation","\(i.symbol) \(p.side?.label ?? "淨倉") 本機標記價強平估算；費用 \(order.fees)，穿倉餘額保留",time:now,id:event,instrumentID:i.id,orderID:event)
     }
 
     private static func utcDay(_ t: Int64, zone: String) -> String {
@@ -579,7 +600,10 @@ public actor TradingEngine {
                 s.simulation!.impactGroups=s.simulation!.impactGroups?.filter{$0.endsAt+65>=sim.time}
                 let currentSimulation=s.simulation!
                 for i in s.instruments.sorted(by: { $0.id < $1.id }) where i.rules.isOpen(at: sim.time) && !i.halted {
-                    let fullBook=(self.simulationDemand.map{$0.contains(i.id)} ?? true) || s.heldPositions(i.id).contains{$0.quantity != .zero} || s.orders.values.contains{$0.status.open && $0.request.instrumentID==i.id}
+                    // Every financial five-second step still runs. Invisible intermediate UI books need not
+                    // be rebuilt during catchup when there is no position or live/conditional order.
+                    // Each committed checkpoint ends with the complete demanded book, including pauses.
+                    let fullBook=(!catchup || sim.time==end) && (self.simulationDemand.map{$0.contains(i.id)} ?? true) || s.heldPositions(i.id).contains{$0.quantity != .zero} || s.orders.values.contains{$0.status.open && $0.request.instrumentID==i.id}
                     let q = try Simulation.quote(i, state: currentSimulation,includeBook:fullBook); s.quotes[i.id] = q
                     try Self.match(&s, quote: q, now: sim.time); try Self.risk(&s, quote: q, now: sim.time)
                     if i.usesTaiwanBoards{let odd=try Simulation.quote(i,state:currentSimulation,board:.oddLot,includeBook:fullBook);s.quotes[odd.storageKey]=odd;try Self.match(&s,quote:odd,now:sim.time)}
@@ -682,7 +706,31 @@ public actor TradingEngine {
         guard state.instruments.contains(where:{$0.id==instrumentID}),(2...100).contains(preferences.period),[60,300,900,1800,3600,14400,86400,604800,2592000].contains(preferences.interval),["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"].contains(preferences.indicator) else{throw TradeError.invalid("圖表偏好超過範圍")}
         try transaction{if $0.chartPreferences==nil{$0.chartPreferences=[:]};$0.chartPreferences![instrumentID]=preferences}
     }
-    public func addAlert(_ alert: PriceAlert, context: AccountContext) throws { try check(context); try transaction { $0.alerts.append(alert) } }
+    public func addAlert(_ alert: PriceAlert, context: AccountContext) throws {
+        try check(context)
+        guard alert.percentage==nil,alert.baseline==nil,alert.basis==nil,alert.price > .zero,alert.firedAt==nil,!alert.id.isEmpty,alert.id.count<=128 else{throw TradeError.invalid("提醒價格或身份不合法")}
+        let i=try Self.instrument(state,alert.instrumentID)
+        guard i.asset != .index || !i.halted else{throw TradeError.invalid("此商品目前無可監控價格")}
+        if state.alerts.contains(where:{$0.id==alert.id}){throw TradeError.invalid("此提醒已存在，未重複建立")}
+        try transaction{$0.alerts.append(alert)}
+    }
+    public func addPercentageAlert(id:String=UUID().uuidString,instrumentID:String,percentage:Amount,above:Bool,basis:AlertPriceBasis = .creationPrice,board:TradingBoard?=nil,time:Int64,context:AccountContext)throws{
+        try check(context)
+        let i=try Self.instrument(state,instrumentID),now=state.simulation?.time ?? wallClock?() ?? time
+        let maximum=try Amount(1000),hundred=try Amount(100)
+        guard !id.isEmpty,id.count<=128,!state.alerts.contains(where:{$0.id==id}),percentage > .zero,percentage<=maximum,above || percentage<hundred,let q=state.quotes[i.quoteKey(board:board)],Self.fresh(q,now:now),q.last > .zero else{throw TradeError.invalid("建立百分比提醒需要有效新鮮價格及合理百分比；向下幅度須小於100%")}
+        let baseline=basis == .creationPrice ? q.last:q.summary?.reference
+        guard let baseline,baseline > .zero else{throw TradeError.unavailable("來源沒有提供前收／24小時起價，請改用建立時價格")}
+        let ratio=try percentage/Amount(100),threshold=try baseline*(above ? .one+ratio:.one-ratio)
+        var alert=PriceAlert(instrumentID:i.id,price:threshold,above:above);alert.id=id;alert.percentage=percentage;alert.baseline=baseline;alert.baselineTime=q.time;alert.basis=basis;alert.board=i.usesTaiwanBoards ? (board ?? .regular):nil
+        try transaction{$0.alerts.append(alert)}
+    }
+    public func removeAlert(id:String,context:AccountContext)throws{try check(context);try transaction{$0.alerts.removeAll{$0.id==id}}}
+    public func noticeDestination(_ link:NoticeLink,context:AccountContext)throws->NoticeDestination{
+        try check(context);guard link.accountID==context.accountID else{throw TradeError.wrongAccount}
+        guard let event=try repository.auditEvent(id:link.eventID),event.id==link.eventID else{throw TradeError.unavailable("原事件不在目前帳戶中；請檢查是否還原了另一份備份")}
+        return NoticeDestination(event:event,instrument:state.instruments.first{$0.id==event.instrumentID})
+    }
     public func configureNotifications(_ enabled:Bool,context:AccountContext)throws{try check(context);try transaction{s in s.notificationEnabled=enabled;if !enabled{for n in s.inbox?.indices ?? 0..<0{s.inbox![n].delivered=true}}}}
     public func acknowledgeNotices(_ ids:Set<String>,context:AccountContext)throws{
         try check(context);try transaction{s in for n in s.inbox?.indices ?? 0..<0{if ids.contains(s.inbox![n].id){s.inbox![n].delivered=true}}}
@@ -736,7 +784,7 @@ public actor TradingEngine {
         }
     }
     public func updateRules(instrumentID: String,rules: RulePack,context: AccountContext) throws {
-        try check(context)
+        try check(context);try TradingSessions.validate(rules)
         guard rules.tick > .zero,rules.quantityStep > .zero,rules.multiplier > .zero,rules.fees.taker >= .zero,rules.fees.taker < .one,rules.maxLeverage >= 1,rules.maintenance >= .zero,
               TimeZone(identifier:rules.timeZone) != nil,(0...1440).contains(rules.openMinute),(0...1440).contains(rules.closeMinute),(0...10).contains(rules.settlementBusinessDays ?? 0) else { throw TradeError.invalid("交易規則不合法") }
         try transaction { s in

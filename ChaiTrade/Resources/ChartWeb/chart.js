@@ -1,24 +1,37 @@
 'use strict';
 let chart,series,volume,lastData,extra=[],priceLines=[],mode='';
 const root=document.getElementById('chart'),svg=document.getElementById('drawings');
+function chartTimeFormat(time,kind,zone){
+ if(typeof time!=='number')return `${time.year}-${String(time.month).padStart(2,'0')}-${String(time.day).padStart(2,'0')}`;
+ const date=new Date(time*1000);
+ const options=kind===0?{year:'numeric'}:kind===1?{year:'numeric',month:'2-digit'}:kind===2?{month:'2-digit',day:'2-digit'}:kind==='full'?{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}:{hour:'2-digit',minute:'2-digit',hourCycle:'h23'};
+ return new Intl.DateTimeFormat('zh-TW',{...options,timeZone:zone||'UTC'}).format(date);
+}
 function create(data){
  if(chart)chart.remove();
- chart=LightweightCharts.createChart(root,{autoSize:true,layout:{background:{color:data.dark?'#101318':'#fff'},textColor:data.dark?'#a6b0c0':'#444',fontSize:10,attributionLogo:false},grid:{vertLines:{color:'#77777712'},horzLines:{color:'#77777712'}},timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#3335'},rightPriceScale:{borderColor:'#3335'},crosshair:{mode:LightweightCharts.CrosshairMode.Normal}});
+ const font=Math.max(10,Math.min(20,Number(data.fontSize)||12)),zone=data.timeZone||'UTC';
+ document.body.style.background=data.dark?'#101318':'#fff';document.body.style.color=data.dark?'#a6b0c0':'#444';
+ document.documentElement.style.setProperty('--chart-font',font+'px');
+ document.documentElement.style.setProperty('--chart-top',(font+15)+'px');
+ document.documentElement.style.setProperty('--chart-bottom',(font+25)+'px');
+ document.getElementById('credit').textContent='TradingView Lightweight Charts™ · 模擬交易 · '+zone;
+
+ chart=LightweightCharts.createChart(root,{autoSize:true,layout:{background:{color:data.dark?'#101318':'#fff'},textColor:data.dark?'#a6b0c0':'#444',fontSize:font,attributionLogo:false},grid:{vertLines:{color:'#77777712'},horzLines:{color:'#77777712'}},localization:{locale:"zh-TW",timeFormatter:time=>chartTimeFormat(time,"full",zone)},timeScale:{tickMarkFormatter:(time,kind)=>chartTimeFormat(time,kind,zone),timeVisible:true,secondsVisible:false,borderColor:'#3335'},rightPriceScale:{borderColor:'#3335'},crosshair:{mode:LightweightCharts.CrosshairMode.Normal}});
  const up=data.taiwan?'#e65c66':'#35b792',down=data.taiwan?'#35b792':'#e65c66';
  series=chart.addSeries(data.line?LightweightCharts.LineSeries:LightweightCharts.CandlestickSeries,data.line?{color:'#ffb454',lineWidth:2}:{upColor:up,downColor:down,borderVisible:false,wickUpColor:up,wickDownColor:down});
- volume=chart.addSeries(LightweightCharts.HistogramSeries,{priceFormat:{type:'volume'},priceScaleId:'volume'});
+ volume=chart.addSeries(LightweightCharts.HistogramSeries,{priceFormat:{type:'volume'},priceScaleId:'volume',lastValueVisible:false,priceLineVisible:false});
  volume.priceScale().applyOptions({scaleMargins:{top:0.85,bottom:0}});
  extra=[];priceLines=[];
  chart.subscribeCrosshairMove(param=>{const c=param.seriesData.get(series);if(c){document.getElementById('ohlc').textContent=data.line?`模擬交易 · ${c.value}`:`O ${c.open}  H ${c.high}  L ${c.low}  C ${c.close}`;}});
  chart.timeScale().subscribeVisibleLogicalRangeChange(draw);
 }
 window.render=function(data){
- const key=[data.id,data.line,data.taiwan,data.dark].join('|'),changed=mode!==key;
+ const key=[data.id,data.line,data.taiwan,data.dark,data.timeZone,data.fontSize].join('|'),changed=mode!==key;
  if(changed){create(data);mode=key;}
  lastData=data;
  const clean=data.candles.filter(c=>Number.isFinite(c.close)&&c.time>0);
  series.setData(data.line?clean.map(c=>({time:c.time,value:c.close})):clean);
- volume.setData(clean.filter(c=>c.volume!==null&&Number.isFinite(c.volume)).map(c=>({time:c.time,value:c.volume,color:c.close>=c.open?'#e65c6638':'#35b79238'})));
+ volume.setData(clean.filter(c=>c.volume!==null&&Number.isFinite(c.volume)).map(c=>({time:c.time,value:c.volume,color:(c.close>=c.open)===!!data.taiwan?'#e65c6638':'#35b79238'})));
  for(const s of extra)chart.removeSeries(s);extra=[];
  for(const o of data.overlays){const s=chart.addSeries(LightweightCharts.LineSeries,{color:o.color,lineWidth:1,priceLineVisible:false,lastValueVisible:false},o.pane||0);s.setData(o.data);extra.push(s);}
  for(const l of priceLines)series.removePriceLine(l);priceLines=[];

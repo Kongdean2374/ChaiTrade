@@ -45,3 +45,15 @@ Evidence: full Release100 passed with live and stress enabled, zero skipped, in 
 Apple run40559942622 passed native device/simulator and core/T45. New product UI: stock→order→holding→journal, fresh A missing-key + multiple public quotes, and settings/bottom reachability passed; landscape selector, crypto news navigation/keyboard and post-restart market switch failed. Failure artifact12762820764 has SHA256 f127115bb836dc2c5ac9eaaba567c630c84647dde95da1056173ca69f293a716; screenshots and independent databases were inspected before fixes. Old crypto query ETH remained in SQLite; UI navigation must be verified separately. Original20 interaction executions completed:19passed and1failed on swipe-dismiss after keyboard input. The suite remains failed; all allowances and assertions are retained for full rerun.
 
 Remaining feasible implementation includes complete calendar/session/source-unit rules, FX validity, percentage and pre-liquidation alerts/deep links, streaming archives beyond existing safe limits, visual matrix and complete original/new interaction acceptance, plus the final walkthrough, screenshots, documentation and unsigned IPA. Credentials, regional restrictions and physical-device measurements remain explicit external blockers; they do not excuse the feasible code work.
+
+## 2026-10-27 產品補完：第九輪實測與下一輪修正
+
+Apple run [40573828820](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40573828820)，commit `46ddeb98d4523c8b26f8d854ee9bd198d7bf6545`：裝置 Release／UI 編譯及核心通過。產品流程6/7通過（股票完整旅程、加密買賣精確帳務、公開BTC/ETH首次列表、橫向圖表、快速市場切換及重啟、七類設定與到底）；加密搜尋鍵盤後切總覽失敗。原互動共20次執行17次通過、3次失敗（鍵盤後確認鈕兩次、補算35秒內未完成一次），整組不通過。視覺 iPhone17Pro 3/4、SE3 2/4；大字體鍵盤確認與SE長中文日誌失敗。未提高120秒單例、35秒補算等待、2秒正常冷啟動或150毫秒門檻。
+
+失敗的xcresult、畫面、階層及各例UUID資料庫均先保存並實際檢視：產品artifact12767747172，SHA256 `6195189fc61d6ac1e63eb1bd48b0430f71edb99dc155515aee1d71b72b7e63ae`；SE artifact12767642049，`4d39364d9d90f8956af322229c71dff2f04260984f4827342a3279ab16639d55`；17Pro artifact12768150208，`c55337a8e6e5d981bc7d86022ad3e4b90cf5f1a4bb4a77e57ebef30e6142ff24`；原互動artifact12768756441，`8393f42d64eff015e9f693f0b3b22ddb5b7d4e640cb70606e754498750182f78`。這些是乾淨合成測試帳戶，不含使用者原圖的私人通知。
+
+本次修正：確認委託／保存日誌改為鍵盤上方固定操作；搜尋分類切換收起鍵盤並提供明確完成搜尋；新聞分類與自選篩選按市場獨立，返回新聞詳情不重設；大字體測試另核對sheet實際字級。圖表加上市場時區、中文時間、深淺底色、字級、量軸及固定模擬標記。補算效能修正不跳過五秒財務事件，未結／條件單和持倉仍取得完整盤，所有已提交檢查點保留完整所需盤；新增一般推進與補算全帳戶結果比對。
+
+核心新增：具固定基準的百分比提醒、持久化保證金警示及恢復遲滯、帳戶／原事件核對通知導覽；不因通知自動切A/B。新增TWSE2026交易與交割假日、NYSE2025–27提前收盤、TAIFEX跨日與合約來源別名、CME／參考FX一般跨日時段，日曆適用年度及未核對例外保留明示。來源試撮／暫停／收盤、交叉買賣盤與股票張股量能分開處理；同序號狀態惡化不可忽略。付費Fugle等仍只有schema合成驗證，沒有合法Key不宣稱實連。
+
+本機完整Release117項、零跳過，70.470秒通過；原T45十萬成交／100001估值點、30樣本，寫入p95 **46.545907ms**，100筆分頁p95 **2.799130ms**，熱載入66.681274ms，完整CSV148.520757ms、完整稽核10.142075155秒。真實公開BTC/ETH三輪行情、K線、時間戳、監控恢復、本機冪等意圖、官方RSS與Nasdaq身份HTTP通過。此為Linux儲存／連線證據，不是iPhone2秒冷啟動或150ms UI回饋。後續補算優化另有核心重跑；最新版Apple UI與最終IPA尚待本輪完整重跑。

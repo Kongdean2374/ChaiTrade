@@ -145,6 +145,7 @@ public enum Simulation {
             for minute in [0,instrument.rules.openMinute,instrument.rules.closeMinute] where minute<1440{
                 if let boundary=calendar.date(bySettingHour:minute/60,minute:minute%60,second:0,of:date){let value=Int64(boundary.timeIntervalSince1970);if value>from && value<=end{boundaries.insert(value)}}
             }
+            for anchor in [date,calendar.date(byAdding:.day,value:-1,to:date)!]{for session in TradingSessions.intervals(anchorDay:anchor,rules:instrument.rules){for value in [session.start,session.end] where value>from && value<=end{boundaries.insert(value)}}}
             date=calendar.date(byAdding:.day,value:1,to:date)!
         }
         for impact in state.impactGroups ?? [] where impact.instrumentID==instrument.id{for time in [impact.volumeTime,impact.volumeTime+step] where time>from && time<=end{boundaries.insert(time)}}
@@ -211,6 +212,7 @@ public enum Simulation {
         return result.reversed()
     }
     private static func previousTradingTime(before:Int64,rules:RulePack)throws->Int64?{
+        if rules.sessions != nil || rules.sessionOverrides != nil{return try TradingSessions.previousOpen(before:before,rules:rules)}
         var calendar=Calendar(identifier:.gregorian);calendar.timeZone=TimeZone(identifier:rules.timeZone)!
         var cursor=min(before-step,rules.expiry.map{$0-step} ?? Int64.max)
         for _ in 0..<3700{

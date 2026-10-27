@@ -2,6 +2,34 @@ import Foundation
 import Testing
 @testable import ChaiTradeCore
 
+@Test(arguments:[false,true])
+func catchupBookOptimizationPreservesEveryFinancialStepAndCheckpointBook(withOrder:Bool)async throws{
+    var initial=try TradingEngine.initial(mode:.offline,baseCurrency:"USD",capital:Amount("1000000"),time:0)
+    let btc=try #require(initial.instruments.first{$0.symbol=="BTC-USD"});initial.instruments=[btc];initial.simulation!.newsFrom=nil;initial.simulation!.newsAccountingFrom=nil
+    let start=initial.simulation!.time
+    func execute(catchup:Bool)async throws->AccountState{
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),ctx=AccountContext(mode:.offline)
+        let engine=try TradingEngine(context:ctx,repository:AccountRepository(root:root,mode:.offline),initial:initial)
+        try await engine.setSimulationDemand([btc.id],context:ctx)
+        if withOrder{
+            var entry=OrderRequest(instrumentID:btc.id,side:.buy,kind:.market,quantity:try Amount("0.01"));entry.requestID="same-entry"
+            _=try await engine.submit(entry,time:start,context:ctx)
+            var order=OrderRequest(instrumentID:btc.id,side:.buy,kind:.stopMarket,quantity:try Amount("0.01"),trigger:try Amount("100000000"));order.requestID="same-order"
+            _=try await engine.submit(order,time:start,context:ctx)
+        }
+        var alert=PriceAlert(instrumentID:btc.id,price:.one,above:true);alert.id="same-alert";try await engine.addAlert(alert,context:ctx)
+        for target in [start+300,start+600]{
+            _=try await engine.advance(to:target,catchup:catchup,context:ctx)
+            let checkpoint=await engine.snapshot();#expect(checkpoint.quotes[btc.id]?.grade == .E1);#expect(checkpoint.quotes[btc.id]?.time==target)
+        }
+        var result=try await engine.fullSnapshot(context:ctx);result.inbox=nil;return result
+    }
+    let ordinary=try await execute(catchup:false),replayed=try await execute(catchup:true)
+    #expect(try AccountRepository.encode(ordinary)==AccountRepository.encode(replayed))
+    #expect(replayed.alerts.first?.firedAt==start+5)
+    if withOrder{#expect(!replayed.fills.isEmpty)}
+}
+
 @Test func participantPoolsArePersistentAndRefillAtDistinctCadences()throws{
     var state=try TradingEngine.initial(mode:.offline,capital:Amount("100000"),time:0)
     let instrument=try #require(state.instruments.first{$0.symbol=="BTC-USD"})

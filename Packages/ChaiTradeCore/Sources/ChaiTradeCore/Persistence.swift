@@ -123,11 +123,15 @@ public final class AccountRepository: @unchecked Sendable {
         return try encoder.encode(object)
     }
     public static func validate(_ state: AccountState, mode: Mode) throws {
+        for instrument in state.instruments{try TradingSessions.validate(instrument.rules)}
         guard (1...2).contains(state.schema), state.mode == mode, state.accountID == mode.accountID,
               state.orders.values.allSatisfy({ $0.accountID == mode.accountID }),
               state.fills.allSatisfy({ $0.accountID == mode.accountID }),
               state.ledger.allSatisfy({ $0.accountID == mode.accountID }) else { throw TradeError.wrongAccount }
         if mode == .offline {
+            if let universe=state.simulation?.newsUniverse,let worldID=state.simulation?.newsWorldID{
+                guard Set(universe.map(\.id)).count==universe.count,worldID==BackupService.digest(try encode(universe)) else{throw TradeError.corrupt("模擬新聞世界身份與商品資料不符，保留原始資料")}
+            }
             if let simulation=state.simulation,simulation.algorithm=="factor-wave-3"{
                 guard ["factor-wave-1","factor-wave-2"].contains(simulation.baseAlgorithm ?? ""),let enabled=simulation.participantsFrom,enabled>=0,enabled<=32_503_680_000,enabled%Simulation.step==0 else{throw TradeError.corrupt("離線參與者版本或生效時間不合法")}
                 let known=Set(state.instruments.map(\.id)),groups=simulation.impactGroups ?? []
@@ -148,6 +152,17 @@ public final class AccountRepository: @unchecked Sendable {
             if let minute=i.rules.dailySettlementMinute{guard state.schema>=2,i.asset == .future,(0..<1440).contains(minute) else{throw TradeError.corrupt("每日結算排程不合法")}}
         }
         let instrumentIDs=Set(state.instruments.map(\.id))
+        guard Set(state.alerts.map(\.id)).count==state.alerts.count else{throw TradeError.corrupt("價格提醒身份重複")}
+        for alert in state.alerts{
+            guard instrumentIDs.contains(alert.instrumentID),alert.price > .zero,!alert.id.isEmpty,alert.id.count<=128 else{throw TradeError.corrupt("價格提醒商品、價格或身份不合法")}
+            if let percentage=alert.percentage{
+                let hundred=try Amount(100),maximum=try Amount(1000)
+                guard percentage > .zero,percentage<=maximum,alert.above || percentage<hundred,let baseline=alert.baseline,baseline > .zero,let time=alert.baselineTime,time>=0,alert.basis != nil else{throw TradeError.corrupt("百分比提醒缺少固定基準")}
+                let ratio=try percentage/hundred,threshold=try baseline*(alert.above ? .one+ratio:.one-ratio)
+                guard alert.price==threshold else{throw TradeError.corrupt("百分比提醒觸發價與固定基準不符")}
+            }else{guard alert.baseline==nil,alert.baselineTime==nil,alert.basis==nil else{throw TradeError.corrupt("絕對價格提醒不應有百分比基準")}}
+        }
+        guard state.marginWarningLevels?.allSatisfy({state.positions[$0.key] != nil && (0...2).contains($0.value)}) ?? true else{throw TradeError.corrupt("保證金提醒狀態不合法")}
         guard state.financialFlows?.allSatisfy({$0.accountID==state.accountID && instrumentIDs.contains($0.instrumentID) && $0.time>=0 && $0.sequence>=0 && ($0.quantityRatio==nil || $0.quantityRatio! > .zero)}) ?? true else{throw TradeError.corrupt("績效現金流帳戶、商品或數量比例不符")}
 
         guard state.chartPreferences?.allSatisfy({id,p in instrumentIDs.contains(id) && (2...100).contains(p.period) && [60,300,900,1800,3600,14400,86400,604800,2592000].contains(p.interval) && ["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"].contains(p.indicator)}) ?? true else{throw TradeError.corrupt("圖表偏好不合法")}
@@ -299,6 +314,10 @@ public final class AccountRepository: @unchecked Sendable {
         while status==SQLITE_ROW{guard let text=sqlite3_column_text(stmt,0) else{throw TradeError.corrupt("歷史資料損壞")};try body(String(cString:text));status=sqlite3_step(stmt)}
         guard status==SQLITE_DONE else{throw TradeError.corrupt("歷史查詢中斷")}
     }
+    public func auditEvent(id:String)throws->AuditEvent?{
+        lock.lock();defer{lock.unlock()}
+        return try readRows(AuditEvent.self,sql:"SELECT payload FROM events WHERE id=? AND account_id=? LIMIT 1",values:[id,mode.accountID]).first
+    }
     /// Explicit full-history operation for backup/integrity checks, never used to render a screen.
     public func fullSnapshot()throws->AccountState?{
         lock.lock();defer{lock.unlock()}
@@ -422,6 +441,7 @@ public final class AccountRepository: @unchecked Sendable {
 public struct AppSettings: Codable, Sendable {
     public var activeMode: Mode = .offline
     public var pendingMode: Mode?
+    public var pendingNotice:NoticeLink?
     public var onboarded = false
     public var theme = "dark"
     public var taiwanColors = true

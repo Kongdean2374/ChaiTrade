@@ -73,7 +73,7 @@ struct DashboardView:View {
         ScrollView{
             VStack(alignment:.leading,spacing:24){
                 HStack(alignment:.top){VStack(alignment:.leading,spacing:5){Text(domain == .stocks ? "掌握股市脈動":domain == .crypto ? "探索加密市場":"外匯與期貨").font(.largeTitle.bold());Text(model.state?.mode == .offline ? "離線行情、價格與事件均為模擬":"真實行情 · 所有買賣只在本機模擬").font(.caption).foregroundStyle(.secondary)};Spacer()}
-                Button{model.tab=4}label:{HStack{Label("帳戶資產",systemImage:"wallet.bifold");Spacer();Text(model.settings.hideBalances ? "••••••":MarketText.number(model.valuation?.total));Image(systemName:"chevron.right").font(.caption)}}.font(.subheadline).buttonStyle(.plain).padding(14).background(.quaternary.opacity(0.4),in:RoundedRectangle(cornerRadius:13))
+                Button{model.tab=4}label:{HStack{Label(model.valuation?.complete == true ? "帳戶資產":"已知部分資產",systemImage:"wallet.bifold");Spacer();Text(model.settings.hideBalances ? "••••••":MarketText.number(model.valuation?.total));Image(systemName:"chevron.right").font(.caption)}}.font(.subheadline).buttonStyle(.plain).padding(14).background(.quaternary.opacity(0.4),in:RoundedRectangle(cornerRadius:13))
                 if model.state?.mode == .offline{HStack{Label("模擬時間",systemImage:"clock");Text(Date(timeIntervalSince1970:TimeInterval(model.now)).formatted(date:.abbreviated,time:.shortened));Spacer();Text(model.state?.simulation?.paused==true ? "已暫停":"進行中")}.font(.caption).foregroundStyle(.secondary)}
                 if domain == .stocks{MarketIndexStrip()}
                 marketShortcuts
@@ -82,9 +82,9 @@ struct DashboardView:View {
                 let favorites=products.filter{model.state?.watchlist.contains($0.id)==true}
                 MarketCard{MarketSectionTitle(title:"我的自選");if favorites.isEmpty{Text("把想追蹤的商品加入自選，在這裡掌握變化。").font(.subheadline).foregroundStyle(.secondary);Button("加入自選商品"){model.editBrowsing(domain){$0.favoritesOnly=false};model.tab=1}}else{ForEach(Array(favorites.prefix(5))){MarketProductRow(instrument:$0,owner:"home-"+domain.rawValue)};Button("查看全部自選"){model.editBrowsing(domain){$0.favoritesOnly=true};model.tab=1}}}
                 MarketRankingPreview()
-                HStack{MarketSectionTitle(title:"新聞與市場事件");NavigationLink("全部"){MarketNewsView()}.font(.subheadline).accessibilityIdentifier("openMarketNews")}
-                ForEach(Array(model.filteredNews.prefix(3))){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain)}
-                if model.filteredNews.isEmpty{MarketCard{Text(model.newsLoading ? "正在載入來源新聞…":"目前沒有符合這個市場的新聞").font(.subheadline);if let issue=model.newsIssue{Text(issue).font(.caption).foregroundStyle(.secondary)};NavigationLink("新聞與來源狀態"){MarketNewsView()}}}
+                HStack{MarketSectionTitle(title:"新聞與市場事件");NavigationLink("全部"){MarketNewsView(initialCategory:domain == .crypto ? "現貨":"全部")}.font(.subheadline).accessibilityIdentifier("openMarketNews")}
+                ForEach(Array(model.homeNews.prefix(3))){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain)}
+                if model.homeNews.isEmpty{MarketCard{Text(model.newsLoading ? "正在載入來源新聞…":"目前沒有符合這個市場的新聞").font(.subheadline);if let issue=model.newsIssue{Text(issue).font(.caption).foregroundStyle(.secondary)};NavigationLink("新聞與來源狀態"){MarketNewsView(initialCategory:domain == .crypto ? "現貨":"全部")}}}
                 Button{calendar=true}label:{Label("財報／除息與市場日曆",systemImage:"calendar").frame(maxWidth:.infinity,alignment:.leading)}.buttonStyle(.bordered)
                 Text("已到首頁底部").font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity).accessibilityIdentifier("homeBottom")
             }.padding(18).padding(.bottom,24)

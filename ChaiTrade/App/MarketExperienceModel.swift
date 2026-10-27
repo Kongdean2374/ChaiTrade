@@ -92,17 +92,22 @@ extension AppModel {
         if provider.needsKey && credentialReady[provider] != true{return .missingKey}
         guard let quote=state?.quotes[key] else{return quoteIssues[key] ?? .loading}
         if let issue=quoteIssues[key],![MarketIssueKind.ready,.loading,.stale].contains(issue),!quote.valid{return issue}
+        if let issue=quote.sourceIssue{return issue}
         if quote.quality == .delayed{return .delayed}
         if !instrument.boardIsOpen(board,at:marketClock){return .closed}
         if !quote.valid || quote.quality != .realtime || marketClock-quote.time>quote.maximumAge || marketClock-quote.receivedAt>quote.maximumAge || marketClock<quote.time-5{return quoteIssues[key].flatMap{[MarketIssueKind.ready,.loading].contains($0) ? nil:$0} ?? .stale}
         if quote.grade == .E3{return .referenceOnly}
+        if quote.bids.isEmpty || quote.asks.isEmpty{return .referenceOnly}
+        if instrument.requiresRuleConfirmation==true{return .rulesUnverified}
+        if instrument.asset.derivative && (quote.mark ?? .zero) <= .zero{return .missingRiskPrice}
         return .ready
     }
     func canTrade(_ instrument:Instrument,board:TradingBoard?=nil)->Bool{
         let board=instrument.usesTaiwanBoards ? (board ?? selectedBoard):nil
-        guard !interactionBlocked,instrument.asset != .index,!instrument.halted,instrument.requiresRuleConfirmation != true,let quote=state?.quotes[instrument.quoteKey(board:board)],quote.valid,instrument.boardIsOpen(board,at:now) else{return false}
+        guard !interactionBlocked,instrument.asset != .index,!instrument.halted,instrument.requiresRuleConfirmation != true,let quote=state?.quotes[instrument.quoteKey(board:board)],quote.valid,(quote.sourceIssue == nil || quote.sourceIssue == .ready),instrument.boardIsOpen(board,at:now) else{return false}
         guard quote.quality == .realtime,now>=quote.time-5,now-quote.time<=quote.maximumAge,now-quote.receivedAt<=quote.maximumAge else{return false}
-        guard quote.grade == .E1 || quote.grade == .E2 || (quote.grade == .E3 && state?.allowEstimatedExecution==true) else{return false}
+        guard quote.bids.contains(where:{$0.price > .zero && $0.quantity > .zero}),quote.asks.contains(where:{$0.price > .zero && $0.quantity > .zero}),let bid=quote.bids.first,let ask=quote.asks.first,bid.price > .zero,bid.price<ask.price else{return false}
+        guard quote.grade == .E1 || quote.grade == .E2 || (state?.mode == .offline && quote.grade == .E3 && state?.allowEstimatedExecution==true) else{return false}
         return !instrument.asset.derivative || (quote.mark ?? .zero) > .zero
     }
     func summary(for instrument:Instrument)->QuoteSummary?{state?.mode == .offline ? simulatedSummaries[instrument.id] ?? state?.quotes[instrument.id]?.summary:state?.quotes[instrument.id]?.summary}

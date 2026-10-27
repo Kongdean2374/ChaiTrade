@@ -68,7 +68,7 @@ public enum MarketCalendar {
         while remaining>0 {
             guard let next=c.date(byAdding:.day,value:1,to:date) else { throw TradeError.invalid("交割日期超出範圍") };date=next
             let weekday=c.component(.weekday,from:date)
-            if weekday != 1 && weekday != 7 && !rules.holidays.contains(f.string(from:date)){remaining-=1}
+            if weekday != 1 && weekday != 7 && !(rules.settlementHolidays ?? rules.holidays).contains(f.string(from:date)){remaining-=1}
         }
         return Int64(date.timeIntervalSince1970)
     }
