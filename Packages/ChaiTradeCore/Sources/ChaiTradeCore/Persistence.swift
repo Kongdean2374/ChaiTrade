@@ -385,7 +385,8 @@ public final class AccountRepository: @unchecked Sendable {
         defer{sqlite3_finalize(stmt)}
         for (n,value) in values.enumerated(){_=value.withCString{sqlite3_bind_text(stmt,Int32(n+1),$0,-1,unsafeBitCast(-1,to:sqlite3_destructor_type.self))}}
         var status=sqlite3_step(stmt)
-        while status==SQLITE_ROW{guard let text=sqlite3_column_text(stmt,0) else{throw TradeError.corrupt("歷史資料損壞")};try body(String(cString:text));status=sqlite3_step(stmt)}
+        var visited=0
+        while status==SQLITE_ROW{if visited%256==0{try Task.checkCancellation()};visited+=1;guard let text=sqlite3_column_text(stmt,0) else{throw TradeError.corrupt("歷史資料損壞")};try body(String(cString:text));status=sqlite3_step(stmt)}
         guard status==SQLITE_DONE else{throw TradeError.corrupt("歷史查詢中斷")}
     }
     public func auditEvent(id:String)throws->AuditEvent?{

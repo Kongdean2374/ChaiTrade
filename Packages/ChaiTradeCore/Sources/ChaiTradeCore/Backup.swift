@@ -32,12 +32,12 @@ public struct AccountBackupBundle: Codable, Sendable {
 }
 public enum BackupService {
     private static let expandedLimit = 512_000_000
-    private static func compress(_ data:Data)throws->Data{
+    static func compress(_ data:Data)throws->Data{
         var size=compressBound(uLong(data.count)),out=Data(count:Int(compressBound(uLong(data.count))))
         let status=out.withUnsafeMutableBytes{dst in data.withUnsafeBytes{src in compress2(dst.bindMemory(to:UInt8.self).baseAddress,&size,src.bindMemory(to:UInt8.self).baseAddress,uLong(data.count),Z_BEST_SPEED)}}
         guard status==Z_OK else{throw TradeError.corrupt("備份壓縮失敗")};out.count=Int(size);return out
     }
-    private static func expand(_ data:Data,size:Int)throws->Data{
+    static func expand(_ data:Data,size:Int)throws->Data{
         guard size>0,size<=expandedLimit else{throw TradeError.corrupt("備份展開大小超過安全上限")}
         var count=uLongf(size),out=Data(count:size)
         let status=out.withUnsafeMutableBytes{dst in data.withUnsafeBytes{src in uncompress(dst.bindMemory(to:UInt8.self).baseAddress,&count,src.bindMemory(to:UInt8.self).baseAddress,uLong(data.count))}}
@@ -76,7 +76,7 @@ public enum BackupService {
         return bytes.map { String(format:"%02x",$0) }.joined()
         #endif
     }
-    private static func random(_ count: Int) throws -> Data {
+    static func random(_ count: Int) throws -> Data {
         var bytes = [UInt8](repeating:0,count:count)
         #if canImport(CryptoKit)
         guard SecRandomCopyBytes(kSecRandomDefault,count,&bytes) == errSecSuccess else { throw TradeError.unavailable("安全亂數不可用") }
@@ -85,7 +85,7 @@ public enum BackupService {
         #endif
         return Data(bytes)
     }
-    private static func derive(_ password: String, salt: Data, iterations: Int) throws -> Data {
+    static func derive(_ password: String, salt: Data, iterations: Int) throws -> Data {
         guard password.utf8.count >= 8, password.utf8.count <= 1024, iterations == 600_000, salt.count == 16 else { throw TradeError.invalid("備份密碼至少 8 個 UTF-8 位元組，或加密參數不合法") }
         let bytes = Array(password.utf8); var key = [UInt8](repeating:0,count:32)
         #if canImport(CryptoKit)
@@ -101,7 +101,7 @@ public enum BackupService {
         #endif
         return Data(key)
     }
-    private static func crypt(_ input: Data, key: Data, nonce: Data, tag: inout Data, encrypt: Bool) throws -> Data {
+    static func crypt(_ input: Data, key: Data, nonce: Data, tag: inout Data, encrypt: Bool) throws -> Data {
         #if canImport(CryptoKit)
         if encrypt {
             let box = try AES.GCM.seal(input,using:SymmetricKey(data:key),nonce:AES.GCM.Nonce(data:nonce))

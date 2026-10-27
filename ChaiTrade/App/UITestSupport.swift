@@ -62,6 +62,7 @@ struct UITestProbe: View {
         let payload:[String:Any]=[
             "visualType":String(describing:typeSize),"visualTheme":colorScheme == .dark ? "dark":"light",
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
+            "fileArchiveWorking":model.fileArchiveWorking,"fileArchiveReady":model.fileArchiveURL != nil,"fileArchiveProgress":model.fileArchiveProgress,
             "mode":s?.mode.rawValue ?? "", "market":model.market.rawValue,"search":model.currentBrowsing.search,"category":model.currentBrowsing.category,"sort":model.currentBrowsing.sort.rawValue,
             "instruments":s?.instruments.map{["id":$0.id,"symbol":$0.symbol,"name":$0.name,"market":$0.market.rawValue]} ?? [],
             "quotes":s?.quotes.mapValues{["price":$0.last.description,"time":String($0.time),"valid":String($0.valid)]} ?? [:],

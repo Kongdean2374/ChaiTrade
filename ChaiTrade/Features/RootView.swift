@@ -26,8 +26,7 @@ struct RootView: View {
                         Button { settings=true } label: { Image(systemName:"gearshape") }.accessibilityLabel("設定").disabled(model.interactionBlocked)
                     }.padding(.horizontal).padding(.vertical,10).background(.bar)
                     if let notice=model.notice{
-                        Button{model.notice=nil}label:{Label(notice,systemImage:"info.circle").font(.caption).lineLimit(2).frame(maxWidth:.infinity,alignment:.leading)}
-                            .accessibilityLabel(notice).padding(.horizontal).padding(.vertical,6).background(.thinMaterial)
+                        Button{model.notice=nil}label:{HStack(alignment:.top){Text(notice).lineLimit(3).fixedSize(horizontal:false,vertical:true);Spacer(minLength:8);Image(systemName:"xmark.circle.fill")}.font(.caption).foregroundStyle(.primary).padding(12).frame(maxWidth:.infinity,alignment:.leading).contentShape(Rectangle())}.buttonStyle(.plain).accessibilityLabel(notice).accessibilityIdentifier("dismissNotice").background(Color.orange.opacity(0.08))
                     }
                     MarketSwitcher()
                     TabView(selection:$model.tab) {

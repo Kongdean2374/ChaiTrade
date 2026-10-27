@@ -112,17 +112,21 @@ struct TradingView:View{
     }
     private var chartSection:some View{MarketCard{
         ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(intervals,id:\.1){label,seconds in Button(label){model.interval=seconds;saveChart();Task{await model.loadChart()}}.font(.caption).buttonStyle(.bordered).tint(model.interval==seconds ? .orange:.gray)}}}
+        ViewThatFits(in:.horizontal){HStack{chartActions;Spacer();alertAction};VStack(alignment:.leading,spacing:12){chartActions;alertAction}}
         if model.chartLoading{ProgressView("讀取K線…").font(.caption)}
         if let limitation=model.chartLimitation{Label(limitation,systemImage:"info.circle").font(.caption).foregroundStyle(.orange).accessibilityIdentifier("chartSourceLimitation")}
         if let error=model.chartError{ContentUnavailableView("此範圍暫無K線",systemImage:"chart.xyaxis.line",description:Text(error)).frame(minHeight:200)}else{ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:10))}
-        ViewThatFits(in:.horizontal){chartTools;VStack(alignment:.leading,spacing:10){indicatorPicker;chartActions}}
-        HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}};Spacer();Button("繪圖"){drawing=true};Button("到價提醒"){alert=true}.accessibilityIdentifier("openPriceAlert");Button("截圖"){Task{await model.captureChart()}}}.font(.caption)
+        indicatorPicker
+        ViewThatFits(in:.horizontal){historyActions;VStack(alignment:.leading,spacing:12){historyNavigation;drawingActions}}
     }}
+    private var alertAction:some View{Button("到價提醒"){alert=true}.font(.caption).padding(.vertical,8).accessibilityIdentifier("openPriceAlert")}
+    private var historyNavigation:some View{HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}}}.font(.caption)}
+    private var drawingActions:some View{HStack{Button("繪圖"){drawing=true};Button("截圖"){Task{await model.captureChart()}}}.font(.caption)}
+    private var historyActions:some View{HStack{historyNavigation;Spacer();drawingActions}}
     private var indicatorPicker:some View{HStack{Picker("指標",selection:$indicator){ForEach(["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"],id:\.self){Text($0)}}.labelsHidden();Stepper("\(period)",value:$period,in:2...100).font(.caption).frame(maxWidth:150)}}
-    private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption)}
-    private var chartTools:some View{HStack{indicatorPicker;chartActions}}
+    private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption).padding(.vertical,8)}
     @ViewBuilder private var tradeBar:some View{
-        if let i=model.selected,i.asset != .index,model.canTrade(i),let context=model.context{HStack(spacing:12){Button(i.buyLabel){draft=OrderDraft(instrument:i,context:context,side:.buy,board:model.selectedBoard)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){draft=OrderDraft(instrument:i,context:context,side:.sell,board:model.selectedBoard)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(.bar)}
+        if let i=model.selected,i.asset != .index,model.canTrade(i),let context=model.context{HStack(spacing:12){Button(i.buyLabel){draft=OrderDraft(instrument:i,context:context,side:.buy,board:model.selectedBoard)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){draft=OrderDraft(instrument:i,context:context,side:.sell,board:model.selectedBoard)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")}
         else if let i=model.selected{HStack{Image(systemName:"info.circle");Text(i.asset == .index ? "指數僅供參考；請選擇相關ETF或期貨。":model.interactionBlocked ? "市場補算中，暫停新委託":"目前行情或規則不符合新委託條件").font(.caption);Spacer();Button("查看委託"){model.tab=3}}.padding(12).background(.bar)}
     }
 }

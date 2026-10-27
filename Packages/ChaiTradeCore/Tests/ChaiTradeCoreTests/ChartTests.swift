@@ -3,6 +3,23 @@ import Testing
 @testable import ChaiTradeCore
 
 private func utc(_ text:String)->Int64{Int64(ISO8601DateFormatter().date(from:text)!.timeIntervalSince1970)}
+@Test func currentSimulationCandleMatchesTheSameInstrumentQuoteAcrossMarkets()async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),context=AccountContext(mode:.offline)
+    let initial=try TradingEngine.initial(mode:.offline,capital:Amount(1000000),time:1_793_064_600)
+    let engine=try TradingEngine(context:context,repository:AccountRepository(root:root,mode:.offline),initial:initial)
+    let symbols:Set<String>=["2330","0050","BTC-USD","ETH-USD","TXF202611","EUR/USD"]
+    let instruments=initial.instruments.filter{symbols.contains($0.symbol)}
+    #expect(instruments.count==symbols.count)
+    try await engine.initializeQuotes(fullBookIDs:Set(instruments.map(\.id)),context:context)
+    let snapshot=await engine.snapshot()
+    for instrument in instruments{
+        let quote=try #require(snapshot.quotes[instrument.id])
+        let bars=try await engine.simulationCandles(instrumentID:instrument.id,interval:60,count:2,context:context)
+        let last=try #require(bars.last)
+        #expect(abs(last.close-quote.last.displayDouble)<0.000000001)
+        #expect(last.time<=quote.time && quote.time-last.time<60)
+    }
+}
 @Test func optimizedCandlesExactlyMatchEveryAuthoritativeFiveSecondPrice()throws{
     let i=try #require(Simulation.catalog().first{$0.asset == .crypto})
     var s=SimulationState();s.time+=12345

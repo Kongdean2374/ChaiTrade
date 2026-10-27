@@ -9,6 +9,36 @@ private func archiveFixture(capital:Int=1000,journals:Int=0)throws->(URL,Account
     for _ in 0..<journals{state.journals.append(JournalEntry(text:String(repeating:"A",count:32000),tags:"synthetic-archive-size",time:1000))}
     _=try repository.save(state);return (root,repository)
 }
+@Test func localRecoveryStagesOwnedCopyExcludesACacheAndPreservesOriginalPoint()throws{
+    let (root,repository)=try archiveFixture()
+    var state=try #require(try repository.load()),instrument=try #require(state.instruments.first)
+    state.quotes[instrument.id]=Quote(instrumentID:instrument.id,source:"synthetic-recovery-fixture",time:1000,sequence:1000,last:try Amount(100),bids:[Level(try Amount(99),.one)],asks:[Level(try Amount(100),.one)])
+    _=try repository.save(state)
+    let point=root.appendingPathComponent("snapshots/point/account.sqlite")
+    try repository.createArchiveSnapshot(at:point)
+    let before=try ArchiveDigest.file(point)
+    let staged=try LocalRecoveryService.stagePoint(point,stagingRoot:root.appendingPathComponent("staged"),mode:.online)
+    #expect(staged.state.quotes.isEmpty && staged.state.consumed.isEmpty)
+    #expect(staged.state.cash==state.cash)
+    #expect(try ArchiveDigest.file(point)==before)
+    #expect(try repository.load()?.quotes[instrument.id] != nil)
+    #expect(throws:TradeError.self){try LocalRecoveryService.stagePoint(point,stagingRoot:root.appendingPathComponent("wrong-mode"),mode:.offline)}
+}
+@Test func fileMaintenanceDoesNotLoadFullStateAndRestoreRejectsEveryOldEpochMutation()async throws{
+    let (root,repository)=try archiveFixture(),ctx=AccountContext(mode:.online)
+    let engine=try TradingEngine(context:ctx,repository:repository,initial:#require(try repository.load())),url=root.appendingPathComponent("recovery/account.sqlite")
+    let token=try await engine.beginFileMaintenance(snapshotAt:url,context:ctx)
+    await #expect(throws:TradeError.self){try await engine.cashFlow(currency:"TWD",amount:.one,time:1001,context:ctx)}
+    let verified=try SQLiteArchiveDatabase.verify(url,mode:.online)
+    await #expect(throws:TradeError.self){try await engine.restoreVerifiedDatabase(verified,maintenanceToken:UUID(),context:ctx)}
+    try await engine.restoreVerifiedDatabase(verified,maintenanceToken:token,context:ctx)
+    await #expect(throws:TradeError.self){try await engine.cashFlow(currency:"TWD",amount:.one,time:1001,context:ctx)}
+    try await engine.retire(context:ctx);try await engine.retire(context:ctx)
+    #expect(try await engine.snapshot().cash["TWD"]==Amount(1000))
+    let next=AccountContext(mode:.online),rebound=try TradingEngine(context:next,repository:repository,initial:#require(try repository.load()))
+    try await rebound.cashFlow(currency:"TWD",amount:.one,time:1002,context:next)
+    #expect(try await rebound.snapshot().cash["TWD"]==Amount(1001))
+}
 @Test func fileArchiveVerifiesRealLocalFillsArchivedFlowsAndAtomicReplacement()async throws{
     let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),context=AccountContext(mode:.online),repository=try AccountRepository(root:root,mode:.online)
     var initial=try TradingEngine.initial(mode:.online,baseCurrency:"USD",capital:Amount(1000),time:1000)

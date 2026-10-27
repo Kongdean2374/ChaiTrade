@@ -72,6 +72,17 @@ public actor TradingEngine {
         guard context==self.context else{throw TradeError.wrongAccount}
         guard maintenance==nil || maintenance==token else{throw TradeError.invalid("維護工作階段不符")};maintenance=nil
     }
+    public func beginFileMaintenance(snapshotAt url:URL,context:AccountContext)throws->UUID{
+        try check(context);let token=UUID();maintenance=token
+        do{try repository.createArchiveSnapshot(at:url);return token}catch{maintenance=nil;throw error}
+    }
+    public func restoreVerifiedDatabase(_ verified:VerifiedAccountDatabase,maintenanceToken:UUID,context:AccountContext)throws{
+        guard context==self.context,!retired,verified.mode==context.mode else{throw TradeError.wrongAccount}
+        guard maintenance==maintenanceToken else{throw TradeError.invalid("檔案還原維護工作階段不符")}
+        state=try repository.installArchiveSnapshot(verified)
+        // Invalidate queued old-account callbacks atomically with restoration, before native UI rebinds.
+        maintenance=nil;retired=true
+    }
     public func exportCSV(kind:String,time:Int64,context:AccountContext)throws->Data{try check(context);return try repository.csv(kind:kind,time:time)}
     public func performance(from:Int64=0,until:Int64=Int64.max,context:AccountContext)throws->PerformanceReport{try check(context);return try repository.performance(from:from,until:until)}
     public func orderPage(limit:Int=100,before:Int64?=nil,beforeID:String?=nil,search:String="",context:AccountContext)throws->[Order]{try check(context);return try repository.orderPage(limit:limit,before:before,beforeID:beforeID,search:search)}
@@ -79,7 +90,7 @@ public actor TradingEngine {
         guard context == self.context,!retired else { throw TradeError.wrongAccount }
         guard maintenance==nil else{throw TradeError.unavailable("帳戶正在建立恢復點或還原，暫停新的帳務操作")}
     }
-    public func retire(context:AccountContext)throws{try check(context);retired=true}
+    public func retire(context:AccountContext)throws{guard context==self.context else{throw TradeError.wrongAccount};if retired{return};try check(context);retired=true}
     @discardableResult private func transaction<T>(catchup:Bool=false,_ body: (inout AccountState) throws -> T) throws -> T {
         var next = state
         let result = try body(&next)
@@ -968,11 +979,12 @@ public actor TradingEngine {
             s.lifecycle!.actions.append(action);s.appliedEvents.insert(action.id);s.audit("corporateAction","\(action.kind.rawValue) · \(action.source)",time:action.time,id:action.id)
             try Self.settleDue(&s,now:action.time)
     }
-    public func restore(_ restored: AccountState,maintenanceToken:UUID?=nil, context: AccountContext) throws {
+    public func restore(_ restored: AccountState,maintenanceToken:UUID?=nil,retireAfterRestore:Bool=false, context: AccountContext) throws {
         guard context==self.context,!retired else{throw TradeError.wrongAccount}
         guard maintenance==maintenanceToken else{throw TradeError.invalid("還原維護工作階段不符")}
         try AccountRepository.validate(restored, mode: context.mode)
         state = try repository.save(restored, replacing: true)
         maintenance=nil
+        if retireAfterRestore{retired=true}
     }
 }

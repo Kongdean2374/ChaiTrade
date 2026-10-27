@@ -98,6 +98,13 @@ struct ChartAmendment: Identifiable {
     @Published var exporting=false
     @Published var exportingWork=false
     @Published var maintainingAccount=false
+    @Published var fileArchiveWorking=false
+    @Published var fileArchiveCanCancel=true
+    @Published var fileArchiveProgress=0.0
+    @Published var fileArchivePhase=""
+    @Published var fileArchiveURL:URL?
+    var fileArchiveOperation:Task<Void,Never>?
+    var fileArchiveGeneration=UUID()
     @Published var catchupTarget: Int64?
     @Published var clockWarning: String?
     @Published private(set) var catchingUp=false
@@ -141,7 +148,7 @@ struct ChartAmendment: Identifiable {
     var selected: Instrument? { state?.instruments.first { $0.id == selectedID } }
     var quote: Quote? {guard let selected else{return nil};return state?.quotes[selected.quoteKey(board:selected.usesTaiwanBoards ? selectedBoard:nil)]}
     var valuation: Valuation? { state.flatMap { try? Analytics.valuation($0,now:now) } }
-    func money(_ value: Amount?) -> String { settings.hideBalances ? "••••••" : value?.description ?? "未提供" }
+    func money(_ value: Amount?) -> String { settings.hideBalances ? "••••••" : MarketText.number(value) }
     var interactionBlocked:Bool { progress != nil || catchupTarget != nil || maintainingAccount || clockWarning != nil }
     @discardableResult func run(_ operation: () async throws -> Void) async ->Bool {
         guard !interactionBlocked else{error="市場事件尚未處理完成，請完成補算或明確放棄後再操作";return false}
@@ -470,6 +477,10 @@ struct ChartAmendment: Identifiable {
     }
     func importBackup(_ url: URL, password: String) async {
         guard let context,let engine else{return}
+        do{
+            let access=url.startAccessingSecurityScopedResource();defer{if access{url.stopAccessingSecurityScopedResource()}}
+            if try StreamingArchiveService.recognizes(url){startFileArchiveRestore(url,password:password);return}
+        }catch{self.error=error.localizedDescription;return}
         await run {
             let granted=url.startAccessingSecurityScopedResource();defer{if granted{url.stopAccessingSecurityScopedResource()}}
             guard (try url.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0)<=100_000_000 else{throw TradeError.corrupt("備份超過安全大小限制")}
@@ -483,7 +494,7 @@ struct ChartAmendment: Identifiable {
             let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
             try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
             try recovery.write(to:directory.appendingPathComponent("before-restore-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
-            try await engine.restore(restored,maintenanceToken:token,context:context);try await self.rebindRestoredAccount();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
+            try await engine.restore(restored,maintenanceToken:token,retireAfterRestore:true,context:context);try await self.rebindRestoredAccount();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
             }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }
         await refresh();await ensureQuoteService()
@@ -495,6 +506,7 @@ struct ChartAmendment: Identifiable {
         do {
             let target=settings.pendingMode ?? settings.activeMode
             let access=url.startAccessingSecurityScopedResource();defer{if access{url.stopAccessingSecurityScopedResource()}}
+            if try StreamingArchiveService.recognizes(url){loading=false;startFailedFileArchiveRecovery(url,password:password,target:target);return}
             let size=try url.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0
             guard size<=100_000_000 else{throw TradeError.corrupt("備份超過安全大小限制")}
             let restored=try await Task.detached{try BackupService.importAccount(Data(contentsOf:url,options:.mappedIfSafe),expectedMode:target,password:password)}.value
@@ -502,12 +514,17 @@ struct ChartAmendment: Identifiable {
             defer{try? FileManager.default.removeItem(at:stage)}
             do {let repository=try AccountRepository(root:stage,mode:target);try repository.save(restored,replacing:true)}
             let replacement=stage.appendingPathComponent("accounts/\(target.accountID)")
-            let original=root.appendingPathComponent("accounts/\(target.accountID)")
-            if FileManager.default.fileExists(atPath:original.path) {
-                _=try FileManager.default.replaceItemAt(original,withItemAt:replacement,backupItemName:"preserved-\(target.accountID)-\(UUID().uuidString)",options:.usingNewMetadataOnly)
-            }else{try FileManager.default.moveItem(at:replacement,to:original)}
-            error=nil;notice="帳戶備份已驗證；舊目錄已保留，正在重新啟動本機服務"
-            booted=false;loading=false;await boot()
+            try await finishFileRecovery(replacement:replacement,target:target)
         }catch{loading=false;self.error=error.localizedDescription}
+    }
+    func finishFileRecovery(replacement:URL,target:Mode)async throws{
+        guard state==nil,engine==nil,target==(settings.pendingMode ?? settings.activeMode) else{throw TradeError.wrongAccount}
+        let original=root.appendingPathComponent("accounts/\(target.accountID)")
+        try FileManager.default.createDirectory(at:original.deletingLastPathComponent(),withIntermediateDirectories:true)
+        if FileManager.default.fileExists(atPath:original.path){
+            _=try FileManager.default.replaceItemAt(original,withItemAt:replacement,backupItemName:"preserved-\(target.accountID)-\(UUID().uuidString)",options:.usingNewMetadataOnly)
+        }else{try FileManager.default.moveItem(at:replacement,to:original)}
+        error=nil;notice="帳戶備份已驗證；舊目錄已保留，正在重新啟動本機服務"
+        booted=false;loading=false;await boot()
     }
 }

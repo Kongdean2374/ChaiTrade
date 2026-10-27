@@ -8,6 +8,14 @@ struct DataBackupView:View{
     @State private var confirmRestore=false
     @State private var restoreURL:URL?
     var body:some View{Form{
+            Section("完整檔案封存"){
+                Text("適合大型歷史與圖表附件，單獨保存目前帳戶。密碼沿用下方欄位；完成後請另存至檔案 App。請保持 App 在前景直到完成。").font(.caption).foregroundStyle(.secondary)
+                if model.fileArchiveWorking{ProgressView(value:model.fileArchiveProgress);Text(model.fileArchivePhase).font(.caption);Button("取消檔案操作"){model.cancelFileArchive()}.disabled(!model.fileArchiveCanCancel)}
+                else{Button("匯出完整檔案封存"){model.startFileArchiveExport(password:backupPassword)}.accessibilityIdentifier("exportFileArchive");Button("建立本機恢復點"){model.startLocalRecoveryPoint()}.accessibilityIdentifier("createRecoveryPoint")}
+                if let url=model.fileArchiveURL{ShareLink(item:url){Label("分享已完成的封存",systemImage:"square.and.arrow.up")}.accessibilityIdentifier("shareFileArchive");Text("分享暫存可重新產生，不會自動刪除帳戶或恢復點。").font(.caption);Button("清除分享暫存"){model.clearFileShareCache()}.disabled(model.fileArchiveWorking).accessibilityIdentifier("clearFileShareCache")}
+                if !model.fileArchiveWorking,!model.fileArchivePhase.isEmpty{Text(model.fileArchivePhase).font(.caption).foregroundStyle(.secondary)}
+                NavigationLink("本機恢復點"){LocalRecoveryPointsView()}.disabled(model.fileArchiveWorking)
+            }
             Section("目前帳戶備份與還原") {
                 if model.exportingWork{ProgressView("建立一致性備份中…")}
                 SecureField("備份／還原密碼（可留空）",text:$backupPassword)
@@ -16,12 +24,32 @@ struct DataBackupView:View{
                 Button("完整備份 A 與 B（各自隔離）"){Task{await model.export(kind:"both",password:backupPassword)}}
                 Button("選擇備份並驗證還原"){importing=true}
                 Text("還原會先驗證模式、版本、校驗碼與帳本，再取代此帳戶。雙帳戶備份會取出符合目前模式的帳戶；另一帳戶保持不變。原帳戶會保存本機恢復點；A／B 不可交叉還原。").font(.caption).foregroundStyle(.secondary)
-            }
+            }.disabled(model.fileArchiveWorking)
 
         Section{NavigationLink("匯出紀錄與帳本"){DataToolsView()};NavigationLink("重設目前帳戶"){AccountResetView()}}
     }.navigationTitle("資料備份／還原")
         .fileImporter(isPresented:$importing,allowedContentTypes:[.data,.json]){result in switch result{case .success(let url):restoreURL=url;confirmRestore=true;case .failure(let error):model.error=error.localizedDescription}}
         .confirmationDialog("以備份取代目前帳戶？",isPresented:$confirmRestore,titleVisibility:.visible){Button("確認驗證並還原",role:.destructive){if let url=restoreURL{Task{await model.importBackup(url,password:backupPassword)}}}}
+    }
+}
+struct LocalRecoveryPointsView:View{
+    @EnvironmentObject var model:AppModel
+    @State private var points:[URL]=[]
+    @State private var selection:URL?
+    @State private var confirm=false
+    var body:some View{List{
+        Section{Text("只列目前獨立帳戶的恢復點。還原前會驗證完整帳本，並先保存目前帳戶的新恢復點；不移轉到另一帳戶。").font(.footnote)}
+        if model.fileArchiveWorking{ProgressView(value:model.fileArchiveProgress);Text(model.fileArchivePhase);Button("取消檔案操作"){model.cancelFileArchive()}.disabled(!model.fileArchiveCanCancel)}
+        if points.isEmpty{ContentUnavailableView("尚無本機恢復點",systemImage:"clock.arrow.circlepath",description:Text("可返回建立恢復點；還原與重設前也會自動保存。"))}
+        ForEach(points,id:\.self){url in Button{selection=url;confirm=true}label:{VStack(alignment:.leading,spacing:6){Text(pointTitle(url)).font(.subheadline);Text("驗證並還原").font(.caption).foregroundStyle(.secondary)}}.disabled(model.fileArchiveWorking).accessibilityIdentifier("recoveryPoint-"+(url.pathExtension=="sqlite" ? url.deletingLastPathComponent().lastPathComponent:url.lastPathComponent))}
+    }.navigationTitle("本機恢復點").task{points=model.localRecoveryPoints()}.onChange(of:model.fileArchiveWorking){_,working in if !working{points=model.localRecoveryPoints()}}
+        .confirmationDialog("還原所選恢復點？",isPresented:$confirm,titleVisibility:.visible){Button("確認驗證並還原",role:.destructive){if let selection{if selection.pathExtension=="sqlite"{model.startFileArchiveRestore(selection,password:"",localPoint:true)}else{Task{await model.importBackup(selection,password:"")}}}}}
+    }
+    private func pointTitle(_ url:URL)->String{
+        let name=url.pathExtension=="sqlite" ? url.deletingLastPathComponent().lastPathComponent:url.lastPathComponent
+        let purpose=name.hasPrefix("before-reset") ? "重設前":name.hasPrefix("before-restore") ? "還原前":name.hasPrefix("manual") ? "手動建立":"舊格式恢復點"
+        let date=(try? url.resourceValues(forKeys:[.creationDateKey]).creationDate).map{$0.formatted(date:.abbreviated,time:.shortened)} ?? "建立時間未知"
+        return purpose+" · "+date
     }
 }
 struct AccountResetView:View{
@@ -30,24 +58,12 @@ struct AccountResetView:View{
     @State private var resetText=""
     @State private var confirmReset=false
     var body:some View{Form{
+        if model.fileArchiveWorking{Section{ProgressView(value:model.fileArchiveProgress);Text(model.fileArchivePhase);Button("取消檔案操作"){model.cancelFileArchive()}.disabled(!model.fileArchiveCanCancel)}}
         Section{Label("這會取代目前帳戶的所有資料",systemImage:"exclamationmark.triangle.fill").foregroundStyle(.red);Text("請先匯出備份。只有目前帳戶會重設；另一帳戶保持隔離。執行前也會保存本機恢復點。");Button("準備重設 \(model.settings.activeMode.accountID)",role:.destructive){resetStage=true}}
         if resetStage{Section("二次確認"){TextField("輸入 RESET",text:$resetText).autocorrectionDisabled();Button("確認重設目前帳戶",role:.destructive){confirmReset=true}.disabled(resetText != "RESET" || model.interactionBlocked)}}
     }.navigationTitle("重設帳戶").confirmationDialog("確定重設此帳戶？",isPresented:$confirmReset,titleVisibility:.visible){Button("重設並保存恢復點",role:.destructive){Task{await reset()}}}}
     func reset() async {
-        guard let engine=model.engine,let context=model.context else{return}
-        await model.run{
-            model.maintainingAccount=true;defer{model.maintainingAccount=false}
-            let (token,current)=try await engine.beginMaintenance(context:context),time=model.now
-            do{
-            let backup=try await Task.detached{try BackupService.export(current,password:nil,time:time)}.value
-            let dir=model.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
-            try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
-            try backup.write(to:dir.appendingPathComponent("before-reset-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
-            let fresh=try TradingEngine.initial(mode:context.mode,baseCurrency:current.baseCurrency,capital:Amount("1000000"),time:model.now)
-            try await engine.restore(fresh,maintenanceToken:token,context:context);try await model.rebindRestoredAccount()
-            model.clearChartCaches();model.stateRevision=UUID();resetStage=false;resetText="";model.notice="目前帳戶已重設；原資料有本機恢復點"
-            }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
-        }
+        model.startFileAccountReset();resetStage=false;resetText=""
     }
 }
 struct AdvancedDiagnosticsView:View{

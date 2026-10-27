@@ -150,6 +150,43 @@ import XCTest
         try check((try state(app))["selected"] as? String==selected,"Returning from landscape changed product")
         try check(app.tabBars.buttons["交易"].isHittable,"Chart left an overlay over navigation")
     }
+    func testFullFileArchiveExportAndCacheCleanupPreserveAccount()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let original=try state(app)
+        app.buttons["設定"].tap();app.buttons["資料備份／還原"].tap()
+        let export=app.buttons["exportFileArchive"];try check(export.waitForExistence(timeout:5),"Complete archive entry missing");rapid(export)
+        try waitUntil("Complete file archive did not finish",timeout:30){
+            guard let s=try? self.state(app) else{return false};return s["fileArchiveReady"] as? Bool==true && s["fileArchiveWorking"] as? Bool==false
+        }
+        let share=app.buttons["shareFileArchive"];try reveal(share,in:app);capture("AFTER complete file archive ready to share")
+        let clear=app.buttons["clearFileShareCache"];try reveal(clear,in:app);clear.tap()
+        try waitUntil("Share cache cleanup left a stale file reference"){(try? self.state(app)["fileArchiveReady"] as? Bool)==false}
+        let after=try state(app)
+        for key in ["cash","positions"]{try check((after[key] as? [String:String])==(original[key] as? [String:String]),"Archive altered "+key)}
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Archive created "+key)}
+        capture("AFTER file cache cleanup keeps account")
+    }
+    func testLocalRecoveryCancelThenVerifiedRestorePreservesOriginalPoint()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let cash=try state(app)["cash"] as? [String:String]
+        app.buttons["設定"].tap();app.buttons["資料備份／還原"].tap();app.buttons["createRecoveryPoint"].tap()
+        try check(app.staticTexts["本機恢復點已建立。"].waitForExistence(timeout:15),"Local point did not finish")
+        capture("AFTER consistent local recovery point")
+        app.navigationBars.buttons.element(boundBy:0).tap();app.buttons["完成"].tap()
+        try journal(app);try enterVerified("AFTER_POINT",into:app.textViews["journalText"]);app.buttons["saveJournal"].tap()
+        try waitUntil("Post-point journal missing"){(try? self.state(app)["journals"] as? [[String:String]])?.count==1}
+        app.buttons["完成"].tap();app.tabBars.buttons["總覽"].tap();app.buttons["設定"].tap();app.buttons["資料備份／還原"].tap();app.buttons["本機恢復點"].tap()
+        let point=app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","recoveryPoint-manual-")).firstMatch
+        try check(point.waitForExistence(timeout:5),"Manual point not listed in current account");point.tap();app.buttons["取消"].tap()
+        try check((try state(app)["journals"] as? [[String:String]])?.count==1,"Canceled restore changed journal")
+        point.tap();app.buttons["確認驗證並還原"].tap()
+        try waitUntil("Verified local point did not restore",timeout:30){
+            guard let s=try? self.state(app) else{return false};return s["fileArchiveWorking"] as? Bool==false && (s["journals"] as? [[String:String]])?.isEmpty==true
+        }
+        try check((try state(app)["cash"] as? [String:String])==cash,"Local point restore changed saved cash")
+        try check(point.exists,"Original manual recovery point disappeared")
+        capture("AFTER verified local point restored and original retained")
+    }
     func testCryptoSpotBuySellJourneyHasExactLocalAccounting()throws{
         let app=launchClean();defer{finish()};try onboard(app,currency:"USD")
         app.buttons["marketCrypto"].tap();let product=app.buttons["market-SIM:Coinbase_Exchange:BTC-USD"].firstMatch;try reveal(product,in:app);product.tap()

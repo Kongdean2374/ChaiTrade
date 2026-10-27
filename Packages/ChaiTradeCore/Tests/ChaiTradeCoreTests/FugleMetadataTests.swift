@@ -123,11 +123,12 @@ private actor CatalogImportGate{
     let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),context=AccountContext(mode:.online)
     let initial=try TradingEngine.initial(mode:.online,capital:Amount(1000),time:1000)
     let engine=try TradingEngine(context:context,repository:AccountRepository(root:root,mode:.online),initial:initial)
+    let baseline=await engine.snapshot()
     var candidate=try metadataStock();candidate.id="fugle:synthetic-cancelled-identity";candidate.symbol="SYNTHETIC"
     let gate=CatalogImportGate()
     let task=Task{await gate.wait();try await engine.importOnlineInstruments([candidate],context:context)}
     while !(await gate.isWaiting){await Task.yield()}
     task.cancel();await gate.release()
     do{try await task.value;Issue.record("cancelled screen imported a late result")}catch is CancellationError{}
-    #expect(try AccountRepository.encode(await engine.snapshot())==AccountRepository.encode(initial))
+    #expect(try AccountRepository.encode(await engine.snapshot())==AccountRepository.encode(baseline))
 }
