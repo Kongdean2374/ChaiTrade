@@ -76,7 +76,13 @@ enum SQLiteArchiveDatabase{
         for (n,value) in values.enumerated(){guard value.withCString({sqlite3_bind_text(statement,Int32(n+1),$0,-1,unsafeBitCast(-1,to:sqlite3_destructor_type.self))})==SQLITE_OK else{throw TradeError.corrupt("歸檔查核參數無效")}}
         var status=sqlite3_step(statement)
         while status==SQLITE_ROW{try Task.checkCancellation();guard let text=sqlite3_column_text(statement,0) else{throw TradeError.corrupt("歸檔欄位遺失")};try body(String(cString:text));status=sqlite3_step(statement)}
-        guard status==SQLITE_DONE else{throw TradeError.corrupt("歸檔查核中斷，原帳戶未變")}
+        guard status==SQLITE_DONE else{
+            if ProcessInfo.processInfo.environment["CHAI_ARCHIVE_DIAGNOSTIC"]=="1" {
+                // Opt-in CI diagnostics: SQL here is a compiled constant, bind values are excluded.
+                print("ARCHIVE_SQLITE_STEP",status,sql,String(cString:sqlite3_errmsg(db)))
+            }
+            throw TradeError.corrupt("歸檔查核中斷（\(status)），原帳戶未變")
+        }
     }
     static func strings(_ db:OpaquePointer,_ sql:String,values:[String]=[])throws->[String]{var rows:[String]=[];try visit(db,sql:sql,values:values){rows.append($0)};return rows}
     static func schema(_ db:OpaquePointer)throws->[String]{try strings(db,"SELECT type||char(31)||name||char(31)||tbl_name||char(31)||coalesce(sql,'') FROM sqlite_schema ORDER BY type,name")}

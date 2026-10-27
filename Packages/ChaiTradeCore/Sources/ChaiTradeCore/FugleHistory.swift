@@ -15,7 +15,7 @@ enum FugleContract {
         guard validMonth(month), alias.range(of: #"^[A-Z]{3}[A-L][0-9]$"#, options: .regularExpression) != nil,
               let number = Int(month.suffix(2)) else { return false }
         let code = Array("ABCDEFGHIJKL")[number - 1]
-        return alias.suffix(2) == String(code) + month.suffix(1)
+        return alias.suffix(2) == String(code) + month.prefix(4).suffix(1)
     }
     static func resolve(_ instrument: Instrument) throws -> (product: String, month: String) {
         guard instrument.asset == .future else { throw MarketDataFailure(.unsupported) }

@@ -32,6 +32,12 @@ private func archiveFixture(capital:Int=1000,journals:Int=0)throws->(URL,Account
     let (root,repository)=try archiveFixture()
     let before=try #require(try repository.fullSnapshot()),url=root.appendingPathComponent("archive/account.sqlite")
     try repository.createArchiveSnapshot(at:url)
+    let header=try FileHandle(forReadingFrom:url);defer{try? header.close()}
+    let bytes=try #require(try header.read(upToCount:100))
+    #expect(bytes.count==100 && bytes[18]==1 && bytes[19]==1)
+    #expect(!FileManager.default.fileExists(atPath:url.path+"-wal"))
+    #expect(!FileManager.default.fileExists(atPath:url.path+"-shm"))
+    #expect(try repository.withArchiveConnection{try SQLiteArchiveDatabase.strings($0,"PRAGMA journal_mode")}==["wal"])
     let copy=try SQLiteArchiveDatabase.verify(url,mode:.online)
     #expect(copy.state.cash==before.cash);#expect(copy.state.capitalBasis==before.capitalBasis)
     #expect(try ArchiveDigest.file(url)==copy.digest)
