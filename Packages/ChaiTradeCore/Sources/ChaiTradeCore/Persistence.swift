@@ -64,12 +64,22 @@ public final class AccountRepository: @unchecked Sendable {
     func createArchiveSnapshot(at url:URL)throws{
         guard !FileManager.default.fileExists(atPath:url.path) else{throw TradeError.invalid("快照目的地已存在，不覆蓋原檔")}
         try FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
-        var target:OpaquePointer?;guard sqlite3_open_v2(url.path,&target,SQLITE_OPEN_CREATE|SQLITE_OPEN_READWRITE,nil)==SQLITE_OK,let target else{throw TradeError.unavailable("無法建立帳戶檔案快照")};defer{sqlite3_close(target)}
+        var target:OpaquePointer?;guard sqlite3_open_v2(url.path,&target,SQLITE_OPEN_CREATE|SQLITE_OPEN_READWRITE,nil)==SQLITE_OK,let target else{throw TradeError.unavailable("無法建立帳戶檔案快照")}
+        var closed=false;defer{if !closed{sqlite3_close(target)}}
         do{
             try withArchiveConnection{source in try SQLiteArchiveDatabase.copy(source:source,target:target)}
             // This connection owns the snapshot, never the live account. A portable archive
             // must not depend on WAL/shm sidecars that a read-only platform cannot create.
             guard try SQLiteArchiveDatabase.strings(target,"PRAGMA journal_mode=DELETE")==["delete"] else{throw TradeError.unavailable("無法完成獨立帳戶快照；原帳戶保留")}
+            guard sqlite3_close(target)==SQLITE_OK else{throw TradeError.unavailable("無法關閉獨立帳戶快照")}
+            closed=true
+            // Apple's VFS can leave the obsolete shared-memory index after switching
+            // this exclusive, newly created snapshot to rollback mode. No reader has
+            // received its URL yet; remove only that abandoned index after close.
+            let shm=URL(fileURLWithPath:url.path+"-shm")
+            if FileManager.default.fileExists(atPath:shm.path){try FileManager.default.removeItem(at:shm)}
+            guard !FileManager.default.fileExists(atPath:url.path+"-wal") else{throw TradeError.corrupt("獨立帳戶快照仍有未合併日誌；不交付不完整檔案")}
+
         }catch{try? FileManager.default.removeItem(at:url);throw error}
     }
     func installArchiveSnapshot(_ verified:VerifiedAccountDatabase)throws->AccountState{
