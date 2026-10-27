@@ -9,7 +9,13 @@ private final class NoticePresenter:NSObject,UNUserNotificationCenterDelegate,@u
     private let center=UNUserNotificationCenter.current()
     private let presenter=NoticePresenter()
     init(){center.delegate=presenter}
-    func requestPermission()async throws->Bool{try await center.requestAuthorization(options:[.alert,.sound,.badge])}
+    func requestPermission()async throws->Bool{
+        try await withCheckedThrowingContinuation{continuation in
+            center.requestAuthorization(options:[.alert,.sound,.badge]){granted,error in
+                if let error{continuation.resume(throwing:TradeError.unavailable("通知權限請求失敗（\((error as NSError).code)）"))}else{continuation.resume(returning:granted)}
+            }
+        }
+    }
     func deliver(_ notices:[LocalNotice],context:AccountContext)async throws->Set<String>{
         let authorized:Bool=await withCheckedContinuation{c in center.getNotificationSettings{settings in c.resume(returning:settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)}}
         guard authorized else{return Set(notices.map(\.id))}
@@ -23,7 +29,11 @@ private final class NoticePresenter:NSObject,UNUserNotificationCenterDelegate,@u
                 content.body="\(notice.event.message)\n\(context.mode.label) · 事件時間 \(notice.event.time)"
                 content.threadIdentifier=context.accountID
                 content.userInfo=["account":context.accountID,"event":notice.event.id]
-                try await center.add(UNNotificationRequest(identifier:notice.id,content:content,trigger:nil))
+                try await withCheckedThrowingContinuation{(continuation:CheckedContinuation<Void,Error>) in
+                    center.add(UNNotificationRequest(identifier:notice.id,content:content,trigger:nil)){error in
+                        if let error{continuation.resume(throwing:TradeError.unavailable("本機通知加入失敗（\((error as NSError).code)）"))}else{continuation.resume()}
+                    }
+                }
             }
             acknowledged.insert(notice.id)
         }
