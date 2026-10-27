@@ -82,6 +82,16 @@ public final class AccountRepository: @unchecked Sendable {
               state.orders.values.allSatisfy({ $0.accountID == mode.accountID }),
               state.fills.allSatisfy({ $0.accountID == mode.accountID }),
               state.ledger.allSatisfy({ $0.accountID == mode.accountID }) else { throw TradeError.wrongAccount }
+        if mode == .offline {
+            guard let simulation=state.simulation,simulation.algorithm=="factor-wave-1",simulation.time%Simulation.step==0,state.instruments.allSatisfy({$0.id.hasPrefix("SIM:") && $0.initialPrice > .zero}) else{throw TradeError.corrupt("離線市場版本、時鐘或商品邊界不合法")}
+        }else{guard state.simulation == nil,!state.instruments.contains(where:{$0.id.hasPrefix("SIM:")}) else{throw TradeError.wrongAccount}}
+        guard !state.instruments.isEmpty,Set(state.instruments.map(\.id)).count==state.instruments.count,
+              state.instruments.allSatisfy({i in
+                  !i.id.isEmpty && i.rules.tick > .zero && i.rules.quantityStep > .zero && i.rules.multiplier > .zero && i.rules.maintenance >= .zero && i.rules.maxLeverage>=1 && TimeZone(identifier:i.rules.timeZone) != nil && i.rules.fees.maker >= .zero && i.rules.fees.taker >= .zero && i.rules.fees.minimum >= .zero && i.rules.fees.fixed >= .zero && i.rules.fees.sellTax >= .zero
+              }) else{throw TradeError.corrupt("商品目錄或規則結構不合法，保留原始帳戶")}
+        let instrumentIDs=Set(state.instruments.map(\.id))
+        guard state.positions.allSatisfy({key,p in key==p.id && instrumentIDs.contains(p.id) && p.average >= .zero && p.margin >= .zero}),
+              state.fills.allSatisfy({$0.quantity > .zero && $0.price > .zero && $0.fee >= .zero && $0.tax >= .zero && state.orders[$0.orderID] != nil && instrumentIDs.contains($0.instrumentID)}) else{throw TradeError.corrupt("部位或成交結構不合法")}
         let groups = Dictionary(grouping: state.ledger, by: { "\($0.eventID)|\($0.currency)" })
         for entries in groups.values where try sum(entries.map(\.amount)) != .zero { throw TradeError.corrupt("帳本不平衡，拒絕載入或寫入") }
         for currency in Set(state.cash.keys).union(state.ledger.map(\.currency)) {

@@ -457,3 +457,18 @@ func allProviderQuoteSchemas(provider: ProviderID) async throws {
     let value=try a("0.00000001")*a("0.0001")
     #expect(try JSONDecoder().decode(Amount.self,from:JSONEncoder().encode(value)) == value)
 }
+
+@Test func backupRejectsInvalidCatalogBeforeReplacement() throws {
+    let r=try Rig();var s=try r.repo.load()!;s.instruments=[]
+    #expect(throws:TradeError.self){try r.repo.save(s)}
+    #expect(try r.repo.load()?.instruments.count==1)
+}
+
+@Test func foreignCurrencyCapitalFlowIsNotPerformanceProfit() async throws {
+    let r=try Rig()
+    try await r.engine.setFX(FXRate(currency:"USD",base:"TWD",rate:a("30"),time:1000,source:"synthetic fixture"),context:r.context)
+    try await r.engine.cashFlow(currency:"USD",amount:a("100"),time:1005,context:r.context)
+    let s=await r.engine.snapshot()
+    #expect(s.equity.last?.flow == (try a("3000")))
+    #expect(Analytics.timeWeighted(s.equity).last! == 1)
+}

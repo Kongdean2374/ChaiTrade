@@ -50,7 +50,11 @@ public actor TradingEngine {
         s.post(event: eventID, currency: currency, debit: "cash", credit: "external-capital", amount: amount, time: time)
         s.appliedEvents.insert(eventID); s.audit("cashFlow", "虛擬資金調整 \(currency) \(amount)", time: time, id: eventID)
         let value = try Analytics.valuation(s)
-        s.equity.append(EquityPoint(time:time,value:value.complete ? value.total:nil,flow:currency == s.baseCurrency ? amount:.zero))
+        let baseFlow: Amount
+        if currency == s.baseCurrency{baseFlow=amount}
+        else if let rate=s.lifecycle?.rates.first(where:{$0.currency==currency && $0.base==s.baseCurrency}){baseFlow=try amount*rate.rate}
+        else{baseFlow = .zero}
+        s.equity.append(EquityPoint(time:time,value:value.complete ? value.total:nil,flow:baseFlow))
     }
     public func cashFlow(currency: String, amount: Amount, time: Int64, eventID: String = UUID().uuidString, context: AccountContext) throws {
         try check(context)
@@ -300,7 +304,7 @@ public actor TradingEngine {
             }
             if o.filled > .zero && o.request.parentID == nil { try protect(&s, parent: o, time: now) }
         }
-        for idx in s.alerts.indices where s.alerts[idx].instrumentID == i.id && s.alerts[idx].firedAt == nil {
+        for idx in s.alerts.indices where fresh && s.alerts[idx].instrumentID == i.id && s.alerts[idx].firedAt == nil {
             let a = s.alerts[idx]
             if a.above ? q.last >= a.price : q.last <= a.price { s.alerts[idx].firedAt = now; s.audit("priceAlert", "\(i.symbol) 到價 \(a.price)", time: now, id: "alert-\(a.id)") }
         }

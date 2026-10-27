@@ -5,11 +5,16 @@ import ChaiTradeCore
 struct RootView: View {
     @EnvironmentObject var model: AppModel
     @State private var settings=false
+    @State private var recovery=false
     var body: some View {
         Group {
             if !model.settings.onboarded { OnboardingView() }
             else if model.state == nil {
-                ContentUnavailableView { Label("ChaiTrade",systemImage:"chart.xyaxis.line") } description: { Text(model.loading ? "正在驗證本機帳戶…":"帳戶尚未載入。原始資料保留，請重試或檢查備份。") } actions: { Button("重試啟動"){Task{await model.boot()}} }
+                ContentUnavailableView { Label("ChaiTrade",systemImage:"chart.xyaxis.line") } description: { Text(model.loading ? "正在驗證本機帳戶…":"帳戶尚未載入。原始資料保留，可從已驗證備份恢復。") } actions: {
+                    Button("重試啟動"){Task{await model.boot()}}
+                    Button("從備份恢復無法啟動的帳戶"){recovery=true}
+                    if model.settings.pendingMode != nil{Button("取消待切換，載入原帳戶"){model.setPending(nil);Task{await model.boot()}}}
+                }
             } else {
                 VStack(spacing:0) {
                     HStack {
@@ -26,10 +31,11 @@ struct RootView: View {
                         NavigationStack { OrdersView() }.tabItem{Label("委託",systemImage:"list.bullet.rectangle")}.tag(3)
                         NavigationStack { PortfolioView() }.tabItem{Label("資產",systemImage:"wallet.bifold")}.tag(4)
                     }
-                }
+                }.disabled(model.progress != nil || model.catchupTarget != nil)
             }
         }
         .sheet(isPresented:$settings){NavigationStack{SettingsView()}}
+        .sheet(isPresented:$recovery){NavigationStack{RecoveryView()}}
         .sheet(item:$model.chartAmendment){intent in NavigationStack{ChartAmendConfirm(intent:intent)}}
         .alert("操作未完成",isPresented:Binding(get:{model.error != nil},set:{if !$0{model.error=nil}})) { Button("知道了"){model.error=nil} } message:{Text(model.error ?? "")}
         .alert("時間完整性確認",isPresented:Binding(get:{model.clockWarning != nil},set:{_ in})) {
@@ -38,7 +44,9 @@ struct RootView: View {
         } message:{Text(model.clockWarning ?? "")}
         .overlay(alignment:.top) {
             if let progress=model.progress {
-                VStack { Text("重開後補算離線市場").font(.headline);ProgressView(value:progress);Text("已完成事件會逐批保存；此時暫停下單").font(.caption);Button("暫停補算"){model.stopCatchup()} }.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
+                VStack { Text("順序處理離線市場事件").font(.headline);ProgressView(value:progress);Text("已完成事件會逐批保存；此時暫停下單").font(.caption);Button("暫停補算"){model.stopCatchup()} }.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
+            } else if model.catchupTarget != nil && model.clockWarning == nil {
+                VStack(spacing:10){Text("市場事件處理已暫停").font(.headline);Button("從檢查點繼續處理"){Task{await model.catchUp()}};Button("放棄未完成的推進",role:.destructive){model.clockWarning="確定放棄尚未處理的推進區段？已完成的行情與交易會保留。"}}.padding().background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding()
             } else if let notice=model.notice {
                 Button{model.notice=nil}label:{Text(notice).font(.caption).padding().foregroundStyle(.primary).background(.regularMaterial,in:RoundedRectangle(cornerRadius:12))}.padding()
             }

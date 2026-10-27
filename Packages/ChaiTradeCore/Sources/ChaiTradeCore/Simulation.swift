@@ -3,7 +3,7 @@ import Foundation
 public struct SimulationState: Codable, Sendable {
     public var seed: UInt64 = 2374
     public var algorithm = "factor-wave-1"
-    public var time: Int64 = 1_793_059_200 // 2026-10-26 UTC
+    public var time: Int64 = 1_793_064_600 // 2026-10-27 09:30 Asia/Taipei, a usable default local session
     public var paused = false
     public var speed = 1
     public var scenario = "盤整"

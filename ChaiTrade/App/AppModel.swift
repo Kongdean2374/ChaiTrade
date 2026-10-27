@@ -91,8 +91,11 @@ struct ChartAmendment: Identifiable {
             let ctx=AccountContext(mode:target)
             let service=try TradingEngine(context:ctx,repository:repo,initial:existing)
             try await service.initializeQuotes(context:ctx)
+            if switched || existing.lastWallTime == nil{try await service.saveWallClock(Int64(Date().timeIntervalSince1970),context:ctx)}
             engine=service;context=ctx;state=await service.snapshot()
-            selectedID=state?.instruments.first(where:{$0.asset == .crypto})?.id ?? state?.instruments.first?.id ?? ""
+            if let s=state,s.mode == .offline {
+                selectedID=s.instruments.first(where:{$0.currency==s.baseCurrency && !$0.asset.derivative && $0.asset != .index && $0.rules.isOpen(at:s.simulation!.time)})?.id ?? s.instruments.first?.id ?? ""
+            }else{selectedID=state?.instruments.first(where:{$0.asset == .crypto})?.id ?? state?.instruments.first?.id ?? ""}
             settings.activeMode=target;settings.pendingMode=nil;try settings.save(root:root)
             var resources=URLResourceValues();resources.isExcludedFromBackup=true
             var url=root;try url.setResourceValues(resources)
@@ -201,6 +204,16 @@ struct ChartAmendment: Identifiable {
         progress=nil;lastUptime=ProcessInfo.processInfo.systemUptime
     }
     func stopCatchup() { progress=nil }
+    func nextSession() async {
+        guard let i=selected,let sim=state?.simulation else{return}
+        if i.rules.isOpen(at:sim.time){notice="目前已在此商品的交易時段";return}
+        var candidate=(sim.time/60+1)*60
+        for _ in 0..<20160 {
+            if i.rules.isOpen(at:candidate){catchupTarget=candidate;await catchUp();return}
+            candidate+=60
+        }
+        error="未在接下來 14 天找到有效時段，請核對交易日曆或到期狀態"
+    }
     func skipCatchup() async {
         catchupTarget=nil;clockWarning=nil;progress=nil
         if let engine,let context { await run{try await engine.saveWallClock(Int64(Date().timeIntervalSince1970),context:context)} }
@@ -215,6 +228,7 @@ struct ChartAmendment: Identifiable {
         fetching=true;defer{fetching=false}
         var ids=s.watchlist.union(s.positions.values.filter{$0.quantity != .zero}.map(\.id))
         ids.formUnion(s.orders.values.filter{$0.status.open}.map{$0.request.instrumentID});ids.insert(selectedID)
+        ids.formUnion(s.alerts.filter{$0.firedAt == nil}.map(\.instrumentID))
         for i in s.instruments where ids.contains(i.id) {
             guard foreground,let id=i.provider else{continue}
             if i.provider == .coinbase,i.id==selectedID,let q=s.quotes[i.id],q.source.hasPrefix("Coinbase Exchange WS"),q.valid,Int64(Date().timeIntervalSince1970)-q.receivedAt<10{continue}
@@ -298,5 +312,26 @@ struct ChartAmendment: Identifiable {
             try await engine.restore(restored,context:context);self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
         }
         await loadChart()
+    }
+    func recoverFailedAccount(_ url: URL,password: String) async {
+        guard state == nil,engine == nil,!loading else{return}
+        loading=true
+        do {
+            let target=settings.pendingMode ?? settings.activeMode
+            let access=url.startAccessingSecurityScopedResource();defer{if access{url.stopAccessingSecurityScopedResource()}}
+            let size=try url.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0
+            guard size<=100_000_000 else{throw TradeError.corrupt("備份超過安全大小限制")}
+            let restored=try BackupService.importAccount(Data(contentsOf:url,options:.mappedIfSafe),expectedMode:target,password:password)
+            let stage=root.appendingPathComponent("recovery-stage-\(UUID().uuidString)")
+            defer{try? FileManager.default.removeItem(at:stage)}
+            do {let repository=try AccountRepository(root:stage,mode:target);try repository.save(restored,replacing:true)}
+            let replacement=stage.appendingPathComponent("accounts/\(target.accountID)")
+            let original=root.appendingPathComponent("accounts/\(target.accountID)")
+            if FileManager.default.fileExists(atPath:original.path) {
+                _=try FileManager.default.replaceItemAt(original,withItemAt:replacement,backupItemName:"preserved-\(target.accountID)-\(UUID().uuidString)",options:.usingNewMetadataOnly)
+            }else{try FileManager.default.moveItem(at:replacement,to:original)}
+            error=nil;notice="帳戶備份已驗證；舊目錄已保留，正在重新啟動本機服務"
+            booted=false;loading=false;await boot()
+        }catch{loading=false;self.error=error.localizedDescription}
     }
 }

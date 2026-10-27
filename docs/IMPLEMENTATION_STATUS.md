@@ -15,6 +15,6 @@ Date: 2026-10-27. Work is in progress against the entire REQUIREMENTS.md; this i
 | R09 public repository | Kongdean2374/ChaiTrade | Public read/write verified with README round trip |
 | R10 unsigned IPA | workflows/, scripts/ | Workflow and artifact validators implemented; main workflow executing; no IPA success claimed yet |
 | R11 no actual assets | NetworkPolicy | Only allowlisted market-data GET requests; policy tests passed |
-| R12 maintenance and verification | CoreTests, backups, docs, scripts | 37 ordinary Linux Swift test functions passed; 1 stress test separately passed; stress/device/migration acceptance incomplete |
+| R12 maintenance and verification | CoreTests, backups, docs, scripts | 39 ordinary Linux Swift test functions passed; 1 stress test separately passed; stress/device/migration acceptance incomplete |
 
 Technical choice: native SQLite C binding replaces GRDB so the same persistence code can be compiled and executed on Linux and iOS without conditional database engines. Transactions, WAL, schema versioning and account validation remain explicit. This choice does not remove the required behavior; full normalized event reconstruction, query performance and migrations still require further validation.

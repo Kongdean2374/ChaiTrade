@@ -1,6 +1,6 @@
 # Data and numeric contracts
 
-Amount is a checked Decimal wrapper. Input is a strict canonical decimal string, at most 12 fractional digits and magnitude 10¹⁵. Add/subtract/multiply reject overflow or loss of precision. Recurring division explicitly rounds at 12 decimals. SQLite stores financial values inside JSON strings/text, never REAL; numeric sorting is performed by Amount or indexed integer time/cursors.
+Amount is a checked Decimal wrapper. User input is a strict decimal string, at most 12 fractional digits and magnitude 10¹⁵. Exact Decimal intermediate precision is retained in persistent strings; decoding verifies a lossless canonical round trip instead of silently truncating it. Add/subtract/multiply reject overflow or loss of precision. Recurring division explicitly rounds at 12 decimals. SQLite stores financial values inside JSON strings/text, never REAL; numeric sorting is performed by Amount or indexed integer time/cursors.
 
 Each account snapshot includes instruments/rules, balances/external flows, orders, positions, fills, double-entry ledger, audit events, alerts, journal, drawings, equity and optional lifecycle (settlements, corporate actions, carry, FX rates). Optional additive fields preserve earlier schema-1 decoding. Future incompatible schema versions are rejected; errors never reset balances.
 

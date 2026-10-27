@@ -36,7 +36,7 @@ struct TradingView: View {
                         Button{fullscreen=true}label:{Image(systemName:"arrow.up.left.and.arrow.down.right")}.accessibilityLabel("全螢幕圖表")
                     }
                     HStack{Button("更多歷史"){model.chartCount=min(1000,model.chartCount+160);Task{await model.loadChart()}};Spacer();Button("繪圖"){drawing=true};Button("到價提醒"){alert=true}}.font(.caption)
-                    if model.state?.simulation != nil { SimulationControls() }
+                    if model.state?.simulation != nil { SimulationControls();if let s=model.state?.simulation,!i.rules.isOpen(at:s.time){Button("順序推進至下一交易時段"){Task{await model.nextSession()}}.font(.caption)}}
                     HStack(alignment:.top,spacing:18) {
                         BookSide(title:"買盤",levels:model.quote?.bids ?? [],color:.green)
                         BookSide(title:"賣盤",levels:model.quote?.asks ?? [],color:.red)
@@ -96,7 +96,7 @@ struct OrderForm: View {
             if let i=model.selected {
                 Section("\(i.name) · 本機模擬委託") {
                     Picker("方向",selection:$side){ForEach(Side.allCases,id:\.self){Text($0.label)}}.pickerStyle(.segmented)
-                    Picker("委託類型",selection:$kind){ForEach(OrderKind.allCases,id:\.self){Text($0.label)}}
+                    Picker("委託類型",selection:$kind){ForEach(OrderKind.allCases,id:\.self){Text($0.label)}}.accessibilityIdentifier("orderKind")
                     if [.limit,.stopLimit].contains(kind){TextField("限價",text:$price).keyboardType(.decimalPad)}
                     if kind.conditional && kind != .trailing{TextField("觸發價",text:$trigger).keyboardType(.decimalPad)}
                     if kind == .trailing{TextField("距離／比例（0.05＝5%）",text:$distance).keyboardType(.decimalPad);Toggle("使用百分比",isOn:$trailingPercent)}
