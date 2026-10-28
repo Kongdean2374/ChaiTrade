@@ -67,7 +67,14 @@ import XCTest
         capture("AFTER B stock related news and product bottom",includeHierarchy:false)
         let open=app.buttons["openOrder"];try check(open.isHittable,"Valid local quote has no reachable buy entry");open.tap()
         let rules=app.staticTexts["orderTradingRules"]
-        try check(rules.waitForExistence(timeout:5) && rules.label.contains("價格級距：0.1 TWD"),"Stock order header showed a base tick instead of its own current price band")
+        try check(rules.waitForExistence(timeout:5),"Stock order rules were not presented")
+        let quotedLimit=try XCTUnwrap(Decimal(string:try XCTUnwrap(app.textFields["orderPrice"].value as? String)))
+        // This full journey runs with the normal B clock. The price can cross
+        // 100 while the native test operates; verify the actual limit's TWSE
+        // band rather than assuming the earlier home price is still current.
+        try check(quotedLimit >= Decimal(50) && quotedLimit < Decimal(500),"Fresh stock price left the independently checked TWSE bands")
+        let expectedTick=quotedLimit < Decimal(100) ? "0.1":"0.5"
+        try check(rules.label.contains("價格級距："+expectedTick+" TWD"),"Stock order header does not match its own actual limit price band")
         capture("AFTER stock basic order summary",includeHierarchy:false)
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         let submit=app.buttons["submitOrder"];try reveal(submit,in:app,identifier:"submitOrder");submit.tap();app.buttons["確認送出"].tap()
