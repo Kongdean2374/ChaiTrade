@@ -47,23 +47,37 @@ import XCTest
         // keep the same ten-second draw and 120-second complete-case limits.
         try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app)
         try waitUntil("Stock chart has data but was never drawn",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
-        capture("AFTER B stock detail chart")
+        capture("AFTER B stock detail chart",includeHierarchy:false)
         let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
         try waitUntil("Stock journey did not actually select whole lots",timeout:5){regularBoard.isSelected}
+        try reveal(app.staticTexts["productBottom"],in:app)
+        capture("AFTER B stock related news and product bottom",includeHierarchy:false)
         let open=app.buttons["openOrder"];try check(open.isHittable,"Valid local quote has no reachable buy entry");open.tap()
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
-        capture("AFTER stock basic order summary")
+        capture("AFTER stock basic order summary",includeHierarchy:false)
         let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap();app.buttons["確認送出"].tap()
         try waitUntil("Stock receipt did not close and navigate",timeout:15){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
         let s=try state(app);try check((s["positions"] as? [String:String])?["SIM:TWSE:2330"]=="1000","A one-lot order did not produce exactly 1,000 shares")
         try check((s["orders"] as? [String])?.count==1,"One stock intent created multiple orders")
         try check(app.staticTexts["receiptOrderStatus"].firstMatch.label=="全部成交","Immediate stock fill is hidden behind an empty working-orders page")
         try check((s["receiptOrders"] as? [String])?.count==1,"Stock receipt does not belong to exactly one submitted intent")
-        capture("AFTER B orders and fills")
+        capture("AFTER B orders and fills",includeHierarchy:false,snapshot:s)
         try journal(app);try enterVerified("PRODUCT_STOCK_JOURNEY",into:app.textViews["journalText"])
         let save=app.buttons["saveJournal"];try reveal(save,in:app);save.tap()
         try waitUntil("Journey journal was not saved"){(try? self.state(app)["journals"] as? [[String:String]])?.count==1}
-        capture("AFTER B journal");app.buttons["完成"].tap();capture("AFTER B assets with holding")
+        try check(app.staticTexts["已保存 1 則"].waitForExistence(timeout:5),"Saved journal count has not appeared on screen")
+        capture("AFTER B journal",includeHierarchy:false);app.buttons["完成"].tap()
+        try waitUntil("Journal dismissal did not return to a usable asset page",timeout:5){!app.navigationBars["交易日誌"].exists && app.navigationBars["資產"].isHittable}
+        capture("AFTER B assets with holding",includeHierarchy:false)
+        let realized=app.staticTexts.matching(NSPredicate(format:"label BEGINSWITH %@","已實現價差（未扣費）")).firstMatch
+        try reveal(realized,in:app)
+        try check(app.staticTexts["台積電"].firstMatch.isHittable && app.staticTexts["1,000"].firstMatch.isHittable,"Actual stock holding name and 1,000 shares are not visible together")
+        let completed=try state(app)
+        try check((completed["positions"] as? [String:String])?["SIM:TWSE:2330"]=="1000" && (completed["orders"] as? [String])?.count==1 && (completed["fills"] as? [[String:String]])?.count==1,"Reading news, holdings and journal created an extra trade or changed the position")
+        try check((completed["cash"] as? [String:String])==(s["cash"] as? [String:String]),"Read-only journey changed cash after the one stock fill")
+        let journals=try XCTUnwrap(completed["journals"] as? [[String:String]])
+        try check(journals.count==1 && journals.first?["text"]=="PRODUCT_STOCK_JOURNEY","Full journey journal was duplicated or lost its exact text")
+        capture("AFTER B stock actual 1000-share holding",includeHierarchy:false,snapshot:completed)
     }
     func testOfflineCryptoDiscoveryNewsAndContractSeparation()throws{
         let app=launchClean();defer{finish()};try onboard(app)
