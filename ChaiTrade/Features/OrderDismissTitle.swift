@@ -1,66 +1,86 @@
 import SwiftUI
 import UIKit
 
-/// Observe drags across the real navigation bar, including its empty space.
-/// A SwiftUI gesture on the title alone can lose the drag to UIKit's sheet pan
-/// while a text field owns the keyboard. The observer never cancels other touches.
-struct OrderDismissTitle:UIViewRepresentable{
+/// Own the observer from the order content's controller, rather than a toolbar
+/// title whose SwiftUI hosting view may live outside UINavigationBar's subtree.
+struct OrderNavigationDismissObserver:UIViewControllerRepresentable{
+    @EnvironmentObject private var model:AppModel
     var enabled:Bool
     var onDismiss:@MainActor ()->Void
 
-    func makeCoordinator()->Coordinator{Coordinator()}
-    func makeUIView(context:Context)->TitleLabel{
-        let label=TitleLabel();label.text="模擬下單"
-        label.font = .preferredFont(forTextStyle:.headline)
-        label.adjustsFontForContentSizeCategory=true;label.textAlignment = .center
-        label.isAccessibilityElement=true;label.accessibilityHint="向下拖曳可取消尚未送出的委託"
-        label.hierarchyChanged={ [weak coordinator=context.coordinator] view in coordinator?.attach(from:view) }
-        return label
+    func makeUIViewController(context:Context)->Controller{Controller()}
+    func updateUIViewController(_ controller:Controller,context:Context){
+        controller.onDismiss=onDismiss
+        #if DEBUG
+        controller.onDiagnostic={message in
+            guard UITestSupport.session != nil,model.uiTestOrderDismissDiagnostics.last != message else{return}
+            model.uiTestOrderDismissDiagnostics=Array((model.uiTestOrderDismissDiagnostics+[message]).suffix(20))
+        }
+        #endif
+        controller.update(enabled:enabled)
     }
-    func updateUIView(_ view:TitleLabel,context:Context){
-        context.coordinator.onDismiss=onDismiss
-        context.coordinator.pan.isEnabled=enabled
-        context.coordinator.attach(from:view)
+    static func dismantleUIViewController(_ controller:Controller,coordinator:()){
+        controller.detach();controller.onDismiss=nil
+        #if DEBUG
+        controller.onDiagnostic=nil
+        #endif
     }
-    static func dismantleUIView(_ view:TitleLabel,coordinator:Coordinator){
-        view.hierarchyChanged=nil;coordinator.detach();coordinator.onDismiss=nil
-    }
-    @MainActor final class TitleLabel:UILabel{
-        var hierarchyChanged:((UIView)->Void)?
-        override func didMoveToWindow(){super.didMoveToWindow();hierarchyChanged?(self)}
-        override func didMoveToSuperview(){super.didMoveToSuperview();hierarchyChanged?(self)}
-        override func layoutSubviews(){super.layoutSubviews();hierarchyChanged?(self)}
-    }
-    @MainActor final class Coordinator:NSObject,UIGestureRecognizerDelegate{
-        weak var navigationBar:UINavigationBar?
-        var onDismiss:(@MainActor ()->Void)?
+    @MainActor final class Controller:UIViewController,UIGestureRecognizerDelegate{
+        private weak var navigationBar:UINavigationBar?
+        private weak var gestureHost:UIView?
+        private var enabled=false
         private var requested=false
-        lazy var pan:UIPanGestureRecognizer={
+        var onDismiss:(@MainActor ()->Void)?
+        #if DEBUG
+        var onDiagnostic:((String)->Void)?
+        #endif
+        private lazy var pan:UIPanGestureRecognizer={
             let recognizer=UIPanGestureRecognizer(target:self,action:#selector(dragged(_:)))
             recognizer.delegate=self;recognizer.maximumNumberOfTouches=1
             recognizer.cancelsTouchesInView=false
             recognizer.delaysTouchesBegan=false;recognizer.delaysTouchesEnded=false
             return recognizer
         }()
-        func attach(from view:UIView){
-            guard view.window != nil else{detach();return}
-            var ancestor=view.superview
-            while let current=ancestor{
-                if let bar=current as? UINavigationBar{
-                    guard navigationBar !== bar else{return}
-                    detach();navigationBar=bar;bar.addGestureRecognizer(pan);return
-                }
-                ancestor=current.superview
-            }
+        override func loadView(){let anchor=UIView();anchor.backgroundColor = .clear;anchor.isUserInteractionEnabled=false;view=anchor}
+        override func didMove(toParent parent:UIViewController?){super.didMove(toParent:parent);attach()}
+        override func viewDidAppear(_ animated:Bool){super.viewDidAppear(animated);attach()}
+        override func viewDidLayoutSubviews(){super.viewDidLayoutSubviews();attach()}
+        override func viewWillDisappear(_ animated:Bool){detach();super.viewWillDisappear(animated)}
+        func update(enabled:Bool){
+            self.enabled=enabled
+            if pan.isEnabled != enabled{pan.isEnabled=enabled}
+            attach()
         }
-        func detach(){navigationBar?.removeGestureRecognizer(pan);navigationBar=nil;requested=false}
+        private func attach(){
+            guard isViewLoaded,view.window != nil else{return}
+            guard let owner=navigationController else{record("waiting for order navigation controller");return}
+            let bar=owner.navigationBar;let host:UIView=owner.view
+            guard bar.window === view.window else{return}
+            guard gestureHost !== host || navigationBar !== bar else{return}
+            detach();navigationBar=bar;gestureHost=host;host.addGestureRecognizer(pan)
+            record("attached to order navigation controller")
+        }
+        func detach(){gestureHost?.removeGestureRecognizer(pan);gestureHost=nil;navigationBar=nil;requested=false}
+        func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldReceive touch:UITouch)->Bool{
+            guard enabled,let host=gestureHost,let bar=navigationBar,!bar.isHidden else{return false}
+            // Observe through the controller's common ancestor, but only accept
+            // gestures beginning in the visible navigation bar. Form scrolling,
+            // keyboard input and ordinary buttons keep their native behavior.
+            return bar.convert(bar.bounds,to:host).contains(touch.location(in:host))
+        }
         func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldRecognizeSimultaneouslyWith otherGestureRecognizer:UIGestureRecognizer)->Bool{true}
         @objc private func dragged(_ recognizer:UIPanGestureRecognizer){
-            if recognizer.state == .began{requested=false}
-            guard !requested,recognizer.isEnabled,recognizer.state == .changed || recognizer.state == .ended else{return}
-            let distance=recognizer.translation(in:navigationBar)
-            guard distance.y>=24,abs(distance.x)<distance.y else{return}
-            requested=true;onDismiss?()
+            if recognizer.state == .began{requested=false;record("navigation pan began")}
+            guard enabled,!requested,recognizer.state == .changed || recognizer.state == .ended else{return}
+            let distance=recognizer.translation(in:gestureHost)
+            if distance.y>=24,abs(distance.x)<distance.y{
+                requested=true;record("navigation pan requested cancel");onDismiss?()
+            }else if recognizer.state == .ended{record("navigation pan ended without cancel: \(Int(distance.x)),\(Int(distance.y))")}
+        }
+        private func record(_ value:String){
+            #if DEBUG
+            onDiagnostic?(value)
+            #endif
         }
     }
 }

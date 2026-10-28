@@ -7,12 +7,13 @@ import XCTest
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
         app.tabBars.buttons["交易"].tap()
-        app.buttons["整股（張）"].tap()
+        let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
+        try waitUntil("Whole-lot selection did not take effect before opening an order",timeout:5){regularBoard.isSelected}
         XCTAssertTrue(app.buttons["openOrder"].waitForExistence(timeout:10))
         for _ in 0..<5 where !app.buttons["openOrder"].isHittable{app.swipeUp()}
         app.buttons["openOrder"].tap()
-        app.buttons["orderKind"].tap()
-        app.buttons["市價"].tap()
+        let kind=app.buttons["orderKind"];try reveal(kind,in:app);kind.tap()
+        try check(app.buttons["市價"].waitForExistence(timeout:5),"Whole-lot order menu did not expose market orders");app.buttons["市價"].tap()
         let submit=app.buttons["submitOrder"]
         for _ in 0..<5 where !submit.isHittable{app.swipeUp()}
         XCTAssertTrue(submit.isHittable);submit.tap()
@@ -52,7 +53,8 @@ import XCTest
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
         app.tabBars.buttons["交易"].tap()
-        app.buttons["整股（張）"].tap()
+        let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
+        try waitUntil("Whole-lot selection did not take effect before opening an order",timeout:5){regularBoard.isSelected}
         let open=app.buttons["openOrder"];for _ in 0..<5 where !open.isHittable{app.swipeUp()};open.tap()
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         let submit=app.buttons["submitOrder"];for _ in 0..<5 where !submit.isHittable{app.swipeUp()};submit.tap();app.buttons["確認送出"].tap()
@@ -90,8 +92,11 @@ import XCTest
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30));app.tabBars.buttons["交易"].tap()
         let capture=app.buttons["截圖"]
+        // Retained c333 failure put the entire canvas below the fixed actions.
+        // Inspect the visible chart before the same 10-second draw assertion.
+        try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app)
         try waitUntil("Chart screenshot requested before actual canvas rendering",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
-        for _ in 0..<5 where !capture.isHittable{app.swipeUp()}
+        try reveal(capture,in:app)
         XCTAssertTrue(capture.isHittable);capture.tap()
         let captured=app.buttons.containing(NSPredicate(format:"label BEGINSWITH %@","已保存本機圖表草稿")).firstMatch
         XCTAssertTrue(captured.waitForExistence(timeout:10));captured.tap()

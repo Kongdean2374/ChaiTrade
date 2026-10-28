@@ -268,10 +268,10 @@ struct OrderForm:View{
         contractRiskSection
         advancedSection
         summarySection
-    }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
+    }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.background(OrderNavigationDismissObserver(enabled:!sending && !confirm && !submitted && !cancelling,onDismiss:cancelUnsentForm)).interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
         ToolbarItem(placement:.principal){
-            OrderDismissTitle(enabled:!sending && !confirm && !submitted && !cancelling,onDismiss:cancelUnsentForm)
-                .frame(maxWidth:.infinity,minHeight:44)
+            Text("模擬下單").font(.headline).frame(maxWidth:.infinity,minHeight:44)
+                .accessibilityHint("向下拖曳可取消尚未送出的委託")
         }
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){cancelUnsentForm()}.disabled(sending || cancelling)}
@@ -283,7 +283,7 @@ struct OrderForm:View{
         .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text(confirmationText)}
     }
     private func cancelUnsentForm(){
-        guard !sending,!submitted,!cancelling else{return};cancelling=true
+        guard !sending,!submitted,!confirm,!cancelling else{return};cancelling=true
         #if DEBUG
         if UITestSupport.session != nil{model.uiTestOrderDismissRequests+=1}
         #endif
