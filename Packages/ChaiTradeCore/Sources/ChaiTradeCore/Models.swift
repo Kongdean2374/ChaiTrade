@@ -174,7 +174,7 @@ public enum OrderStatus: String, Codable, Sendable { case working, partiallyFill
 }
 public enum MarginMode: String, Codable, CaseIterable, Sendable { case isolated, cross }
 public enum TriggerReference: String, Codable, CaseIterable, Sendable { case last, mark, bidAsk }
-public struct OrderRequest: Codable, Sendable {
+public struct OrderRequest: Codable, Sendable, Equatable {
     public var positionSide:PositionSide?
     public var requestID: String = UUID().uuidString
     public var instrumentID: String
@@ -201,7 +201,7 @@ public struct OrderRequest: Codable, Sendable {
         self.instrumentID = instrumentID; self.side = side; self.kind = kind; self.quantity = quantity; self.price = price; self.trigger = trigger
     }
 }
-public struct Order: Codable, Identifiable, Sendable {
+public struct Order: Codable, Identifiable, Sendable, Equatable {
     public var id: String
     public var accountID: String
     public var request: OrderRequest
@@ -221,7 +221,7 @@ public struct Order: Codable, Identifiable, Sendable {
     public var postOnlyChecked: Bool?
     public var remaining: Amount { get throws { try request.quantity - filled } }
 }
-public struct Fill: Codable, Identifiable, Sendable {
+public struct Fill: Codable, Identifiable, Sendable, Equatable {
     public var id: String
     public var accountID: String
     public var orderID: String
@@ -260,7 +260,7 @@ public struct Position: Codable, Identifiable, Sendable {
     public var marginMode: MarginMode = .isolated
     public var openedAt: Int64 = 0
 }
-public struct LedgerEntry: Codable, Sendable {
+public struct LedgerEntry: Codable, Sendable, Equatable {
     public var eventID: String
     public var accountID: String
     public var time: Int64
@@ -268,7 +268,7 @@ public struct LedgerEntry: Codable, Sendable {
     public var account: String
     public var amount: Amount
 }
-public struct AuditEvent: Codable, Identifiable, Sendable {
+public struct AuditEvent: Codable, Identifiable, Sendable, Equatable {
     public var id: String
     public var sequence: Int64
     public var time: Int64

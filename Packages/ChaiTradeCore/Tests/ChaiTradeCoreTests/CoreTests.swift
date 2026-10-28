@@ -56,6 +56,52 @@ private struct Rig {
     #expect(restored.cash==initial.cash)
     #expect(try reopened.scalar("PRAGMA synchronous")=="2")
 }
+@Test func canonicalHotRowsSurviveAmendTamperRollbackReloadAndReplacement()async throws{
+    let r=try Rig()
+    var quote=try r.quote();quote.source="合成來源 \"quoted\" / \\ / 中文"
+    try await r.engine.ingest(quote,now:1000,context:r.context)
+    for n in 0..<4{
+        _=try await r.engine.submit(r.buy(quantity:"1",id:"canonical-\"\\中文-\(n)"),time:1000,context:r.context)
+    }
+    let working=try await r.engine.submit(r.buy(quantity:"2",price:"90",id:"canonical-edit"),time:1000,context:r.context)
+    func checkProjection(_ state:AccountState)throws{
+        let payload=try #require(try r.repo.scalar("SELECT payload FROM account_state"))
+        let decoded=try JSONDecoder().decode(AccountState.self,from:Data(payload.utf8))
+        #expect(try AccountRepository.encode(decoded)==AccountRepository.encode(state))
+        #expect(decoded.orders==state.orders);#expect(decoded.fills==state.fills)
+        #expect(decoded.events==state.events);#expect(decoded.ledger==state.ledger)
+        for order in state.orders.values{#expect(try r.repo.order(id:order.id)==order)}
+        #expect(try r.repo.scalar("PRAGMA synchronous")=="2")
+    }
+    var saved=await r.engine.snapshot()
+    for _ in 0..<3{saved=try r.repo.save(saved);try checkProjection(saved)}
+    // A nested request change must invalidate the complete order encoding.
+    try await r.engine.amend(id:working,quantity:a("3"),price:a("91"),time:1001,context:r.context)
+    saved=await r.engine.snapshot();try checkProjection(saved)
+    #expect(saved.orders[working]?.request.quantity == (try a("3")))
+    #expect(saved.orders[working]?.request.price == (try a("91")))
+    let before=try r.repo.scalar("SELECT payload FROM account_state")
+    var changed=saved;changed.fills[0].source="same identity, different immutable source"
+    #expect(throws:TradeError.self){try r.repo.save(changed)}
+    #expect(try r.repo.scalar("SELECT payload FROM account_state")==before)
+    _=try r.repo.save(saved);try checkProjection(saved)
+    try r.repo.exec("CREATE TRIGGER canonical_fail_projection BEFORE UPDATE ON account_state BEGIN SELECT RAISE(ABORT,'synthetic cache rollback'); END")
+    var pending=saved;pending.audit("fixture","must roll back",time:1002,id:"canonical-rollback")
+    #expect(throws:TradeError.self){try r.repo.save(pending)}
+    #expect(try r.repo.scalar("SELECT payload FROM account_state")==before)
+    #expect(try r.repo.scalar("SELECT count(*) FROM events WHERE id='canonical-rollback'")=="0")
+    try r.repo.exec("DROP TRIGGER canonical_fail_projection")
+    _=try r.repo.save(saved);try checkProjection(saved)
+    saved=try #require(try r.repo.load());_=try r.repo.save(saved);try checkProjection(saved)
+    let full=try #require(try r.repo.fullSnapshot())
+    #expect(full.fills.count==4)
+    let csv=try r.repo.csv(kind:"fills",time:1005)
+    #expect(String(decoding:csv,as:UTF8.self)==Analytics.fillsCSV(full,time:1005))
+    saved=try r.repo.save(full,replacing:true);try checkProjection(saved)
+    let reopened=try AccountRepository(root:r.root,mode:.online),restored=try #require(try reopened.load())
+    #expect(restored.fills==saved.fills);#expect(restored.orders==saved.orders)
+    #expect(restored.cash==saved.cash);#expect(restored.ledger==saved.ledger)
+}
 @Test func vectorAAndIsolation() async throws {
     let r = try Rig()
     try await r.engine.ingest(r.quote(),now:1000,context:r.context)

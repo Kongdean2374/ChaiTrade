@@ -134,8 +134,12 @@ import XCTest
             let travel=far ? viewport.height*0.75:min(viewport.height*0.65,max(35,abs(distance)))
             let startY=up ? viewport.maxY-viewport.height*0.1:viewport.minY+viewport.height*0.1
             let base=app.coordinate(withNormalizedOffset:.zero)
-            let start=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY))
-            let end=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY+(up ? -travel:travel)))
+            // Retained source38 geometry: the 85%-width drag began inside
+            // orderPrice and repeated seven times without scrolling. Pan in
+            // the Form/list's blank right gutter, clear of numeric editors.
+            let dragX=viewport.maxX-screen.minX-8
+            let start=base.withOffset(CGVector(dx:dragX,dy:startY-screen.minY))
+            let end=base.withOffset(CGVector(dx:dragX,dy:startY-screen.minY+(up ? -travel:travel)))
             start.press(forDuration:0.1,thenDragTo:end,withVelocity:far ? .fast:.slow,thenHoldForDuration:0.1)
         }
         try check(false,"Control is not completely visible and reachable: "+targetID)
@@ -188,8 +192,9 @@ import XCTest
             let travel=far ? viewport.height*0.75:min(viewport.height*0.65,max(35,abs(distance)))
             let startY=up ? viewport.maxY-viewport.height*0.1:viewport.minY+viewport.height*0.1
             let base=app.coordinate(withNormalizedOffset:.zero)
-            let start=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY))
-            let end=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY+(up ? -travel:travel)))
+            let dragX=viewport.maxX-screen.minX-8
+            let start=base.withOffset(CGVector(dx:dragX,dy:startY-screen.minY))
+            let end=base.withOffset(CGVector(dx:dragX,dy:startY-screen.minY+(up ? -travel:travel)))
             start.press(forDuration:0.1,thenDragTo:end,withVelocity:far ? .fast:.slow,thenHoldForDuration:0.1)
         }
         try check(false,"Control is not completely visible and reachable: "+targetID)

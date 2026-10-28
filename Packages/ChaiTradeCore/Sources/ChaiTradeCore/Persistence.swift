@@ -1,6 +1,12 @@
 import Foundation
 import CSQLite
 
+private struct CachedCanonicalRow<Value:Equatable>{
+    let value:Value
+    let json:String
+    var report:String?
+}
+
 public struct FillPageRow: Sendable,Identifiable {
     public let cursor: Int64
     public let fill: Fill
@@ -14,6 +20,13 @@ public final class AccountRepository: @unchecked Sendable {
     private var cachedEquity:[EquityPoint]=[]
     private var cachedEquityOffset=0
     private var cachedEquityJSON:[String]=[]
+    // Encoding reuse only; every canonical SQL row/count/content check still runs.
+    // Cache values are compared in full and only advanced after successful COMMIT.
+    private var cachedOrders:[String:CachedCanonicalRow<Order>]=[:]
+    private var cachedFills:[String:CachedCanonicalRow<Fill>]=[:]
+    private var cachedEvents:[String:CachedCanonicalRow<AuditEvent>]=[:]
+    private var cachedLedger:[String:CachedCanonicalRow<LedgerEntry>]=[:]
+    private func resetRowEncodings(){cachedOrders=[:];cachedFills=[:];cachedEvents=[:];cachedLedger=[:]}
     public let mode: Mode
     public let path: String
     public init(root: URL, mode: Mode) throws {
@@ -23,7 +36,9 @@ public final class AccountRepository: @unchecked Sendable {
         path = directory.appendingPathComponent("account.sqlite").path
         guard sqlite3_open_v2(path, &db, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { throw TradeError.corrupt("無法開啟帳戶資料庫；原始資料保留") }
         do {
-            try exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;")
+            // Suggested writer page-cache budget:16MiB, not a process-memory cap.
+            // Exact count scans compete with full-history readers; FULL sync stays.
+            try exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA cache_size=-16384;")
             let version = try scalar("PRAGMA user_version") ?? "0"
             guard Int(version) ?? 99 <= 9 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
             try exec("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS account_state (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, account_id TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS fills_time ON fills(time); CREATE INDEX IF NOT EXISTS fills_order ON fills(order_id); CREATE INDEX IF NOT EXISTS fills_instrument_time ON fills(account_id,time); CREATE TABLE IF NOT EXISTS equity (ordinal INTEGER PRIMARY KEY,account_id TEXT NOT NULL,metrics TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS financial_flows (id TEXT PRIMARY KEY,account_id TEXT NOT NULL,time INTEGER NOT NULL,sequence INTEGER NOT NULL,payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS financial_flows_time ON financial_flows(time,sequence); CREATE TABLE IF NOT EXISTS report_state (id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_checkpoints (time INTEGER PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fill_report (id TEXT PRIMARY KEY REFERENCES fills(id), cells TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, time INTEGER NOT NULL, instrument TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS orders_time ON orders(time); CREATE INDEX IF NOT EXISTS orders_time_id ON orders(time DESC,id DESC); CREATE INDEX IF NOT EXISTS fills_instrument ON fills(json_extract(payload,'$.instrumentID')); CREATE INDEX IF NOT EXISTS fills_simulation_history ON fills(json_extract(payload,'$.instrumentID'),time); CREATE TABLE IF NOT EXISTS ledger (ordinal INTEGER PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS ledger_account_count ON ledger(account_id); CREATE INDEX IF NOT EXISTS equity_account_count ON equity(account_id); COMMIT;")
@@ -98,7 +113,7 @@ public final class AccountRepository: @unchecked Sendable {
         guard verified.mode==mode else{throw TradeError.wrongAccount}
         guard try ArchiveDigest.file(verified.url)==verified.digest else{throw TradeError.corrupt("已驗證的恢復檔案發生變更，原帳戶未變")}
         var source:OpaquePointer?;guard sqlite3_open_v2(verified.url.path,&source,SQLITE_OPEN_READONLY,nil)==SQLITE_OK,let source else{throw TradeError.corrupt("無法開啟已驗證的恢復檔案")};defer{sqlite3_close(source)}
-        try withArchiveConnection{target in try SQLiteArchiveDatabase.copy(source:source,target:target);cachedEquity=[];cachedEquityOffset=0;cachedEquityJSON=[]}
+        try withArchiveConnection{target in try SQLiteArchiveDatabase.copy(source:source,target:target);cachedEquity=[];cachedEquityOffset=0;cachedEquityJSON=[];resetRowEncodings()}
         guard let state=try load() else{throw TradeError.corrupt("已恢復檔案缺少帳戶")};return state
     }
     func prepareArchiveFile()throws{
@@ -131,6 +146,7 @@ public final class AccountRepository: @unchecked Sendable {
     }
     public func load() throws -> AccountState? {
         lock.lock(); defer { lock.unlock() }
+        resetRowEncodings()
         guard let json = try scalar("SELECT payload FROM account_state LIMIT 1") else { return nil }
         let state = try JSONDecoder().decode(AccountState.self, from: Data(json.utf8))
         if let h=state.history {
@@ -365,17 +381,41 @@ public final class AccountRepository: @unchecked Sendable {
         // formatting is retained without allocating an encoder for every row.
         let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys,.withoutEscapingSlashes]
         func json<T:Encodable>(_ x:T)throws->String{String(decoding:try encoder.encode(x),as:UTF8.self)}
+        func row<T:Encodable & Equatable>(_ value:T,previous:CachedCanonicalRow<T>?)throws->CachedCanonicalRow<T>{
+            if !replacing,let previous,previous.value==value{return previous}
+            return CachedCanonicalRow(value:value,json:try json(value))
+        }
+        func projectionJSON<T:Encodable & Equatable>(_ value:T,from encoded:CachedCanonicalRow<T>?)throws->String{
+            if let encoded,encoded.value==value{return encoded.json}
+            return try json(value)
+        }
+        let hotFillIDs=Set(compact.fills.map(\.id)),hotEventIDs=Set(compact.events.map(\.id))
+        let hotLedgerOrdinals=Set(compact.ledger.indices.map{String((compact.history?.ledger ?? 0)+$0+1)})
+        var nextOrders:[String:CachedCanonicalRow<Order>]=[:],nextFills:[String:CachedCanonicalRow<Fill>]=[:]
+        var nextEvents:[String:CachedCanonicalRow<AuditEvent>]=[:],nextLedger:[String:CachedCanonicalRow<LedgerEntry>]=[:]
         try exec("BEGIN IMMEDIATE")
             #if CHAI_STORAGE_PROFILE
             profile.mark("begin")
             #endif
         do {
             if replacing { try exec("DELETE FROM lifecycle_history; DELETE FROM applied_event_ids; DELETE FROM journal_images; DELETE FROM journal_entries; DELETE FROM financial_flows; DELETE FROM equity; DELETE FROM report_state; DELETE FROM report_checkpoints; DELETE FROM fill_report; DELETE FROM events; DELETE FROM fills; DELETE FROM orders; DELETE FROM ledger;") }
-            try batch("INSERT OR IGNORE INTO events(id,account_id,sequence,payload) VALUES(?,?,?,?)",rows:try state.events.map{[$0.id,state.accountID,String($0.sequence),try json($0)]},immutableTable:"events")
+            try batch("INSERT OR IGNORE INTO events(id,account_id,sequence,payload) VALUES(?,?,?,?)",rows:try state.events.map{event in
+                let encoded=try row(event,previous:cachedEvents[event.id])
+                if hotEventIDs.contains(event.id){nextEvents[event.id]=encoded}
+                return [event.id,state.accountID,String(event.sequence),encoded.json]
+            },immutableTable:"events")
             #if CHAI_STORAGE_PROFILE
             profile.mark("events")
             #endif
-            try batch("INSERT OR IGNORE INTO fills(id,order_id,account_id,time,payload) VALUES(?,?,?,?,?)",rows:try state.fills.map{[$0.id,$0.orderID,state.accountID,String($0.time),try json($0)]},immutableTable:"fills")
+            // The same Fill value owns both canonical JSON and CSV cells.
+            try batch("INSERT OR IGNORE INTO fills(id,order_id,account_id,time,payload) VALUES(?,?,?,?,?)",rows:try state.fills.map{fill in
+                var encoded=try row(fill,previous:cachedFills[fill.id])
+                if hotFillIDs.contains(fill.id){
+                    if encoded.report==nil{encoded.report=Analytics.fillFields(fill).map(Analytics.csvCell).joined(separator:",")}
+                    nextFills[fill.id]=encoded
+                }
+                return [fill.id,fill.orderID,state.accountID,String(fill.time),encoded.json]
+            },immutableTable:"fills")
             #if CHAI_STORAGE_PROFILE
             profile.mark("fills")
             #endif
@@ -384,16 +424,24 @@ public final class AccountRepository: @unchecked Sendable {
             profile.mark("flows")
             #endif
             guard Int(try scalar("SELECT count(*) FROM financial_flows") ?? "-1")==((state.history?.financialFlowOffset ?? 0)+(state.financialFlows?.count ?? 0)) else{throw TradeError.corrupt("績效現金流歷史來源已過期，交易已回滾")}
-            try batch("INSERT OR IGNORE INTO fill_report(id,cells) VALUES(?,?)",rows:state.fills.map{[$0.id,Analytics.fillFields($0).map(Analytics.csvCell).joined(separator:",")]})
+            try batch("INSERT OR IGNORE INTO fill_report(id,cells) VALUES(?,?)",rows:state.fills.map{[$0.id,nextFills[$0.id]?.report ?? Analytics.fillFields($0).map(Analytics.csvCell).joined(separator:",")]})
             #if CHAI_STORAGE_PROFILE
             profile.mark("fill_report")
             #endif
-            try batch("INSERT OR IGNORE INTO ledger(ordinal,account_id,payload) VALUES(?,?,?)",rows:try state.ledger.enumerated().map{[String((state.history?.ledger ?? 0)+$0.offset+1),state.accountID,try json($0.element)]},immutableTable:"ledger",key:"ordinal")
+            try batch("INSERT OR IGNORE INTO ledger(ordinal,account_id,payload) VALUES(?,?,?)",rows:try state.ledger.enumerated().map{index,entry in
+                let ordinal=String((state.history?.ledger ?? 0)+index+1),encoded=try row(entry,previous:cachedLedger[ordinal])
+                if hotLedgerOrdinals.contains(ordinal){nextLedger[ordinal]=encoded}
+                return [ordinal,state.accountID,encoded.json]
+            },immutableTable:"ledger",key:"ordinal")
             #if CHAI_STORAGE_PROFILE
             profile.mark("ledger")
             #endif
             // Preserve exact canonical rows while avoiding WAL/index writes for unchanged orders.
-            try batch("INSERT INTO orders(id,account_id,time,instrument,status,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload,time=excluded.time WHERE orders.status<>excluded.status OR orders.payload<>excluded.payload OR orders.time<>excluded.time",rows:try state.orders.values.map{[$0.id,state.accountID,String($0.updatedAt),$0.request.instrumentID,$0.status.rawValue,try json($0)]})
+            try batch("INSERT INTO orders(id,account_id,time,instrument,status,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload,time=excluded.time WHERE orders.status<>excluded.status OR orders.payload<>excluded.payload OR orders.time<>excluded.time",rows:try state.orders.values.map{order in
+                let encoded=try row(order,previous:cachedOrders[order.id])
+                if compact.orders[order.id] != nil{nextOrders[order.id]=encoded}
+                return [order.id,state.accountID,String(order.updatedAt),order.request.instrumentID,order.status.rawValue,encoded.json]
+            })
             #if CHAI_STORAGE_PROFILE
             profile.mark("orders")
             #endif
@@ -464,9 +512,15 @@ public final class AccountRepository: @unchecked Sendable {
                     equityJSON.append(cachedEquityJSON[oldIndex])
                 }else{equityJSON.append(try json(point))}
             }
-            var projection=compact;projection.equity=[]
+            var projection=compact;projection.equity=[];projection.orders=[:];projection.fills=[];projection.events=[];projection.ledger=[]
             let encodedPoints="["+equityJSON.joined(separator:",")+"]"
-            try insert("INSERT INTO account_state(account_id,payload) VALUES(?,json_set(?,'$.equity',json(?))) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(projection),encodedPoints])
+            // Reuse this transaction's exact, already-checked canonical encodings;
+            // the persisted projection still contains every original hot row.
+            let encodedOrders="{"+(try compact.orders.keys.sorted().map{id in try json(id)+":"+projectionJSON(compact.orders[id]!,from:nextOrders[id])}).joined(separator:",")+"}"
+            let encodedFills="["+(try compact.fills.map{try projectionJSON($0,from:nextFills[$0.id])}).joined(separator:",")+"]"
+            let encodedEvents="["+(try compact.events.map{try projectionJSON($0,from:nextEvents[$0.id])}).joined(separator:",")+"]"
+            let encodedLedger="["+(try compact.ledger.enumerated().map{index,entry in try projectionJSON(entry,from:nextLedger[String((compact.history?.ledger ?? 0)+index+1)])}).joined(separator:",")+"]"
+            try insert("INSERT INTO account_state(account_id,payload) VALUES(?,json_set(?,'$.equity',json(?),'$.orders',json(?),'$.fills',json(?),'$.events',json(?),'$.ledger',json(?))) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(projection),encodedPoints,encodedOrders,encodedFills,encodedEvents,encodedLedger])
             #if CHAI_STORAGE_PROFILE
             profile.mark("projection_encode_write")
             #endif
@@ -476,6 +530,13 @@ public final class AccountRepository: @unchecked Sendable {
             #endif
             cachedEquity=compact.equity;cachedEquityOffset=compact.history?.equityOffset ?? 0
             cachedEquityJSON=equityJSON
+            // Open-order projections can exceed the closed-order hot window;
+            // encoding caches remain bounded independently of that real data.
+            let orderCacheIDs=Set(nextOrders.keys.sorted().suffix(Self.window))
+            let ledgerCacheIDs=Set(nextLedger.keys.sorted().suffix(Self.window))
+            cachedOrders=nextOrders.filter{orderCacheIDs.contains($0.key)}
+            cachedFills=nextFills;cachedEvents=nextEvents
+            cachedLedger=nextLedger.filter{ledgerCacheIDs.contains($0.key)}
             return compact
         } catch { try? exec("ROLLBACK"); throw error }
     }

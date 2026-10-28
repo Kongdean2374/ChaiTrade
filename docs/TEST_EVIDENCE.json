@@ -1,11 +1,11 @@
 {
-  "version": "1.2.20",
-  "build": 23,
-  "branch": "navigation-flow-20261028-v37",
-  "status": "pending-full-same-commit-validation",
-  "coreFunctions": 184,
+  "version": "1.2.21",
+  "build": 24,
+  "branch": "navigation-flow-20261028-v39",
+  "state": "pending full same-source verification; no accepted IPA",
+  "requiredCoreFunctions": 185,
   "requiredUI": 77,
-  "expectedCaseCounts": {
+  "expectedUI": {
     "navigation": 22,
     "original": 20,
     "product": 18,
@@ -13,10 +13,12 @@
     "visualSE": 6,
     "visualPro": 6
   },
-  "currentResults": {},
-  "ipa": "not-produced; test and product review first",
-  "priorSource": "9d5229325de65160e9c7d0ef858431d22fac321b",
-  "priorResults": "Both184/Core/realHTTP/T45/large/native verified; navigation22 andpages5 passed. Original19pass/1fail; product14pass/2fail/1timeout. Native geometry failures and actual filled-field-label product gap preserved before fix. Not current acceptance.",
-  "historicalRecord": "https://github.com/Kongdean2374/ChaiTrade/blob/9d5229325de65160e9c7d0ef858431d22fac321b/docs/TEST_EVIDENCE.json",
-  "note": "All original requirements, accounts, tests and thresholds retained; all new-source validation and original-image review pending."
+  "passed": false,
+  "previousSource": "fb19f937eb791303d30a6081feefd95ee308096e",
+  "retainedFailures": [
+    "actual T45 174.810185ms > original150ms",
+    "diagnostic T45 167.095696ms > original150ms",
+    "Pro large-type orderQuantity reachability5pass1fail"
+  ],
+  "physicalDeviceAcceptance": "not executed; original thresholds retained"
 }
