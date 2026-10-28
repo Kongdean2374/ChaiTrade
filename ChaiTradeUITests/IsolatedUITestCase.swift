@@ -36,8 +36,15 @@ import XCTest
     }
     func state(_ app:XCUIApplication)throws->[String:Any]{
         let probe=app.staticTexts["uiTestState"].firstMatch
-        try check(probe.exists || probe.waitForExistence(timeout:5),"Missing read-only state probe")
-        return try XCTUnwrap(JSONSerialization.jsonObject(with:Data(probe.label.utf8)) as? [String:Any])
+        let snapshot:XCUIElementSnapshot
+        do{snapshot=try probe.snapshot()}
+        catch{
+            try check(probe.waitForExistence(timeout:5),"Missing read-only state probe")
+            snapshot=try probe.snapshot()
+        }
+        // A single fresh native snapshot replaces separate exists/label AX
+        // round trips. It reads the same probe; no model or financial action.
+        return try XCTUnwrap(JSONSerialization.jsonObject(with:Data(snapshot.label.utf8)) as? [String:Any])
     }
     func ready(_ app:XCUIApplication)throws{
         try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"App did not become ready")
@@ -51,8 +58,11 @@ import XCTest
         try check((s["cash"] as? [String:String])==["TWD":"100000"],"Fixture did not start from clean capital")
         capture("Clean baseline")
     }
-    func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
-        let targetID=element.exists ? element.identifier:"requested control"
+    func reveal(_ element:XCUIElement,in app:XCUIApplication,identifier:String?=nil)throws{
+        // Callers with an exact known query ID can avoid two preliminary AX
+        // reads. Geometry still comes from the current native snapshot and the
+        // actual queried element must pass the unchanged live hit test.
+        let targetID=identifier ?? (element.exists ? element.identifier:"requested control")
         let isFooterAction=["openOrder","openSellOrder","submitOrder","saveJournal","enableContractTrading"].contains(targetID) || targetID.hasPrefix("closePosition-")
         func descendants(_ node:XCUIElementSnapshot)->[XCUIElementSnapshot]{
             [node]+node.children.flatMap{descendants($0)}
@@ -171,7 +181,7 @@ import XCTest
         try check(false,"Control is not completely visible and reachable: "+targetID)
     }
     func journal(_ app:XCUIApplication)throws{
-        app.tabBars.buttons["資產"].tap();let button=app.buttons["本機交易日誌"];try reveal(button,in:app);button.tap()
+        app.tabBars.buttons["資產"].tap();let button=app.buttons["本機交易日誌"];try reveal(button,in:app,identifier:"openJournal");button.tap()
         try check(app.textViews["journalText"].waitForExistence(timeout:5),"Journal sheet missing")
     }
     func marketOrder(_ app:XCUIApplication)throws{

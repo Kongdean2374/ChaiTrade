@@ -1,16 +1,27 @@
 import XCTest
 
 @MainActor final class ProductExperienceTests:IsolatedUITestCase{
-    private func onboard(_ app:XCUIApplication,online:Bool=false,currency:String="TWD")throws{
+    private func receiptVisible(_ app:XCUIApplication)->Bool{
+        guard let snapshot=try? app.snapshot() else{return false}
+        func bars(_ node:XCUIElementSnapshot)->[XCUIElementSnapshot]{
+            (node.elementType == .navigationBar ? [node]:[])+node.children.flatMap{bars($0)}
+        }
+        let names=Set(bars(snapshot).flatMap{[$0.identifier,$0.label]})
+        // Same two conditions as the original receipt wait, sampled together
+        // rather than traversing the same live app twice per polling attempt.
+        return names.contains("委託與成交") && !names.contains("模擬下單")
+    }
+    @discardableResult private func onboard(_ app:XCUIApplication,online:Bool=false,currency:String="TWD")throws->[String:Any]{
         let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Fresh onboarding missing")
-        if currency != "TWD"{let picker=app.buttons["baseCurrency"];try reveal(picker,in:app);picker.tap();app.buttons[currency].tap()}
+        if currency != "TWD"{let picker=app.buttons["baseCurrency"];try reveal(picker,in:app,identifier:"baseCurrency");picker.tap();app.buttons[currency].tap()}
         if online{let choice=app.buttons["A 真實行情"];if !choice.exists{app.swipeDown()};choice.tap()}
-        try reveal(start,in:app);start.tap();try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Fresh account failed")
+        try reveal(start,in:app,identifier:"startTrading");start.tap();try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Fresh account failed")
         let s=try state(app)
         try check(s["session"] as? String==session,"Wrong product test directory")
         try check((s["instruments"] as? [[String:String]])?.count==125,"Fresh account did not contain the complete built-in catalog")
         for field in ["orders","fills","journals","watchlist"]{try check((s[field] as? [Any])?.isEmpty==true,"New case inherited "+field)}
         capture("PRODUCT clean fresh "+(online ? "A":"B"))
+        return s
     }
     func testPercentageAlertRapidCreateRemoveAndNotificationCenterIsolation()throws{
         let app=launchClean();defer{finish()};try onboard(app)
@@ -39,31 +50,33 @@ import XCTest
     func testOfflineThreeActionDiscoveryAndFullStockJourney()throws{
         let app=launchClean();defer{finish()};try onboard(app)
         // Home's first stock is reachable directly; no hidden settings or catalog prerequisite.
-        let product=app.buttons["market-SIM:TWSE:2330"].firstMatch;try reveal(product,in:app);product.tap()
+        let product=app.buttons["market-SIM:TWSE:2330"].firstMatch;try reveal(product,in:app,identifier:"market-SIM:TWSE:2330");product.tap()
         try check((try state(app))["selected"] as? String=="SIM:TWSE:2330","2330 selected the wrong identity")
+        // Select the same whole-lot board while its header is already visible;
+        // avoid scrolling back up across the chart solely to reach this control.
+        let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app,identifier:"board-regular");regularBoard.tap()
+        try waitUntil("Stock journey did not actually select whole lots",timeout:5){regularBoard.isSelected}
         // WebKit may suspend animation frames outside the visible scroll area.
         // Retained a79f64 evidence places the entire canvas below the pinned
         // actions. Inspect the actual visible chart before requiring its draw;
         // keep the same ten-second draw and 120-second complete-case limits.
-        try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app)
+        try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app,identifier:"inlineChartWeb")
         try waitUntil("Stock chart has data but was never drawn",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         capture("AFTER B stock detail chart",includeHierarchy:false)
-        let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
-        try waitUntil("Stock journey did not actually select whole lots",timeout:5){regularBoard.isSelected}
-        try reveal(app.staticTexts["productBottom"],in:app)
+        try reveal(app.staticTexts["productBottom"],in:app,identifier:"productBottom")
         capture("AFTER B stock related news and product bottom",includeHierarchy:false)
         let open=app.buttons["openOrder"];try check(open.isHittable,"Valid local quote has no reachable buy entry");open.tap()
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         capture("AFTER stock basic order summary",includeHierarchy:false)
-        let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap();app.buttons["確認送出"].tap()
-        try waitUntil("Stock receipt did not close and navigate",timeout:15){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+        let submit=app.buttons["submitOrder"];try reveal(submit,in:app,identifier:"submitOrder");submit.tap();app.buttons["確認送出"].tap()
+        try waitUntil("Stock receipt did not close and navigate",timeout:15){self.receiptVisible(app)}
         let s=try state(app);try check((s["positions"] as? [String:String])?["SIM:TWSE:2330"]=="1000","A one-lot order did not produce exactly 1,000 shares")
         try check((s["orders"] as? [String])?.count==1,"One stock intent created multiple orders")
         try check(app.staticTexts["receiptOrderStatus"].firstMatch.label=="全部成交","Immediate stock fill is hidden behind an empty working-orders page")
         try check((s["receiptOrders"] as? [String])?.count==1,"Stock receipt does not belong to exactly one submitted intent")
         capture("AFTER B orders and fills",includeHierarchy:false,snapshot:s)
         try journal(app);try enterVerified("PRODUCT_STOCK_JOURNEY",into:app.textViews["journalText"])
-        let save=app.buttons["saveJournal"];try reveal(save,in:app);save.tap()
+        let save=app.buttons["saveJournal"];try reveal(save,in:app,identifier:"saveJournal");save.tap()
         try waitUntil("Journey journal was not saved"){(try? self.state(app)["journals"] as? [[String:String]])?.count==1}
         try check(app.staticTexts["已保存 1 則"].waitForExistence(timeout:5),"Saved journal count has not appeared on screen")
         capture("AFTER B journal",includeHierarchy:false);app.buttons["完成"].tap()
@@ -298,7 +311,7 @@ import XCTest
             if action=="openSellOrder"{app.tabBars.buttons["交易"].tap()};let entry=app.buttons[action];try reveal(entry,in:app);entry.tap()
             app.buttons["orderKind"].tap();app.buttons["市價"].tap()
             let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap();app.buttons["確認送出"].tap()
-            try waitUntil("Crypto receipt did not reach orders",timeout:10){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+            try waitUntil("Crypto receipt did not reach orders",timeout:10){self.receiptVisible(app)}
             try check(app.staticTexts["receiptOrderStatus"].firstMatch.label=="全部成交","Crypto receipt does not show the actual fill status")
             capture("AFTER B crypto "+(action=="openOrder" ? "buy":"sell")+" order receipt")
         }
@@ -314,34 +327,35 @@ import XCTest
         app.tabBars.buttons["資產"].tap();capture("AFTER B crypto assets after roundtrip")
     }
     func testContractPositionHasAnExplicitReduceOnlyCloseJourney()throws{
-        let app=launchClean();defer{finish()};try onboard(app,currency:"USDT")
+        let app=launchClean();defer{finish()};let baseline=try onboard(app,currency:"USDT")
         app.buttons["marketCrypto"].tap();app.tabBars.buttons["行情"].tap();app.buttons["合約"].tap()
-        let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app);product.tap()
-        let originalCash=try state(app)["cash"] as? [String:String]
+        let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app,identifier:"market-"+instrument);product.tap()
+        let originalCash=baseline["cash"] as? [String:String]
         let enable=app.buttons["enableContractTrading"];try check(enable.waitForExistence(timeout:5),"Disabled contract feature has no clear next step");enable.tap()
         let firstAcknowledgment=app.switches["acknowledgeContractRisk"];firstAcknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()
         try check(firstAcknowledgment.value as? String=="1","Risk switch did not actually turn on before cancel");app.buttons["取消"].tap()
-        try check(try state(app)["leverageEnabled"] as? Bool==false,"Canceled consent enabled contracts")
-        try check((try state(app)["cash"] as? [String:String])==originalCash,"Canceled consent changed money")
+        let canceled=try state(app)
+        try check(canceled["leverageEnabled"] as? Bool==false,"Canceled consent enabled contracts")
+        try check((canceled["cash"] as? [String:String])==originalCash,"Canceled consent changed money")
         enable.tap();let acknowledgment=app.switches["acknowledgeContractRisk"]
         try check(acknowledgment.value as? String=="0","Reopened consent retained a canceled acknowledgement")
-        acknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app)
+        acknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app,identifier:"confirmContractAccess")
         try check(acknowledgment.value as? String=="1" && accept.isEnabled,"Explicit acknowledgment does not enable the confirmation control");accept.tap()
         try waitUntil("Explicit risk acceptance did not enable this account"){(try? self.state(app)["leverageEnabled"] as? Bool)==true && app.buttons["openOrder"].exists}
         app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()
-        let size=app.textFields["orderQuantity"];try reveal(size,in:app);size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"0.001")
-        var review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
-        try waitUntil("Contract open did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+        let size=app.textFields["orderQuantity"];try reveal(size,in:app,identifier:"orderQuantity");size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"0.001")
+        var review=app.buttons["submitOrder"];try reveal(review,in:app,identifier:"submitOrder");review.tap();app.buttons["確認送出"].tap()
+        try waitUntil("Contract open did not reach receipt",timeout:12){self.receiptVisible(app)}
         let openedSnapshot=try state(app)
         try check((openedSnapshot["positions"] as? [String:String])?[instrument]=="0.001","Contract open produced the wrong position")
-        app.tabBars.buttons["交易"].tap();let close=app.buttons["closePosition-"+instrument];try reveal(close,in:app)
+        app.tabBars.buttons["交易"].tap();let close=app.buttons["closePosition-"+instrument];try reveal(close,in:app,identifier:"closePosition-"+instrument)
         capture("AFTER contract position with explicit close and risk",includeHierarchy:false,snapshot:openedSnapshot);close.tap()
         let direction=app.staticTexts["orderDirection"].firstMatch
         try check(direction.waitForExistence(timeout:5) && direction.value as? String=="平多","Close draft lost its direction")
         let closeDraft=try state(app);try check(closeDraft["tradeSide"] as? String=="sell" && closeDraft["tradeProduct"] as? String==instrument,"Close draft identity or declared sell direction changed")
         try check(app.textFields["orderQuantity"].value as? String=="0.001","Close draft did not use held quantity")
-        app.buttons["orderKind"].tap();app.buttons["市價"].tap();review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
-        try waitUntil("Contract close did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+        app.buttons["orderKind"].tap();app.buttons["市價"].tap();review=app.buttons["submitOrder"];try reveal(review,in:app,identifier:"submitOrder");review.tap();app.buttons["確認送出"].tap()
+        try waitUntil("Contract close did not reach receipt",timeout:12){self.receiptVisible(app)}
         let snapshot=try state(app),intents=try XCTUnwrap(snapshot["orderIntents"] as? [[String:String]])
         try check(intents.count==2 && intents.filter{$0["reduceOnly"]=="true" && $0["side"]=="sell"}.count==1,"Close was not exactly one reduce-only sell")
         try check((snapshot["positions"] as? [String:String])?[instrument]=="0","Explicit contract close reversed or retained the position")
