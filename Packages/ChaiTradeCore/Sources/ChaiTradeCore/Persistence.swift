@@ -333,27 +333,67 @@ public final class AccountRepository: @unchecked Sendable {
         return basis
     }
     @discardableResult public func save(_ proposed: AccountState, replacing: Bool = false) throws -> AccountState {
+        #if CHAI_STORAGE_PROFILE
+        var profile=WritePathProfile("repository.save")
+        defer{profile.emit()}
+        #endif
         lock.lock(); defer { lock.unlock() }
+        #if CHAI_STORAGE_PROFILE
+        profile.mark("lock")
+        #endif
         var state=proposed
         if state.capitalBasis==nil{state.capitalBasis=try reconstructCapitalBasis(state)}
         let incompleteLifecycle=LifecycleHistoryKind.allCases.contains{kind in (state.history?.lifecycleCounts?[kind.rawValue] ?? 0)>Self.lifecycleRecords(state.lifecycle,kind:kind).count}
         if replacing && (incompleteLifecycle || (state.history.map{$0.fills>0 || $0.ledger>0 || $0.events>0 || ($0.equityOffset ?? 0)>0 || ($0.financialFlowOffset ?? 0)>0 || ($0.journalCount ?? proposed.journals.count)>proposed.journals.count || ($0.appliedEventCount ?? proposed.appliedEvents.count)>proposed.appliedEvents.count} ?? false)){throw TradeError.corrupt("完整還原不可使用分頁投影")}
+        #if CHAI_STORAGE_PROFILE
+        profile.mark("prepare")
+        #endif
         try Self.validate(state, mode: mode)
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("validate")
+            #endif
         var compact=try Self.compact(state)
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("compact")
+            #endif
         let rebuildFillReport=(Int(try scalar("PRAGMA user_version") ?? "0") ?? 0)<5
         func json<T:Encodable>(_ x:T)throws->String{String(decoding:try Self.encode(x),as:UTF8.self)}
         try exec("BEGIN IMMEDIATE")
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("begin")
+            #endif
         do {
             if replacing { try exec("DELETE FROM lifecycle_history; DELETE FROM applied_event_ids; DELETE FROM journal_images; DELETE FROM journal_entries; DELETE FROM financial_flows; DELETE FROM equity; DELETE FROM report_state; DELETE FROM report_checkpoints; DELETE FROM fill_report; DELETE FROM events; DELETE FROM fills; DELETE FROM orders; DELETE FROM ledger;") }
             try batch("INSERT OR IGNORE INTO events(id,account_id,sequence,payload) VALUES(?,?,?,?)",rows:try state.events.map{[$0.id,state.accountID,String($0.sequence),try json($0)]},immutableTable:"events")
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("events")
+            #endif
             try batch("INSERT OR IGNORE INTO fills(id,order_id,account_id,time,payload) VALUES(?,?,?,?,?)",rows:try state.fills.map{[$0.id,$0.orderID,state.accountID,String($0.time),try json($0)]},immutableTable:"fills")
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("fills")
+            #endif
             try batch("INSERT OR IGNORE INTO financial_flows(id,account_id,time,sequence,payload) VALUES(?,?,?,?,?)",rows:try (state.financialFlows ?? []).map{[$0.id,state.accountID,String($0.time),String($0.sequence),try json($0)]},immutableTable:"financial_flows")
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("flows")
+            #endif
             guard Int(try scalar("SELECT count(*) FROM financial_flows") ?? "-1")==((state.history?.financialFlowOffset ?? 0)+(state.financialFlows?.count ?? 0)) else{throw TradeError.corrupt("績效現金流歷史來源已過期，交易已回滾")}
             try batch("INSERT OR IGNORE INTO fill_report(id,cells) VALUES(?,?)",rows:state.fills.map{[$0.id,Analytics.fillFields($0).map(Analytics.csvCell).joined(separator:",")]})
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("fill_report")
+            #endif
             try batch("INSERT OR IGNORE INTO ledger(ordinal,account_id,payload) VALUES(?,?,?)",rows:try state.ledger.enumerated().map{[String((state.history?.ledger ?? 0)+$0.offset+1),state.accountID,try json($0.element)]},immutableTable:"ledger",key:"ordinal")
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("ledger")
+            #endif
             // Preserve exact canonical rows while avoiding WAL/index writes for unchanged orders.
             try batch("INSERT INTO orders(id,account_id,time,instrument,status,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,payload=excluded.payload,time=excluded.time WHERE orders.status<>excluded.status OR orders.payload<>excluded.payload OR orders.time<>excluded.time",rows:try state.orders.values.map{[$0.id,state.accountID,String($0.updatedAt),$0.request.instrumentID,$0.status.rawValue,try json($0)]})
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("orders")
+            #endif
             guard Int(try scalar("SELECT count(*) FROM fills") ?? "-1")==((state.history?.fills ?? 0)+state.fills.count),Int(try scalar("SELECT count(*) FROM ledger") ?? "-1")==((state.history?.ledger ?? 0)+state.ledger.count),Int(try scalar("SELECT count(*) FROM events") ?? "-1")==((state.history?.events ?? 0)+state.events.count) else{throw TradeError.corrupt("寫入來源已過期或歷史筆數不符，已回滾")}
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("exact_history_counts")
+            #endif
             let offset=state.history?.equityOffset ?? 0,stored=Int(try scalar("SELECT coalesce(max(ordinal),0) FROM equity") ?? "0") ?? 0
             guard offset>=0,stored>=offset else{throw TradeError.corrupt("估值歷史檢查點不符")}
             let overlap=min(state.equity.count,stored-offset)
@@ -373,6 +413,9 @@ public final class AccountRepository: @unchecked Sendable {
             for (n,point) in state.equity.enumerated().dropFirst(overlap){metrics.consume(point);let ordinal=offset+n+1;equityRows.append([String(ordinal),state.accountID,try json(metrics),try json(point)])}
             try batch("INSERT OR IGNORE INTO equity(ordinal,account_id,metrics,payload) VALUES(?,?,?,?)",rows:equityRows,immutableTable:"equity",key:"ordinal")
             guard Int(try scalar("SELECT count(*) FROM equity") ?? "-1")==offset+state.equity.count else{throw TradeError.corrupt("估值歷史來源已過期，已回滾")}
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("equity")
+            #endif
             if rebuildFillReport{
                 try exec("DELETE FROM fill_report")
                 var rows:[[String]]=[]
@@ -382,15 +425,33 @@ public final class AccountRepository: @unchecked Sendable {
             try saveAppliedEventsUnlocked(state,replacing:replacing)
             compact.appliedEvents=try appliedIDsUnlocked(limit:100)
             compact.history!.appliedEventCount=try appliedEventCountUnlocked()
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("applied_events")
+            #endif
             try saveJournalsUnlocked(state,replacing:replacing)
             compact.journals=try journalProjectionUnlocked(limit:20)
             compact.history!.journalCount=try journalCountUnlocked()
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("journals")
+            #endif
             try saveLifecycleUnlocked(state,replacing:replacing)
             compact.lifecycle=try lifecycleProjectionUnlocked(state.lifecycle)
             compact.history!.lifecycleCounts=try lifecycleCountsUnlocked()
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("lifecycle")
+            #endif
             try updatePerformance(state,replacing:replacing)
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("performance")
+            #endif
             try insert("INSERT INTO account_state(account_id,payload) VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(compact)])
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("projection_encode_write")
+            #endif
             try exec("PRAGMA user_version=9; COMMIT")
+            #if CHAI_STORAGE_PROFILE
+            profile.mark("full_sync_commit")
+            #endif
             cachedEquity=compact.equity;cachedEquityOffset=compact.history?.equityOffset ?? 0
             return compact
         } catch { try? exec("ROLLBACK"); throw error }

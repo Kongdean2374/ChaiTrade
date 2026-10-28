@@ -113,8 +113,15 @@ public actor TradingEngine {
     }
     public func retire(context:AccountContext)throws{guard context==self.context else{throw TradeError.wrongAccount};if retired{return};try check(context);retired=true}
     @discardableResult private func transaction<T>(catchup:Bool=false,_ body: (inout AccountState) throws -> T) throws -> T {
+        #if CHAI_STORAGE_PROFILE
+        var profile=WritePathProfile("engine.transaction")
+        defer{profile.emit()}
+        #endif
         var next = state
         let result = try body(&next)
+        #if CHAI_STORAGE_PROFILE
+        profile.mark("validate_match_accounting")
+        #endif
         let kinds:Set<String>=["fill","priceAlert","marginRisk","liquidation","monitoringGap","rejected","catchupComplete"]
         let added=next.events.filter{$0.sequence>state.sequence && kinds.contains($0.kind)}
         if !added.isEmpty{
@@ -124,7 +131,13 @@ public actor TradingEngine {
             // Delivered center entries may leave the hot projection; canonical AuditEvent history remains intact.
             while next.inbox!.count>200,let index=next.inbox!.firstIndex(where:{$0.delivered}){next.inbox!.remove(at:index)}
         }
+        #if CHAI_STORAGE_PROFILE
+        profile.mark("notices")
+        #endif
         state = try repository.save(next)
+        #if CHAI_STORAGE_PROFILE
+        profile.mark("repository")
+        #endif
         let appliedCutoff=state.history?.appliedEventCount ?? state.appliedEvents.count
         state.attachAppliedLookup{[repository] in try repository.appliedEventExists($0,throughOrdinal:appliedCutoff)}
         return result

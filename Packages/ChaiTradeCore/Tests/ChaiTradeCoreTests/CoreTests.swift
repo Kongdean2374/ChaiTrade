@@ -480,6 +480,9 @@ func stressHistory100000() async throws {
         request.timeInForce = .GTC
         _=try await engine.submit(request,time:200000,context:ctx)
         writes.append(seconds(t,clock.now))
+        #if CHAI_STORAGE_PROFILE
+        print("STRESS_WRITE_SAMPLE",n,writes.last!)
+        #endif
     }
     let concurrentFull=try await concurrentSnapshot.value
     #expect((100000...100030).contains(concurrentFull.fills.count))
