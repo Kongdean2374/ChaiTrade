@@ -2,6 +2,8 @@
 
 ## 最新操作流程測試索引（2026-10-28）
 
+1.2.6（9）改固定合約平倉入口，必須重跑同提交69次UI；保留全部舊門檻與帳務斷言。前版345d4cb合計67／69（新流程15、原互動20、產品16、頁面5、視覺11），原T45／177核心／大型封存／公開HTTP通過，整體未通過。以下為前輪索引，不自動轉算新版通過。
+
 目前345d4cb／1.2.5（8）包含15個新流程案例，其中新增空搜尋後清除畫面與模型同步；完整UI應完成69次執行，尚待全部結果。當前177核心、原T45／大型封存／公開HTTP已實跑通過。詳見[目前驗證紀錄](VALIDATION_CURRENT.md)，以下48項不因本輪操作改版自動升為完成。
 
 新增 `NavigationFlowTests`（2330／BTC／ETH 各自全新資料）、`TradingHandoffTests`（ETH 賣出與市場→詳情→買進→獨立換商品→一次模擬成交）、`TradeWorkspaceInteractionTests`（草稿衝突保留／放棄、分類／搜尋／清除、B 快速刷新不變時鐘與行情）。核心另測精確身份、錯帳戶／epoch、舊 autosave、保存／重啟／加密備份、舊偏好相容、429 Retry-After 與目前／可見優先。新增大小螢幕深淺色的選擇器／中文鍵盤／展開篩選案例；不取代既有核心與互動測試。實跑結論以同提交 [TEST_REPORT.md](TEST_REPORT.md) 及 [NAVIGATION_FLOW_VALIDATION.md](NAVIGATION_FLOW_VALIDATION.md) 為準；新增案例尚未全數實跑通過。

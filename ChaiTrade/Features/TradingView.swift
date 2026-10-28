@@ -115,9 +115,10 @@ struct TradingView:View{
             ForEach(positions){position in
                 HStack{Metric(title:(position.side?.label ?? "數量")+"（\(i.quantityUnit)）",value:MarketText.number(position.quantity));Metric(title:"平均成本",value:MarketText.number(position.average))}
                 if i.asset.derivative,position.quantity != .zero,model.context != nil{
-                    Button(position.quantity > .zero ? "平多（僅減倉）":"平空（僅減倉）"){
-                        model.requestTrade(i,side:position.quantity > .zero ? .sell:.buy,openForm:true,board:model.selectedBoard,closingPosition:position)
-                    }.buttonStyle(.bordered).disabled(model.interactionBlocked || !model.canTrade(i)).accessibilityIdentifier("closePosition-"+position.id)
+                    if browseInstrumentID != nil{
+                        Button(position.quantity > .zero ? "平多（僅減倉）":"平空（僅減倉）"){beginClosing(position,instrument:i)}
+                            .frame(minHeight:44).buttonStyle(.bordered).disabled(model.interactionBlocked || !model.canTrade(i)).accessibilityIdentifier("marketClosePosition-"+position.id)
+                    }
                     if position.marginMode == .isolated{NavigationLink("調整逐倉保證金"){MarginEditor(initialPositionID:position.id)}}
                 }
                 if i.asset.derivative{ContractPositionRiskView(position:position)}
@@ -170,9 +171,31 @@ struct TradingView:View{
     private var historyActions:some View{HStack{historyNavigation;Spacer();drawingActions}}
     private var indicatorPicker:some View{HStack{Picker("指標",selection:$indicator){ForEach(["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"],id:\.self){Text($0)}}.labelsHidden();Stepper("\(period)",value:$period,in:2...100).font(.caption).frame(maxWidth:150)}}
     private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption).padding(.vertical,8)}
-    @ViewBuilder private var tradeBar:some View{
-        if let i=instrument,i.asset.derivative,model.canTrade(i),model.state?.leverageEnabled != true{HStack{VStack(alignment:.leading){Text("合約功能尚未啟用").font(.subheadline);Text("既有部位仍可平倉").font(.caption).foregroundStyle(.secondary)};Spacer();Button("了解與啟用"){contractAccess=true}.buttonStyle(.borderedProminent).accessibilityIdentifier("enableContractTrading")}.padding(12).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")}
-        else if let i=instrument,i.asset != .index,model.canTrade(i),model.context != nil{HStack(spacing:12){Button(i.buyLabel){beginTrade(i,.buy)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){beginTrade(i,.sell)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")}
+    private func beginClosing(_ position:Position,instrument:Instrument){
+        guard draft==nil,model.pendingTrade==nil else{return}
+        model.requestTrade(instrument,side:position.quantity > .zero ? .sell:.buy,openForm:true,board:model.selectedBoard,closingPosition:position)
+    }
+    @ViewBuilder private var positionCloseActions:some View{
+        if browseInstrumentID==nil,let i=instrument,i.asset.derivative,model.context != nil{
+            let positions=(model.state?.heldPositions(i.id) ?? []).filter{$0.quantity != .zero}
+            if !positions.isEmpty{
+                HStack(spacing:12){ForEach(positions){position in
+                    Button{beginClosing(position,instrument:i)}label:{VStack(spacing:2){
+                        Text(position.quantity > .zero ? "平多（僅減倉）":"平空（僅減倉）").font(.subheadline.weight(.semibold))
+                        Text(MarketText.number(position.quantity.magnitude)+" "+i.quantityUnit).font(.caption)
+                    }.frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}
+                        .buttonStyle(.bordered).disabled(model.interactionBlocked || !model.canTrade(i)).accessibilityIdentifier("closePosition-"+position.id)
+                }}.padding(.horizontal,18).padding(.vertical,4)
+            }
+        }
+    }
+    private var tradeBar:some View{
+        VStack(spacing:0){positionCloseActions;tradeEntryActions}
+            .background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")
+    }
+    @ViewBuilder private var tradeEntryActions:some View{
+        if let i=instrument,i.asset.derivative,model.canTrade(i),model.state?.leverageEnabled != true{HStack{VStack(alignment:.leading){Text("合約功能尚未啟用").font(.subheadline);Text("既有部位仍可平倉").font(.caption).foregroundStyle(.secondary)};Spacer();Button("了解與啟用"){contractAccess=true}.buttonStyle(.borderedProminent).accessibilityIdentifier("enableContractTrading")}.padding(12).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeEntryActions")}
+        else if let i=instrument,i.asset != .index,model.canTrade(i),model.context != nil{HStack(spacing:12){Button(i.buyLabel){beginTrade(i,.buy)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){beginTrade(i,.sell)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeEntryActions")}
         else if let i=instrument{HStack{Image(systemName:"info.circle");Text(i.asset == .index ? "指數僅供參考；請選擇相關ETF或期貨。":model.interactionBlocked ? "市場補算中，暫停新委託":"目前行情或規則不符合新委託條件").font(.caption);Spacer();Button("查看委託"){model.tab=3}}.padding(12).background(.bar)}
     }
 }

@@ -59,7 +59,8 @@ import XCTest
         // Hittable alone accepts partly exposed controls behind the pinned buy/sell bar.
         // Require the entire target inside the usable viewport before tapping it.
         let footer=app.otherElements[app.buttons["submitOrder"].exists ? "orderActionBar":"tradeActionBar"].firstMatch
-        let hasFooter = !["openOrder","openSellOrder","submitOrder","saveJournal","enableContractTrading"].contains(targetID) && footer.exists && footer.isHittable
+        let isFooterAction=["openOrder","openSellOrder","submitOrder","saveJournal","enableContractTrading"].contains(targetID) || targetID.hasPrefix("closePosition-")
+        let hasFooter = !isFooterAction && footer.exists && footer.isHittable
         func usableViewport()->CGRect{
             let top=navigation?.frame.maxY ?? screen.minY
             var bottom=tabBottom
