@@ -1,9 +1,21 @@
 import SwiftUI
 import UIKit
 import ChaiTradeCore
+
 import Security
 import WebKit
 import UniformTypeIdentifiers
+
+struct LocalOrderReceipt:Equatable{
+    let context:AccountContext
+    let orderIDs:[String]
+}
+struct ChartRenderEvidence:Equatable{
+    let context:AccountContext
+    let instrumentID:String
+    let interval:Int64
+    let count:Int
+}
 
 enum KeychainVault {
     static func read(_ key: String) throws -> String {
@@ -87,6 +99,7 @@ struct ChartAmendment: Identifiable {
     @Published var catalogNavigationRevision=UUID()
     @Published var journalScreenshot: Data?
     weak var chartWebView:WKWebView?
+    @Published var chartRenderings:[String:ChartRenderEvidence]=[:]
     @Published var interval: Int64=60
     @Published var chartCount=160
     @Published var chartBefore:Int64?
@@ -104,6 +117,7 @@ struct ChartAmendment: Identifiable {
     @Published var fileArchivePhase=""
     @Published var fileArchiveURL:URL?
     @Published var fileArchiveFiles:[URL]=[]
+    @Published var latestOrderReceipt:LocalOrderReceipt?
     var fileArchiveOperation:Task<Void,Never>?
     var fileArchiveGeneration=UUID()
     @Published var catchupTarget: Int64?
@@ -351,6 +365,7 @@ struct ChartAmendment: Identifiable {
     }
     func captureChart()async{
         guard let web=chartWebView,let context else{error="圖表尚未準備完成";return}
+        guard !chartLoading,chartRenderings.values.contains(where:{$0.context==context && $0.instrumentID==selectedID && $0.interval==interval && $0.count>0}) else{error="圖表仍在繪製，完成後再截圖。";return}
         let id=selectedID,time=now
         do{
             let image:UIImage=try await withCheckedThrowingContinuation{continuation in web.takeSnapshot(with:nil){image,error in if let image{continuation.resume(returning:image)}else{continuation.resume(throwing:error ?? TradeError.unavailable("本機圖表截圖失敗"))}}}
@@ -408,7 +423,7 @@ struct ChartAmendment: Identifiable {
             if generation==chartGeneration,self.context==capturedContext,self.selectedID==i.id{candles=[];chartError=error.localizedDescription}
         }
     }
-    func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartLimitation=nil;chartCache.removeAll();chartCacheLimitations.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
+    func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartLimitation=nil;chartRenderings=[:];chartCache.removeAll();chartCacheLimitations.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
     func rebindRestoredAccount()async throws{
         guard let previous=engine,let old=context else{throw TradeError.wrongAccount}
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel();browseSaveTask?.cancel();browsingDirty=[];summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute = -1;summaryGeneration=UUID()
@@ -432,7 +447,10 @@ struct ChartAmendment: Identifiable {
         if context.mode == .online,let instrument=state?.instruments.first(where:{$0.id==request.instrumentID}),!canTrade(instrument,board:instrument.board(for:request)){return .rejected("行情或交易條件已變更，請重新確認有效報價後再送出")}
         do{
             if let oco{try await engine.submitOCO(request,oco,time:self.now,context:context)}else{_=try await engine.submit(request,time:self.now,context:context)}
-            notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh();return .accepted
+            await refresh()
+            guard self.context==context else{return .rejected("帳戶已變更，請回原帳戶查看已保存的委託")}
+            latestOrderReceipt=LocalOrderReceipt(context:context,orderIDs:[request.requestID]+(oco.map{[$0.requestID]} ?? []))
+            notice="本機委託已接收，請核對下方回報";return .accepted
         }catch{
             let message=error.localizedDescription
             if self.context==context{try? await engine.recordNotice("rejected",message:"委託拒絕："+String(message.prefix(250)),time:now,context:context);await refresh()}

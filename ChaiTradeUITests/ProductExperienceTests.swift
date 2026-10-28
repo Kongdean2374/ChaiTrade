@@ -41,6 +41,7 @@ import XCTest
         // Home's first stock is reachable directly; no hidden settings or catalog prerequisite.
         let product=app.buttons["market-SIM:TWSE:2330"].firstMatch;try reveal(product,in:app);product.tap()
         try check((try state(app))["selected"] as? String=="SIM:TWSE:2330","2330 selected the wrong identity")
+        try waitUntil("Stock chart has data but was never drawn",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         capture("AFTER B stock detail chart")
         app.buttons["整股（張）"].tap()
         let open=app.buttons["openOrder"];try check(open.isHittable,"Valid local quote has no reachable buy entry");open.tap()
@@ -50,6 +51,8 @@ import XCTest
         try waitUntil("Stock receipt did not close and navigate",timeout:15){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
         let s=try state(app);try check((s["positions"] as? [String:String])?["SIM:TWSE:2330"]=="1000","A one-lot order did not produce exactly 1,000 shares")
         try check((s["orders"] as? [String])?.count==1,"One stock intent created multiple orders")
+        try check(app.staticTexts["receiptOrderStatus"].firstMatch.label=="全部成交","Immediate stock fill is hidden behind an empty working-orders page")
+        try check((s["receiptOrders"] as? [String])?.count==1,"Stock receipt does not belong to exactly one submitted intent")
         capture("AFTER B orders and fills")
         try journal(app);try enterVerified("PRODUCT_STOCK_JOURNEY",into:app.textViews["journalText"])
         let save=app.buttons["saveJournal"];try reveal(save,in:app);save.tap()
@@ -143,6 +146,7 @@ import XCTest
         let fullscreen=app.buttons["openFullscreenChart"];try reveal(fullscreen,in:app);fullscreen.tap();XCUIDevice.shared.orientation = .landscapeLeft
         defer{XCUIDevice.shared.orientation = .portrait}
         try check(app.webViews["fullscreenChartWeb"].firstMatch.waitForExistence(timeout:10),"Landscape chart did not open")
+        try waitUntil("Landscape contains a web view but no drawn candles",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["fullscreen"] ?? 0)>0}
         try check(app.frame.width>app.frame.height,"Chart did not actually rotate")
         capture("AFTER landscape chart")
         try check(app.buttons["closeFullscreenChart"].isHittable,"Landscape close button is outside the safe area")
@@ -267,6 +271,7 @@ import XCTest
             app.buttons["orderKind"].tap();app.buttons["市價"].tap()
             let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap();app.buttons["確認送出"].tap()
             try waitUntil("Crypto receipt did not reach orders",timeout:10){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+            try check(app.staticTexts["receiptOrderStatus"].firstMatch.label=="全部成交","Crypto receipt does not show the actual fill status")
             capture("AFTER B crypto "+(action=="openOrder" ? "buy":"sell")+" order receipt")
         }
         let s=try state(app),fills=try XCTUnwrap(s["fills"] as? [[String:String]])
@@ -286,12 +291,13 @@ import XCTest
         let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app);product.tap()
         let originalCash=try state(app)["cash"] as? [String:String]
         let enable=app.buttons["enableContractTrading"];try check(enable.waitForExistence(timeout:5),"Disabled contract feature has no clear next step");enable.tap()
-        app.switches["acknowledgeContractRisk"].tap();app.buttons["取消"].tap()
+        let firstAcknowledgment=app.switches["acknowledgeContractRisk"];firstAcknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()
+        try check(firstAcknowledgment.value as? String=="1","Risk switch did not actually turn on before cancel");app.buttons["取消"].tap()
         try check(try state(app)["leverageEnabled"] as? Bool==false,"Canceled consent enabled contracts")
         try check((try state(app)["cash"] as? [String:String])==originalCash,"Canceled consent changed money")
         enable.tap();let acknowledgment=app.switches["acknowledgeContractRisk"]
         try check(acknowledgment.value as? String=="0","Reopened consent retained a canceled acknowledgement")
-        acknowledgment.tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app)
+        acknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app)
         try check(acknowledgment.value as? String=="1" && accept.isEnabled,"Explicit acknowledgment does not enable the confirmation control");accept.tap()
         try waitUntil("Explicit risk acceptance did not enable this account"){(try? self.state(app)["leverageEnabled"] as? Bool)==true && app.buttons["openOrder"].exists}
         app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()

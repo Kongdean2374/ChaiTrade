@@ -19,13 +19,18 @@ struct OrdersView:View{
     private func instrument(_ id:String)->Instrument?{model.state?.instruments.first{$0.id==id}}
     private func matches(_ id:String)->Bool{allMarkets || instrument(id)?.market==model.market}
     private var orders:[Order]{(model.state?.orders.values.sorted{($0.createdAt,$0.id)>($1.createdAt,$1.id)} ?? []).filter{(!openOnly || $0.status.open) && matches($0.request.instrumentID)}}
+    private var receiptOrders:[Order]{guard let receipt=model.latestOrderReceipt,receipt.context==model.context else{return []};return receipt.orderIDs.compactMap{model.state?.orders[$0]}.filter{matches($0.request.instrumentID)}}
     var body:some View{List{
+        if !receiptOrders.isEmpty{Section("本次委託回報"){
+            ForEach(receiptOrders){order in receiptSummary(order)}
+            Button("收起本次回報"){model.latestOrderReceipt=nil}.font(.caption)
+        }}
         Section{
             Picker("狀態",selection:$openOnly){Text("未完成").tag(true);Text("全部／歷史").tag(false)}.pickerStyle(.segmented)
             Toggle("顯示帳戶所有市場",isOn:$allMarkets)
             Text(allMarkets ? "所有市場共用這個帳戶；其他市場的委託也可在此撤銷。":model.market.label+"委託與成交；切換市場不會移動資金。").font(.caption).foregroundStyle(.secondary)
         }
-        if orders.isEmpty{ContentUnavailableView("目前沒有符合的委託",systemImage:"tray",description:Text("送出後可在此查看等待、部分成交、成交與撤銷狀態。"))}
+        if orders.isEmpty{if receiptOrders.isEmpty{ContentUnavailableView("目前沒有符合的委託",systemImage:"tray",description:Text("送出後可在此查看等待、部分成交、成交與撤銷狀態。"))}else{Text(openOnly ? "目前沒有未完成委託；成交結果見上方回報。":"此篩選沒有其他委託。").font(.caption).foregroundStyle(.secondary)}}
         ForEach(orders){order in orderRow(order)}
         if !openOnly{Section("歷史委託"){
             ForEach(olderOrders.filter{matches($0.request.instrumentID)}){order in orderRow(order)}
@@ -43,6 +48,18 @@ struct OrdersView:View{
         }
         Section{Text("已到委託頁底部").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("ordersBottom")}
     }.navigationTitle("委託與成交").sheet(item:$amendment){order in NavigationStack{AmendView(order:order)}}}
+    private func receiptSummary(_ order:Order)->some View{
+        let i=instrument(order.request.instrumentID),unit=i?.quantityUnit ?? "",currency=i?.currency ?? ""
+        return VStack(alignment:.leading,spacing:8){
+            HStack{Text((i?.name ?? order.request.instrumentID)+" · "+(i?.symbol ?? "")).font(.headline);Spacer();Text(order.status.displayName).font(.subheadline.bold()).foregroundStyle(.orange).accessibilityIdentifier("receiptOrderStatus")}
+            Text(MarketText.orderDirection(i,side:order.request.side,reduceOnly:order.request.reduceOnly)+" · "+order.request.kind.label).font(.subheadline)
+            LabeledContent("已成交／委託",value:MarketText.number(order.filled)+" / "+MarketText.number(order.request.quantity)+unit).font(.subheadline.monospacedDigit())
+            HStack{Text("手續費 "+MarketText.number(order.fees)+" "+currency);Spacer();Text("委託保留 "+MarketText.number(order.reserved)+" "+currency)}.font(.caption)
+            if i?.asset == .taiwanStock || i?.asset == .usStock || i?.asset == .etf{Text("成交稅額見下方明細，待交割應付款另列於資產。").font(.caption).foregroundStyle(.secondary)}
+            if let reason=order.suspension{Text(reason).font(.caption).foregroundStyle(.orange)}
+            Text(order.status.open ? "本機委託仍在等待或部分成交，可在下方修改或撤銷。":"這筆本機委託已結束；完整成交與持倉可往下查看。").font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical,6).accessibilityElement(children:.contain).accessibilityIdentifier("receipt-"+order.id)
+    }
     private func orderRow(_ order:Order)->some View{
         let i=instrument(order.request.instrumentID)
         return VStack(alignment:.leading,spacing:9){

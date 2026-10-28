@@ -8,12 +8,18 @@ struct ChartView: UIViewRepresentable {
     var indicator: String
     var period: Int
     var line: Bool
-    func makeCoordinator() -> Coordinator { Coordinator(model:model) }
+    var role:String="inline"
+    func makeCoordinator() -> Coordinator { Coordinator(model:model,role:role) }
     func makeUIView(context: Context) -> WKWebView {
         let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript=true
         config.userContentController.add(context.coordinator,name:"intent")
         let view=WKWebView(frame:.zero,configuration:config);view.isOpaque=false;view.backgroundColor = .clear
+        let spinner=UIActivityIndicatorView(style:.medium);spinner.startAnimating()
+        let label=UILabel();label.text="正在繪製圖表…";label.font = .preferredFont(forTextStyle:.caption1);label.textColor = .secondaryLabel
+        let overlay=UIStackView(arrangedSubviews:[spinner,label]);overlay.axis = .vertical;overlay.alignment = .center;overlay.spacing=8;overlay.translatesAutoresizingMaskIntoConstraints=false;overlay.isAccessibilityElement=true;overlay.accessibilityLabel="正在繪製圖表"
+        view.addSubview(overlay);NSLayoutConstraint.activate([overlay.centerXAnchor.constraint(equalTo:view.centerXAnchor),overlay.centerYAnchor.constraint(equalTo:view.centerYAnchor)])
+        context.coordinator.loadingOverlay=overlay
         view.navigationDelegate=context.coordinator
         model.chartWebView=view
         if let url=Bundle.main.url(forResource:"index",withExtension:"html",subdirectory:"ChartWeb") {
@@ -53,11 +59,15 @@ struct ChartView: UIViewRepresentable {
         }
         let data: [String:Any]=["id":model.selectedID,"account":model.context?.accountID ?? "","epoch":model.context?.epoch.uuidString ?? "","candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume.map{$0 as Any} ?? NSNull()]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"timeZone":model.selected?.rules.timeZone ?? "UTC","fontSize":dynamicTypeSize.isAccessibilitySize ? 16:12,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme == "system" ? web.traitCollection.userInterfaceStyle == .dark:model.settings.theme != "light"]
         context.coordinator.payload=data
+        context.coordinator.interval=model.interval
         context.coordinator.render(web)
     }
     @MainActor final class Coordinator: NSObject,WKNavigationDelegate,WKScriptMessageHandler {
         let model: AppModel
-        init(model: AppModel){self.model=model}
+        let role:String
+        weak var loadingOverlay:UIStackView?
+        var interval:Int64=60
+        init(model:AppModel,role:String){self.model=model;self.role=role}
         var ready=false
         var payload: [String:Any]=[:]
         private var lastRendered:Data?
@@ -77,11 +87,24 @@ struct ChartView: UIViewRepresentable {
         func render(_ web: WKWebView) {
             guard ready,let encoded=try? JSONSerialization.data(withJSONObject:payload,options:.sortedKeys),encoded != lastRendered else{return}
             lastRendered=encoded
-            let capturedContext=model.context,instrument=payload["id"] as? String
-            web.callAsyncJavaScript("window.render(data)",arguments:["data":payload],in:nil,in:.page){[weak self] result in
-                if case .failure(let error)=result{let code=(error as NSError).code;Task{@MainActor in guard let self,self.lastRendered==encoded,self.model.context==capturedContext,self.model.selectedID==instrument else{return};self.lastRendered=nil;self.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"}}
+            let capturedContext=model.context,instrument=payload["id"] as? String,renderInterval=interval
+            web.callAsyncJavaScript("window.render(data); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); const box=document.getElementById('chart'); return {count:data.candles.length,visible:box.clientWidth>0 && box.clientHeight>0 && box.querySelectorAll('canvas').length>0};",arguments:["data":payload],in:nil,in:.page){[weak self] result in
+                switch result{
+                case .failure(let error):let code=(error as NSError).code;Task{@MainActor in guard let self,self.lastRendered==encoded,self.model.context==capturedContext,self.model.selectedID==instrument else{return};self.lastRendered=nil;self.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"}
+                case .success(let value):
+                    let result=value as? [String:Any],count=result?["count"] as? Int ?? 0,visible=result?["visible"] as? Bool ?? false
+                    Task{@MainActor in
+                        guard let self,let capturedContext,let instrument,self.lastRendered==encoded,self.model.context==capturedContext,self.model.selectedID==instrument,self.model.interval==renderInterval,visible,count>0 else{return}
+                        self.loadingOverlay?.isHidden=true
+                        let evidence=ChartRenderEvidence(context:capturedContext,instrumentID:instrument,interval:renderInterval,count:count)
+                        if self.model.chartRenderings[self.role] != evidence{self.model.chartRenderings[self.role]=evidence}
+                    }
+                }
             }
         }
+        func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error){failedLocalLoad()}
+        func webView(_ webView:WKWebView,didFailProvisionalNavigation navigation:WKNavigation!,withError error:Error){failedLocalLoad()}
+        private func failedLocalLoad(){guard payload["account"] as? String==model.context?.accountID,payload["epoch"] as? String==model.context?.epoch.uuidString,payload["id"] as? String==model.selectedID else{return};model.chartError="本機圖表載入失敗，請切換週期或重新開啟商品。"}
         func webView(_ webView: WKWebView,decidePolicyFor navigationAction: WKNavigationAction,decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy)->Void) {
             guard let url=navigationAction.request.url,url.isFileURL,url.standardizedFileURL.path.hasPrefix(Bundle.main.bundleURL.standardizedFileURL.path+"/") else {decisionHandler(.cancel);return}
             decisionHandler(.allow)

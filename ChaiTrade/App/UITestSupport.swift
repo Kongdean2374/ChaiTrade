@@ -81,7 +81,9 @@ struct UITestProbe: View {
             "operations":model.uiTestOperations,"mutationStarts":model.uiTestMutationStarts,"maxOperations":model.uiTestMaxOperations,"catchupNotices":s?.events.filter{$0.kind=="catchupComplete"}.count ?? 0,
             "marketTapRequests":model.uiTestMarketRequests,"productTapSelections":model.uiTestProductSelections,
             "catchup":model.progress != nil,"pendingCatchup":model.catchupTarget != nil,
-            "chartTime":model.candles.last?.time ?? 0,"chartLoading":model.chartLoading,"time":s?.simulation?.time ?? 0
+            "chartTime":model.candles.last?.time ?? 0,"chartLoading":model.chartLoading,"time":s?.simulation?.time ?? 0,
+            "chartRendered":Dictionary(uniqueKeysWithValues:model.chartRenderings.filter{$0.value.context==model.context && $0.value.instrumentID==model.selectedID && $0.value.interval==model.interval}.map{($0.key,$0.value.count)}),
+            "receiptOrders":model.latestOrderReceipt?.context==model.context ? model.latestOrderReceipt?.orderIDs ?? []:[]
         ]
         guard let data=try? JSONSerialization.data(withJSONObject:payload,options:[.sortedKeys]),let json=String(data:data,encoding:.utf8) else{return "{}"};return json
     }

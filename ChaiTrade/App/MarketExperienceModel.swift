@@ -16,6 +16,7 @@ extension AppModel {
     var requiredQuoteIDs:Set<String>{visibleQuoteIDs.union(protectedQuoteIDs).union(selectedID.isEmpty ? []:[selectedID])}
     func restoreProductBrowsing(){
         guard let state else{return}
+        latestOrderReceipt=nil
         browsing=Dictionary(uniqueKeysWithValues:MarketDomain.allCases.map{($0,state.productPreferences?.markets[$0.rawValue] ?? MarketBrowsingState())})
         marketNews=[];newsIssue=nil;lastNewsFetch=0;simulatedSummaries=[:];summaryMinute = -1
         market=state.productPreferences?.activeMarket ?? .stocks

@@ -90,6 +90,7 @@ import XCTest
         if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
         XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30));app.tabBars.buttons["交易"].tap()
         let capture=app.buttons["截圖"]
+        try waitUntil("Chart screenshot requested before actual canvas rendering",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         for _ in 0..<5 where !capture.isHittable{app.swipeUp()}
         XCTAssertTrue(capture.isHittable);capture.tap()
         let captured=app.buttons.containing(NSPredicate(format:"label BEGINSWITH %@","已保存本機圖表草稿")).firstMatch
