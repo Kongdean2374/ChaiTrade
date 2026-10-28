@@ -26,17 +26,24 @@ for attempt in range(2):
    if boot.returncode!=0:
     current=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','--json'],timeout=15))
     if not any(d['udid']==udid and d['state']=='Booted' for items in current['devices'].values() for d in items):raise subprocess.CalledProcessError(boot.returncode,boot.args)
-  # Prepare the host display/Input/WindowServer before the first test. The
-  # retained first-case failure spent28s establishing automation and another25s
-  # idling after onboarding. This opens only Apple's Simulator, never ChaiTrade;
-  # each real test still launches its own completely fresh App/account once.
+  # The original180s system boot gate stays mandatory. A Home screenshot is
+  # diagnostic output, not a replacement for the real App/XCTest acceptance.
+  subprocess.run(['xcrun','simctl','bootstatus',udid,'-b'],check=True,timeout=180,stdout=sys.stderr,stderr=sys.stderr)
+  # Prepare only Apple's Simulator, never ChaiTrade. Retain bounded diagnostic
+  # failures instead of restarting an already booted host because PNG IO hung.
   developer=os.environ.get('DEVELOPER_DIR','/Applications/Xcode_26.2.app/Contents/Developer')
   simulator=pathlib.Path(developer)/'Applications/Simulator.app'
-  if not simulator.is_dir():raise RuntimeError('Required Xcode Simulator application is unavailable')
-  subprocess.run(['open','-a',str(simulator),'--args','-CurrentDeviceUDID',udid],check=True,timeout=20,stdout=sys.stderr,stderr=sys.stderr)
-  subprocess.run(['xcrun','simctl','bootstatus',udid,'-b'],check=True,timeout=180,stdout=sys.stderr,stderr=sys.stderr)
-  subprocess.run(['xcrun','simctl','io',udid,'screenshot',str(output/f'simulator-home-before-app-{attempt+1}.png')],check=True,timeout=15,stdout=sys.stderr,stderr=sys.stderr)
-  records.append({'attempt':attempt+1,'udid':udid,'device':name,'hostBootSeconds':time.monotonic()-started,'ready':True,'hostGUIOpened':True,'chaiTradePrelaunched':False})
+  diagnostics={}
+  for label,command,limit in [
+   ('hostGUI',['open','-a',str(simulator),'--args','-CurrentDeviceUDID',udid],20),
+   ('homePNG',['xcrun','simctl','io',udid,'screenshot',str(output/f'simulator-home-before-app-{attempt+1}.png')],15)
+  ]:
+   try:
+    subprocess.run(command,check=True,timeout=limit,stdout=sys.stderr,stderr=sys.stderr);diagnostics[label]={'completed':True}
+   except (OSError,subprocess.CalledProcessError,subprocess.TimeoutExpired) as diagnostic_error:
+    diagnostics[label]={'completed':False,'error':type(diagnostic_error).__name__,'limitSeconds':limit}
+    print('Host diagnostic '+label+' failed; retained. Real App tests and their original deadlines are still required.',file=sys.stderr)
+  records.append({'attempt':attempt+1,'udid':udid,'device':name,'hostBootSeconds':time.monotonic()-started,'ready':True,'diagnostics':diagnostics,'chaiTradePrelaunched':False,'appAcceptance':'not started; real tests required'})
   (output/'simulator-preparation.json').write_text(json.dumps(records,indent=2))
   print(udid);break
  except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as error:

@@ -1,7 +1,7 @@
 {
   "version": "1.2.19",
   "build": 22,
-  "branch": "navigation-flow-20261028-v35",
+  "branch": "navigation-flow-20261028-v36",
   "status": "pending-full-same-commit-validation",
   "coreFunctions": 184,
   "requiredUI": 76,
@@ -1851,5 +1851,6 @@
       "status": "in progress; no IPA success claimed"
     }
   },
-  "note": "Nested historical results are retained for traceability and never accepted as current results."
+  "note": "CI host-diagnostic fix only; App/Core and all184/76 statements identical parent. All current same-commit results pending; historical evidence is never current acceptance.",
+  "ciOnlyParent": "157cf9d166b0a3c6125c00ced1d08834102741d3"
 }
