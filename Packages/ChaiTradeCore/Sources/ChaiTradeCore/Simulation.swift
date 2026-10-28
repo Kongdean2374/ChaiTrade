@@ -117,18 +117,26 @@ public enum Simulation {
         if instrument.asset == .perpetual,let schedule=instrument.rules.carrySchedule{q.fundingRate=schedule.longRate;q.nextFundingTime=((time-schedule.offset)/schedule.interval+1)*schedule.interval+schedule.offset}
         q.causalEventIDs=Array(Set(active.map(\.id)+(state.impactGroups ?? []).filter{$0.instrumentID==instrument.id && $0.startsAt<=time && time<$0.endsAt}.map(\.groupID)+(state.priceAdjustments ?? []).filter{$0.instrumentID==instrument.id && $0.time<=time}.compactMap(\.eventID))).sorted()
         if active.contains(where:{$0.kind=="halt"}){q.bids=[];q.asks=[];q.valid=false;q.coverage="模擬暫停交易情境，委託保留"}
-        let referenceTime=time-86400
+        let referenceTime=try summaryReferenceTime(instrument,state:state)
         let reference=try? self.price(instrument,at:referenceTime,state:state)
         q.summary=QuoteSummary(reference:reference,window:instrument.asset == .crypto || instrument.asset == .perpetual ? "模擬24小時":"模擬前一日",marketStatus:instrument.rules.isOpen(at:time) ? "模擬交易中":"模擬休市")
         return q
     }
     public static func quoteHistoryStart(_ instrument:Instrument,state:SimulationState)throws->Int64{
         let priceTime=instrument.rules.isOpen(at:state.time) ? state.time:(try previousTradingTime(before:state.time,rules:instrument.rules) ?? state.time)
-        return try requiredPriceHistory(instrument,state:state,from:min(state.time-86400,priceTime-60))
+        let reference=try summaryReferenceTime(instrument,state:state)
+        return try requiredPriceHistory(instrument,state:state,from:min(min(state.time-86400,priceTime-60),reference))
     }
     public static func summaryHistoryStart(_ instrument:Instrument,state:SimulationState)throws->Int64{
-        let continuous=[AssetClass.crypto,.perpetual,.forex].contains(instrument.asset),day=CandleCalendar.start(state.time,interval:86400,zone:instrument.rules.timeZone)
-        return try requiredPriceHistory(instrument,state:state,from:continuous ? state.time-86400:(try previousTradingTime(before:day,rules:instrument.rules) ?? state.time-86400))
+        return try requiredPriceHistory(instrument,state:state,from:summaryReferenceTime(instrument,state:state))
+    }
+    // Initial list quotes and the later volume summary must use the same
+    // comparison price. A calendar-day lookback is not a stock's prior close,
+    // especially after weekends, exchange holidays or a half-day session.
+    private static func summaryReferenceTime(_ instrument:Instrument,state:SimulationState)throws->Int64{
+        if [AssetClass.crypto,.perpetual,.forex].contains(instrument.asset){return state.time-86400}
+        let day=CandleCalendar.start(state.time,interval:86400,zone:instrument.rules.timeZone)
+        return try previousTradingTime(before:day,rules:instrument.rules) ?? state.time-86400
     }
     private static func requiredPriceHistory(_ instrument:Instrument,state:SimulationState,from:Int64)throws->Int64{
         var earliest=from
@@ -149,7 +157,7 @@ public enum Simulation {
     public static func summary(_ instrument:Instrument,state:SimulationState)throws->QuoteSummary{
         let end=state.time,continuous=[AssetClass.crypto,.perpetual,.forex].contains(instrument.asset)
         let day=CandleCalendar.start(end,interval:86400,zone:instrument.rules.timeZone)
-        let previous=continuous ? end-86400:(try previousTradingTime(before:day,rules:instrument.rules) ?? end-86400)
+        let previous=try summaryReferenceTime(instrument,state:state)
         let from=continuous ? end-86400:day
         var boundaries:Set<Int64>=[from,end+step]
         for change in state.changes where change.time>from && change.time<=end{boundaries.insert(change.time)}

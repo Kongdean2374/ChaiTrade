@@ -3,6 +3,40 @@ import Testing
 @testable import ChaiTradeCore
 
 private func sessionTime(_ iso:String)throws->Int64{Int64(try #require(ISO8601DateFormatter().date(from:iso)).timeIntervalSince1970)}
+@Test func initialQuoteAndEnrichedSummaryKeepTheSamePriorCloseAcrossHolidaysWeekendsAndHalfDays()throws{
+    let catalog=try InstrumentCatalog.builtIn(mode:.offline)
+    // Fixed published session boundaries, independent of the summary helper.
+    for (symbol,now,previous,last) in [
+        ("2330","2026-10-27T01:30:00Z","2026-10-23T05:29:55Z","2026-10-27T01:30:00Z"),
+        ("2330","2026-11-02T01:30:00Z","2026-10-30T05:29:55Z","2026-11-02T01:30:00Z"),
+        ("2330","2026-10-31T04:00:00Z","2026-10-30T05:29:55Z","2026-10-30T05:29:55Z"),
+        ("AAPL","2026-11-02T15:00:00Z","2026-10-30T19:59:55Z","2026-11-02T15:00:00Z"),
+        ("AAPL","2026-11-30T15:00:00Z","2026-11-27T17:59:55Z","2026-11-30T15:00:00Z")
+    ]{
+        let instrument=try #require(catalog.first{$0.symbol==symbol})
+        var simulation=SimulationState();simulation.time=try sessionTime(now)
+        let boundary=try sessionTime(previous),reference=try Simulation.price(instrument,at:boundary,state:simulation)
+        let initial=try Simulation.quote(instrument,state:simulation,includeBook:false)
+        let detail=try Simulation.quote(instrument,state:simulation,includeBook:true)
+        let enriched=try Simulation.summary(instrument,state:simulation)
+        #expect(initial.summary?.reference==reference)
+        #expect(detail.summary?.reference==reference)
+        #expect(enriched.reference==reference)
+        #expect(initial.last==detail.last)
+        #expect(try initial.last==Simulation.price(instrument,at:sessionTime(last),state:simulation))
+        // Archived event/impact replay must include the actual reference day,
+        // which can be more than 24 hours before a Monday/holiday opening.
+        #expect(try Simulation.quoteHistoryStart(instrument,state:simulation)<=boundary)
+        #expect(try Simulation.summaryHistoryStart(instrument,state:simulation)<=boundary)
+    }
+    for symbol in ["BTC-USD","BTCUSDT","EUR/USD"]{
+        let instrument=try #require(catalog.first{$0.symbol==symbol})
+        var simulation=SimulationState();simulation.time=try sessionTime("2026-11-02T15:00:00Z")
+        let reference=try Simulation.price(instrument,at:simulation.time-86400,state:simulation)
+        #expect(try Simulation.quote(instrument,state:simulation).summary?.reference==reference)
+        #expect(try Simulation.summary(instrument,state:simulation).reference==reference)
+    }
+}
 @Test func cmeAndReferenceFXRespectSundayStartsFridayCloseAndDailyMaintenanceAcrossDST()throws{
     let catalog=try InstrumentCatalog.builtIn(mode:.offline),cme=try #require(catalog.first{$0.symbol=="ESZ6"}),fx=try #require(catalog.first{$0.symbol=="EUR/USD"})
     for time in ["2026-10-25T22:00:00Z","2026-11-01T23:00:00Z","2026-10-30T20:59:55Z"]{#expect(try cme.rules.isOpen(at:sessionTime(time)))}
