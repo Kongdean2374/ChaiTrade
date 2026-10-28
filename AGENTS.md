@@ -9,3 +9,4 @@
 - Update docs/IMPLEMENTATION_STATUS.md and TEST_REPORT.md with actual evidence. Do not count unexecuted checks as passed.
 - Rebuild the committed project with scripts/generate_project.py after adding app Swift files.
 - Keep chart code local and dependency checksums fixed. No remote fonts or chart CDN.
+- Every app/core behavior update must increase both marketing version and build in version.json (`python3 scripts/bump_version.py patch|minor|major`); regenerate the project and keep App/IPA/build-info versions identical. Documentation-only changes do not create a new app version.

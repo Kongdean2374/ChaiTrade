@@ -7,6 +7,13 @@ test -f "$app_path/Info.plist"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$app_path/Info.plist")" = iPhoneOS
 test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app_path/Info.plist")" = 18.0
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")" = org.chaitrade.app
+python3 - "$app_path/Info.plist" <<'PY'
+import json,pathlib,plistlib,sys
+expected=json.loads(pathlib.Path('version.json').read_text())
+with open(sys.argv[1],'rb') as f:actual=plistlib.load(f)
+assert actual['CFBundleShortVersionString']==expected['version'] and actual['CFBundleVersion']==str(expected['build']),'IPA version/build does not match version.json'
+print('Artifact version verified:',actual['CFBundleShortVersionString'],'build',actual['CFBundleVersion'])
+PY
 xcrun lipo -info "$app_path/ChaiTrade" | grep -q arm64
 xcrun vtool -show-build "$app_path/ChaiTrade" | grep -q 'platform IOS'
 test -s "$app_path/ChartWeb/lightweight-charts.js"

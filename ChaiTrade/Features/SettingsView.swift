@@ -2,6 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 import ChaiTradeCore
 
+enum AppVersion{
+    static var number:String{Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "開發版"}
+    static var build:String{Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "—"}
+    static var label:String{"版本 "+number+"（建置 "+build+"）"}
+}
+
 struct SettingsView:View {
     @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
@@ -16,7 +22,7 @@ struct SettingsView:View {
             NavigationLink{DataBackupView()}label:{Label("資料備份／還原",systemImage:"externaldrive")}
             NavigationLink{AdvancedDiagnosticsView()}label:{Label("進階診斷",systemImage:"stethoscope")}
         }
-        Section{NavigationLink("關於與第三方授權"){LicenseView()};Text("ChaiTrade · 私人娛樂模擬交易。所有資金與委託在本機處理。").font(.footnote).foregroundStyle(.secondary)}
+        Section{NavigationLink("關於與第三方授權"){LicenseView()};Text(AppVersion.label).font(.footnote).accessibilityIdentifier("appVersion");Text("ChaiTrade · 私人娛樂模擬交易。所有資金與委託在本機處理。").font(.footnote).foregroundStyle(.secondary)}
     }.navigationTitle("設定").toolbar{Button("完成"){dismiss()}}}
 }
 struct ModeAccountSettings:View{
@@ -35,7 +41,7 @@ struct LicenseView: View {
     @Environment(\.openURL) private var openURL
     @State private var confirmExternal=false
     var license: String { guard let url=Bundle.main.url(forResource:"LightweightCharts-LICENSE",withExtension:nil,subdirectory:"Licenses") else{return "授權資源遺失"};return (try? String(contentsOf:url,encoding:.utf8)) ?? "授權檔無法讀取" }
-    var body: some View{ScrollView{VStack(alignment:.leading,spacing:16){Text("Lightweight Charts™\nCopyright © TradingView, Inc.\nhttps://www.tradingview.com/").font(.headline);Text("圖表資源以 Apache License 2.0 授權，完整條款隨 App 打包。")
+    var body: some View{ScrollView{VStack(alignment:.leading,spacing:16){Text("ChaiTrade · "+AppVersion.label).font(.headline);Text("Lightweight Charts™\nCopyright © TradingView, Inc.\nhttps://www.tradingview.com/").font(.headline);Text("圖表資源以 Apache License 2.0 授權，完整條款隨 App 打包。")
         Button("TradingView（官方出處）"){confirmExternal=true}
         Text(license).font(.caption)
         Text("SQLite：Public Domain。Apple 系統框架依 Apple 平台條款提供。ChaiTrade 自有程式碼採 MIT。").font(.footnote)

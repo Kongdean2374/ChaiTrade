@@ -127,3 +127,10 @@ d1fb385的Apple原生及獨立大檔量測通過；core發現macOS暫存路徑 /
 ### 新串流資料格式的大檔實跑
 
 `.reports/product-stream-data-archive-scale.log`：Linux獨立Release案例82.834秒通過，577167360-byte SQLite、576954948-byte加密封存、768293088-byte完整JSON，原320份PNG經封存還原及逐行JSON獨立解碼逐張SHA256一致；取消後原帳戶保留。基準峰值62107648、總峰值78573568、增量16465920 bytes，低於原128MiB增量門檻，未改門檻。這是Linux程序的實際大檔測試，不是Apple或iPhone記憶體證據；Apple新格式仍待跑。
+
+
+## 版本遞增與1a41299返回修正
+
+依使用者要求，本輪由原1.0.0（1）升為1.1.0（2），version.json為單一來源，專案產生器同步Debug／Release，App設定／關於顯示實際Bundle版本。CI檢查前一提交的App／核心變更是否同時升版本與建置，checkout保留兩層歷史；IPA Info.plist、build-info.json、版本檔名及SHA256須一致。新增bump_version.py供後續修正版／功能版遞增，AGENTS已記錄。文件更新不冒充新的App版本。
+
+新增版本檢查、專案再生、資源校驗、安全格式掃描、YAML／Python／Shell檢查已在本機通過；實際IPA版本查核仍待本輪Apple建置。完整帳務返回例按實際NavigationStack逐層返回並保留原資料斷言。e79ad95最新Apple原生編譯已通過，焦點UI正在跑；不能因只編譯通過就結案。

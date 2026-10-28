@@ -16,6 +16,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
       - run: bash scripts/preflight.sh
       - name: Compile device and simulator without changing release acceptance
         run: |
@@ -37,6 +39,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
       - run: bash scripts/test.sh
       - run: bash scripts/test_stress.sh
       - run: bash scripts/test_archive_scale.sh
@@ -55,6 +59,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
       - name: All original interaction and smoke cases twice plus focused order twice
         run: bash scripts/test_ui.sh
       - name: Preserve failure evidence and independent databases
@@ -77,6 +83,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
       - name: Independent clean product discovery and real flow tests
         run: bash scripts/test_product_ui.sh
       - name: Preserve failure evidence and independent databases
@@ -99,6 +107,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
       - name: Independent clean page evidence without trading mutations
         run: bash scripts/test_product_evidence.sh
       - name: Preserve evidence and independent databases
@@ -126,6 +136,8 @@ jobs:
       CHAI_SIMULATOR_NAME: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
       - name: Actual light dark large text keyboard and small screen verification
         run: bash scripts/test_product_visual.sh
       - name: Preserve visual evidence and independent databases

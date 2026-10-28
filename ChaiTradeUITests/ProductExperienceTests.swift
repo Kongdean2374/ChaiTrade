@@ -328,7 +328,11 @@ import XCTest
             try check(!app.buttons["lifecyclePrevious"].isEnabled && !app.buttons["lifecycleNext"].isEnabled,"Empty accounting history permits invalid paging")
         }
         capture("AFTER complete accounting history empty categories")
-        app.navigationBars.buttons.element(boundBy:0).tap();app.buttons["完成"].tap()
+        for title in ["帳務與市場事件","進階診斷","設定"]{
+            app.navigationBars.buttons.element(boundBy:0).tap()
+            try check(app.navigationBars[title].waitForExistence(timeout:5),"History back navigation lost "+title)
+        }
+        app.buttons["完成"].tap()
         let after=try state(app)
         for key in ["cash","positions"]{try check((before[key] as? [String:String])==(after[key] as? [String:String]),"History browsing changed "+key)}
         for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"History browsing created "+key)}

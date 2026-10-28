@@ -21,6 +21,8 @@
 
 公開倉庫的程式變更也會自動觸發此流程。CI 不需要 Apple 登入、簽署憑證或付費行情金鑰。產物保留 7 天。
 
+App版本與建置號由 [version.json](version.json) 統一管理，設定／關於可查看安裝版本。新版產物另附 `ChaiTrade-版本-建置號-unsigned.ipa`，`build-info.json`記錄實際版本、建置號與commit。每次App更新同時增加版本與建置號，CI核對Info.plist及前一提交；不以改檔名代替真正升版。
+
 ## 開發
 
 以 Xcode 26.2 開啟提交的 `ChaiTrade.xcodeproj`，選擇共享 Scheme `ChaiTrade`。原生 UI 為 SwiftUI，交易圖表使用隨 App 封裝的 Lightweight Charts 5.0.8。

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Deterministically regenerate the committed Xcode project; no external generator needed."""
 import pathlib,hashlib,json
+from versioning import read_version
 R=pathlib.Path(__file__).resolve().parents[1]
+version=read_version()
 def ident(s):return hashlib.sha256(s.encode()).hexdigest()[:24].upper()
 objects={}
 def add(key,body):objects[ident(key)]=body;return ident(key)
@@ -35,7 +37,7 @@ for scope in ['project','app','ui']:
  for config in ['Debug','Release']:
   s=dict(common)
   s.update({'DEBUG_INFORMATION_FORMAT':'dwarf-with-dsym' if config=='Release' else 'dwarf','SWIFT_OPTIMIZATION_LEVEL':'-O' if config=='Release' else '-Onone','SWIFT_ACTIVE_COMPILATION_CONDITIONS':'DEBUG' if config=='Debug' else ''})
-  if scope=='app':s.update({'PRODUCT_BUNDLE_IDENTIFIER':'org.chaitrade.app','PRODUCT_NAME':'$(TARGET_NAME)','INFOPLIST_FILE':'ChaiTrade/Info.plist','GENERATE_INFOPLIST_FILE':'NO','CURRENT_PROJECT_VERSION':'1','MARKETING_VERSION':'1.0.0','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME':'AccentColor'})
+  if scope=='app':s.update({'PRODUCT_BUNDLE_IDENTIFIER':'org.chaitrade.app','PRODUCT_NAME':'$(TARGET_NAME)','INFOPLIST_FILE':'ChaiTrade/Info.plist','GENERATE_INFOPLIST_FILE':'NO','CURRENT_PROJECT_VERSION':str(version['build']),'MARKETING_VERSION':version['version'],'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME':'AccentColor'})
   if scope=='ui':s.update({'PRODUCT_BUNDLE_IDENTIFIER':'org.chaitrade.app.uitests','PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','TEST_TARGET_NAME':'ChaiTrade'})
   add(scope+config,'isa = XCBuildConfiguration; buildSettings = {'+' '.join(f'{k} = {quote(v)};' for k,v in s.items())+'}; name = '+config+';')
  add(scope+'configs',f'isa = XCConfigurationList; buildConfigurations = ({ref(scope+"Debug")},{ref(scope+"Release")}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
