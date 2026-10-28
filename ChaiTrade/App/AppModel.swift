@@ -63,6 +63,7 @@ struct ChartAmendment: Identifiable {
     @Published var tradeWorkspace:TradeWorkspace?
     @Published var pendingTrade:TradeHandoff?
     @Published var tradeFormRequest:UUID?
+    @Published var tradeClosingPosition:Position?
     @Published var tradeSession=UUID()
     var tradeSaveTask:Task<Void,Never>?
     var tradeDirty=false
@@ -107,7 +108,7 @@ struct ChartAmendment: Identifiable {
     @Published var journalScreenshot: Data?
     weak var chartWebView:WKWebView?
     @Published var chartRenderings:[String:ChartRenderEvidence]=[:]
-    @Published var interval: Int64=60
+    @Published var interval: Int64=60{didSet{if interval != oldValue{chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartLimitation=nil;chartRenderings=[:]}}}
     @Published var chartCount=160
     @Published var chartBefore:Int64?
     @Published var chartLoading=false
@@ -434,7 +435,7 @@ struct ChartAmendment: Identifiable {
             candles=result.candles;chartLimitation=result.limitation
             if result.candles.isEmpty{chartError="此範圍沒有行情，請切換週期或載入更多歷史"}
         } catch is CancellationError {} catch {
-            if generation==chartGeneration,self.context==capturedContext,self.selectedID==i.id{candles=[];chartError=error.localizedDescription}
+            if generation==chartGeneration,self.context==capturedContext,self.selectedID==i.id{if candles.isEmpty{chartError=error.localizedDescription}else{chartLimitation="K線更新失敗，保留上次資料："+error.localizedDescription}}
         }
     }
     func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartLimitation=nil;chartRenderings=[:];chartCache.removeAll();chartCacheLimitations.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}

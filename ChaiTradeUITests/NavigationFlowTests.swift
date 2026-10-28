@@ -78,7 +78,7 @@ import XCTest
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
     func testBrowsingAndCancelledHandoffKeepDirtyDraft()throws{
-        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
         app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
         let size=app.textFields["orderQuantity"];try reveal(size,in:app);size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"7")
         app.buttons["完成"].tap();try waitUntil("Edited draft not retained"){(try? self.state(app)["tradeDraftQuantity"] as? String)=="7"}
@@ -96,7 +96,7 @@ import XCTest
         capture("FLOW discard resets ETH quantity and keeps orders empty")
     }
     func testDirectTradePickerCategoriesEmptyAndClearPreserveAccount()throws{
-        let app=launchClean(fixture:true);defer{finish()};try ready(app);let original=try state(app)
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app);let original=try state(app)
         app.tabBars.buttons["交易"].tap();app.buttons["tradeProductPicker"].tap()
         app.buttons["tradePickerMarket"].tap();app.buttons["加密貨幣"].tap()
         let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("NO_SUCH_PRODUCT_293")
@@ -109,6 +109,20 @@ import XCTest
         try check((selected["cash"] as? [String:String])==(original["cash"] as? [String:String]),"Picker changed funds")
         try check((selected["orders"] as? [String])?.isEmpty==true,"Picker auto submitted")
         capture("FLOW direct trade categorized picker search clear and selection")
+    }
+    func testUnsentTradeDraftAndIdentitySurviveColdRelaunch()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let before=try state(app);app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
+        let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap();quantity.typeText(XCUIKeyboardKey.delete.rawValue+"7")
+        app.buttons["完成"].tap();try waitUntil("Draft not retained before relaunch"){(try? self.state(app)["tradeDraftQuantity"] as? String)=="7"}
+        let saved=try state(app);XCUIDevice.shared.press(.home);app.activate();app.terminate();app.launch()
+        try check(app.tabBars.buttons["交易"].waitForExistence(timeout:30),"Draft restart failed")
+        app.tabBars.buttons["交易"].tap();let restored=try state(app)
+        try check(restored["tradeProduct"] as? String==saved["tradeProduct"] as? String && restored["tradeSide"] as? String==saved["tradeSide"] as? String,"Restart changed draft identity or side")
+        try check(restored["tradeDraftQuantity"] as? String=="7","Restart lost unsubmitted editor")
+        app.buttons["openOrder"].tap();try check(app.textFields["orderQuantity"].value as? String=="7","Restored editor did not use saved fields")
+        try check((restored["cash"] as? [String:String])==(before["cash"] as? [String:String]) && (restored["orders"] as? [String])?.isEmpty==true,"Unsent restart changed funds or submitted")
+        capture("FLOW cold relaunch restored exact product side and unsent fields")
     }
     func testRapidOfflineRefreshLeavesWorldAndFormUnchanged()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)

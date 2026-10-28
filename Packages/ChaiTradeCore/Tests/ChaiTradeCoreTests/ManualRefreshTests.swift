@@ -38,3 +38,10 @@ import Testing
     #expect(await scheduler.next(context:context,now:1059).isEmpty)
     #expect(await scheduler.next(context:context,now:1060).count==1)
 }
+
+@Test func currentAndVisibleQuotesAreScheduledBeforeBackgroundHoldings()async throws{
+    let scheduler=VisibleQuoteScheduler(),context=AccountContext(mode:.online)
+    let background=Set((0..<80).map{"A-held-"+String($0)})
+    await scheduler.demand(context:context,visible:["VISIBLE"],selected:"CURRENT:ODD",protected:background)
+    #expect(await scheduler.next(context:context,now:1000,limit:2).map(\.instrumentID)==["CURRENT:ODD","VISIBLE"],"A large portfolio starved the active market screen")
+}

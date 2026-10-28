@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ChaiTradeCore
 
 private struct TradePickerFilter {
@@ -57,7 +58,7 @@ struct TradeProductPicker:View {
             if matching.count>page{Button("載入更多（\(page)／\(matching.count)）"){page+=40}}
         }
     }.navigationTitle("選擇交易商品").navigationBarTitleDisplayMode(.inline).scrollDismissesKeyboard(.immediately)
-        .toolbar{Button("取消"){dismiss()}}
+        .toolbar{ToolbarItem(placement:.topBarTrailing){Button("取消"){dismiss()}};ToolbarItemGroup(placement:.keyboard){Spacer();Button("完成商品搜尋"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}}
         .onAppear{guard !initialized else{return};initialized=true;domain=model.tradeInstrument?.market ?? .stocks}
         .onChange(of:domain){_,_ in page=40;model.removeVisibleOwner("tradePicker")}
         .onDisappear{model.removeVisibleOwner("tradePicker")}

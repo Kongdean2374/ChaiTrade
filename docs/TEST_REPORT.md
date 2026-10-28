@@ -1,5 +1,12 @@
 # 測試報告
 
+## 目前狀態（2026-10-28；行情／交易流程驗證中）
+
+目前驗證提交 **a12d865f38b4141415e98c7b7d1e0d3890e641a3，1.2.0（3）**。原生 Release 裝置與模擬器測試目標編譯通過；[同提交 CI 40621670894](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40621670894) 核心 174 項（含實連 BTC／ETH 持續行情、K 線及本機一次成交）52.761s 通過、T45 100,000 筆通過、577MB 加密備份及 768MB 完整 JSON／320 張圖片實測通過。macOS 增量峰值記憶體 93,208,576 bytes；這不是 iPhone 冷啟動或實機寫入驗收。
+
+新流程 8 例 UI、原互動 20 次及產品／視覺回歸尚在執行，**尚未驗收完成，不提供新 IPA**。本地下一個修正批次為 1.2.1（4），不可把前一提交結果算在該版本。完整狀態與失敗證據見 [NAVIGATION_FLOW_VALIDATION.md](NAVIGATION_FLOW_VALIDATION.md)。下列 2026-10-27 的 IPA 與數據均為歷史紀錄，並非目前流程交付。
+
+
 2026-10-27。程式版本 `998a2274f16bde9f6d76056d1e19e7b9c98c74ba` 的 [Actions 40517887202](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202) 已成功。互動專項包含兩次下單專測，再完整執行九案例各兩次，**20 次全部通過、零 UI 跳過、20 個獨立 UUID 資料目錄**。這不代表整份計劃書或實機驗收完成。
 
 [最新版未簽名 IPA、checksum、build-info 與測試日誌](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12742124659) · [完整 xcresult、畫面、狀態及資料庫證據](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12743565956)。產物到期 `2026-11-03T14:45:18Z`；IPA SHA-256：`90d701b977efba1750c40c903b1a296d11cd72a2606a708f64882c73a2c9826c`。下載後仍需有效簽署才可安裝。

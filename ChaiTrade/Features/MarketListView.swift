@@ -42,7 +42,7 @@ struct MarketsView:View {
     }
     private func changeRatio(_ i:Instrument)->Amount{guard let quote=model.state?.quotes[i.id],let reference=model.summary(for:i)?.reference,reference > .zero else{return .zero};return (try? quote.last/reference) ?? .zero}
     private var search:Binding<String>{Binding(get:{searchText},set:{text in searchText=text;pageSize=40})}
-    private var scroll:Binding<String?>{Binding(get:{preferences.scrollID},set:{id in model.editBrowsing(domain){$0.scrollID=id}})}
+    private var scroll:Binding<String?>{Binding(get:{preferences.scrollID},set:{id in guard model.tab==1,(model.marketPaths[domain] ?? []).isEmpty else{return};model.editBrowsing(domain){$0.scrollID=id}})}
     var body:some View{
         ScrollView{
             LazyVStack(alignment:.leading,spacing:14){

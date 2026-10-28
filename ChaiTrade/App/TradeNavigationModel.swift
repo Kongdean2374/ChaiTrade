@@ -8,11 +8,12 @@ struct TradeHandoff:Identifiable {
     let side:Side
     let openForm:Bool
     let board:TradingBoard
+    let closingPosition:Position?
 }
 extension AppModel {
     var tradeInstrument:Instrument?{guard let product=tradeWorkspace?.product else{return nil};return state?.instruments.first{product.matches($0)}}
     func restoreTradeWorkspace(){
-        tradeSaveTask?.cancel();tradeDirty=false;pendingTrade=nil;tradeFormRequest=nil;tradeSession=UUID();marketPaths=[:]
+        tradeSaveTask?.cancel();tradeDirty=false;pendingTrade=nil;tradeFormRequest=nil;tradeClosingPosition=nil;tradeSession=UUID();marketPaths=[:]
         if let saved=state?.productPreferences?.tradeWorkspace{tradeWorkspace=saved}
         else if let i=selected,i.asset != .index,let context{tradeWorkspace=TradeWorkspace(accountID:context.accountID,instrument:i)}
         else{tradeWorkspace=nil}
@@ -24,18 +25,19 @@ extension AppModel {
         focusProduct(i)
         editBrowsing(i.market){value in value.selectedID=i.id;value.recent.removeAll{$0==i.id};value.recent.insert(i.id,at:0);value.recent=Array(value.recent.prefix(30))}
     }
-    func requestTrade(_ i:Instrument,side:Side,openForm:Bool,board:TradingBoard?=nil){
+    func requestTrade(_ i:Instrument,side:Side,openForm:Bool,board:TradingBoard?=nil,closingPosition:Position?=nil){
         guard let context,i.asset != .index else{return}
-        let intent=TradeHandoff(product:TradeProduct(i),context:context,side:side,openForm:openForm,board:i.usesTaiwanBoards ? (board ?? .oddLot):.regular)
-        if let saved=tradeWorkspace,saved.editor != nil,(saved.product != intent.product || saved.side != side || saved.board != intent.board){pendingTrade=intent;return}
+        let intent=TradeHandoff(product:TradeProduct(i),context:context,side:side,openForm:openForm,board:i.usesTaiwanBoards ? (board ?? .oddLot):.regular,closingPosition:closingPosition)
+        if let saved=tradeWorkspace,saved.editor != nil,(saved.product != intent.product || saved.side != side || saved.board != intent.board || closingPosition != nil){pendingTrade=intent;return}
         applyTrade(intent)
     }
     func applyTrade(_ intent:TradeHandoff){
         guard context==intent.context,let i=state?.instruments.first(where:{intent.product.matches($0)}) else{pendingTrade=nil;return}
-        let same=tradeWorkspace?.product==intent.product && tradeWorkspace?.side==intent.side && tradeWorkspace?.board==intent.board
+        let same=tradeWorkspace?.product==intent.product && tradeWorkspace?.side==intent.side && tradeWorkspace?.board==intent.board && intent.closingPosition==nil
         if !same{tradeWorkspace=TradeWorkspace(accountID:intent.context.accountID,instrument:i,side:intent.side,revision:(tradeWorkspace?.revision ?? 0)+1);tradeWorkspace?.board=intent.board;tradeSession=UUID();saveTradeSoon()}
+        editBrowsing(i.market){value in value.recent.removeAll{$0==i.id};value.recent.insert(i.id,at:0);value.recent=Array(value.recent.prefix(30))}
         pendingTrade=nil;tab=2;focusTradeProduct(i)
-        if intent.openForm{tradeFormRequest=UUID()}
+        if intent.openForm{tradeClosingPosition=intent.closingPosition;tradeFormRequest=UUID()}
     }
     func discardAndApplyTrade(){guard let pendingTrade else{return};applyTrade(pendingTrade)}
     func updateTradeEditor(_ editor:TradeEditor,instrument:Instrument,context:AccountContext,session:UUID){

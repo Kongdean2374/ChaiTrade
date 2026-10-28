@@ -42,14 +42,14 @@ struct TradingView:View{
             .refreshable{await model.fetchQuotes()}
             .safeAreaInset(edge:.bottom){tradeBar}
             .sheet(item:$draft,onDismiss:{if showOrdersAfterDismiss{showOrdersAfterDismiss=false;model.tab=3}}){intent in NavigationStack{OrderForm(instrument:intent.instrument,accountContext:intent.context,initialSide:intent.side,initialBoard:intent.board,initialPosition:intent.closingPosition,workspaceSession:intent.workspaceSession,onSubmitted:{if let session=intent.workspaceSession{model.clearTradeEditor(session:session)};showOrdersAfterDismiss=true;draft=nil})}}
-            .sheet(isPresented:$choosingProduct){NavigationStack{TradeProductPicker()}}
+            .sheet(isPresented:$choosingProduct){NavigationStack{TradeProductPicker()}.modifier(UITestVisualEnvironment())}
             .sheet(isPresented:$details){NavigationStack{InstrumentDetails()}}
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
             .sheet(isPresented:$connections){NavigationStack{ConnectionsView()}}
             .sheet(isPresented:$contractAccess){NavigationStack{ContractAccessView()}}
             .fullScreenCover(isPresented:$fullscreen){VStack(spacing:0){HStack{Text(instrument?.name ?? "").font(.headline);Spacer();Button("完成"){fullscreen=false}.accessibilityIdentifier("closeFullscreenChart")}.padding();ChartView(indicator:indicator,period:period,line:line,role:"fullscreen").accessibilityIdentifier("fullscreenChartWeb")}.background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreenChart")}
-            .task(id:"\(active)-\(instrument?.id ?? "")"){guard active,let i=instrument else{return};if browseInstrumentID==nil{model.focusTradeProduct(i)}else{model.focusProduct(i)};if let p=model.state?.chartPreferences?[i.id]{indicator=p.indicator;period=p.period;line=p.line;model.interval=p.interval};await model.loadChart();await model.loadNews();consumeFormRequest()}
+            .task(id:"\(active)-\(instrument?.id ?? "")"){guard active,let i=instrument else{return};if browseInstrumentID==nil{model.focusTradeProduct(i)}else{model.focusProduct(i)};if let p=model.state?.chartPreferences?[i.id]{indicator=p.indicator;period=p.period;line=p.line;model.interval=p.interval}else{indicator="MA";period=20;line=false;model.interval=60};consumeFormRequest();await model.loadChart();await model.loadNews()}
             .onChange(of:model.tradeFormRequest){_,_ in consumeFormRequest()}
             .onChange(of:indicator){_,_ in saveChart()}.onChange(of:period){_,_ in saveChart()}.onChange(of:line){_,_ in saveChart()}
     }
@@ -66,18 +66,19 @@ struct TradingView:View{
     private func consumeFormRequest(){guard browseInstrumentID==nil,model.tab==2,model.tradeFormRequest != nil else{return};model.tradeFormRequest=nil;openForm(model.tradeWorkspace?.side ?? .buy)}
     private func openForm(_ side:Side){
         guard let i=model.tradeInstrument,let context=model.context,model.canTrade(i) else{return}
-        draft=OrderDraft(instrument:i,context:context,side:side,board:model.tradeWorkspace?.board ?? (i.usesTaiwanBoards ? .oddLot:.regular),workspaceSession:model.tradeSession)
+        draft=OrderDraft(instrument:i,context:context,side:side,board:model.tradeWorkspace?.board ?? (i.usesTaiwanBoards ? .oddLot:.regular),closingPosition:model.tradeClosingPosition,workspaceSession:model.tradeSession);model.tradeClosingPosition=nil
     }
     private func productContent(_ i:Instrument)->some View{
         VStack(alignment:.leading,spacing:20){
             productHeader(i)
             if i.usesTaiwanBoards{Picker("台股交易盤別",selection:Binding(get:{model.selectedBoard},set:{board in if browseInstrumentID==nil{model.requestTrade(i,side:model.tradeWorkspace?.side ?? .buy,openForm:false,board:board)}else{model.changeBoard(board)}})){ForEach(TradingBoard.allCases,id:\.self){Text($0.label)}}.pickerStyle(.segmented)}
             MarketRefreshStatus(instrument:i)
+            if browseInstrumentID==nil{holdingSection(i)}
             chartSection
             simulationSection(i)
             connectionSection(i)
             bookSection
-            holdingSection(i)
+            if browseInstrumentID != nil{holdingSection(i)}
             contractSection(i)
             relatedNews(i)
             NavigationLink("近期成交與委託"){OrdersView()}
@@ -108,9 +109,9 @@ struct TradingView:View{
             ForEach(positions){position in
                 HStack{Metric(title:(position.side?.label ?? "數量")+"（\(i.quantityUnit)）",value:MarketText.number(position.quantity));Metric(title:"平均成本",value:MarketText.number(position.average))}
                 if i.asset.derivative{ContractPositionRiskView(position:position)}
-                if i.asset.derivative,position.quantity != .zero,let context=model.context{
+                if i.asset.derivative,position.quantity != .zero,model.context != nil{
                     Button(position.quantity > .zero ? "平多（僅減倉）":"平空（僅減倉）"){
-                        draft=OrderDraft(instrument:i,context:context,side:position.quantity > .zero ? .sell:.buy,board:model.selectedBoard,closingPosition:position)
+                        model.requestTrade(i,side:position.quantity > .zero ? .sell:.buy,openForm:true,board:model.selectedBoard,closingPosition:position)
                     }.buttonStyle(.bordered).disabled(model.interactionBlocked || !model.canTrade(i)).accessibilityIdentifier("closePosition-"+position.id)
                     if position.marginMode == .isolated{NavigationLink("調整逐倉保證金"){MarginEditor(initialPositionID:position.id)}}
                 }
@@ -136,7 +137,7 @@ struct TradingView:View{
             NavigationLink("查看全部市場新聞"){MarketNewsView(initialCategory:category)}
         }
     }
-    private func saveChart(){Task{await model.saveChartPreferences(indicator:indicator,period:period,line:line)}}
+    private func saveChart(){guard active,let id=instrument?.id,let context=model.context else{return};let capturedIndicator=indicator,capturedPeriod=period,capturedLine=line,capturedInterval=model.interval;Task{guard model.context==context,let engine=model.engine else{return};await model.run{try await engine.saveChartPreferences(instrumentID:id,preferences:ChartPreferences(interval:capturedInterval,indicator:capturedIndicator,period:capturedPeriod,line:capturedLine),context:context)}}}
     private func productHeader(_ i:Instrument)->some View{
         VStack(alignment:.leading,spacing:12){
             HStack(alignment:.top){VStack(alignment:.leading,spacing:5){Text(i.name).font(.title2.bold());Text(i.symbol+" · "+(i.identity?.exchange ?? i.asset.label)+" · "+i.currency).font(.caption).foregroundStyle(.secondary)};Spacer();Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id)==true ? "star.fill":"star").frame(minWidth:36,minHeight:44)}.accessibilityLabel("切換自選").disabled(model.interactionBlocked).accessibilityIdentifier("toggleWatch").accessibilityValue(model.state?.watchlist.contains(i.id)==true ? "已加入":"未加入");Button{details=true}label:{Image(systemName:"info.circle").frame(minWidth:30,minHeight:44)}.accessibilityLabel("商品規格")}
@@ -152,7 +153,7 @@ struct TradingView:View{
         ViewThatFits(in:.horizontal){HStack{chartActions;Spacer();alertAction};VStack(alignment:.leading,spacing:12){chartActions;alertAction}}
         if model.chartLoading || model.selectedID != instrument?.id{ProgressView("讀取K線…").font(.caption)}
         if let limitation=model.chartLimitation{Label(limitation,systemImage:"info.circle").font(.caption).foregroundStyle(.orange).accessibilityIdentifier("chartSourceLimitation")}
-        if let error=model.chartError{ContentUnavailableView("此範圍暫無K線",systemImage:"chart.xyaxis.line",description:Text(error)).frame(minHeight:200)}else if model.selectedID==instrument?.id{ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:10)).accessibilityIdentifier("inlineChartWeb")}
+        if let error=model.chartError{ContentUnavailableView("此範圍暫無K線",systemImage:"chart.xyaxis.line",description:Text(error)).frame(minHeight:200)}else if active,model.selectedID==instrument?.id{ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:10)).accessibilityIdentifier("inlineChartWeb")}
         indicatorPicker
         ViewThatFits(in:.horizontal){historyActions;VStack(alignment:.leading,spacing:12){historyNavigation;drawingActions}}
     }}
@@ -246,6 +247,7 @@ struct OrderForm:View{
         ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}.disabled(sending)}
         ToolbarItemGroup(placement:.keyboard){Spacer();Button("收起鍵盤"){UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}}
     }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"};if let position=initialPosition{reduceOnly=true;side=position.quantity > .zero ? .sell:.buy;contractAction=position.quantity > .zero ? .closeLong:.closeShort;quantity=position.quantity.magnitude.description;leverage=position.leverage;margin=position.marginMode};if initialPosition==nil,workspaceSession==model.tradeSession,model.tradeWorkspace?.product.matches(instrument)==true,let saved=model.tradeWorkspace?.editor{restoreEditor(saved)};baseline=editorSnapshot}
+        .onDisappear{Task{await model.flushTradeWorkspace()}}
         .onChange(of:editorSnapshot){_,value in guard initialized,baseline != value,!submitted,let session=workspaceSession else{return};model.updateTradeEditor(value,instrument:instrument,context:accountContext,session:session)}
         .onChange(of:reduceOnly){_,closing in if closing,let position=selectedPosition{side=position.quantity > .zero ? .sell:.buy;leverage=position.leverage;margin=position.marginMode}}
         .onChange(of:unit){_,_ in if board == .oddLot{kind = .limit;tif = .DAY;postOnly=false;protection="無";model.changeBoard(.oddLot)}else if instrument.usesTaiwanBoards{model.changeBoard(.regular)}}
@@ -266,7 +268,8 @@ struct OrderForm:View{
     private var basicSection:some View{
         Section(instrument.name+" · "+instrument.symbol){
             Text(accountContext.mode.label+" · "+(instrument.identity?.exchange ?? "自訂")+" · "+instrument.currency).font(.caption).foregroundStyle(.secondary)
-            Text("最小數量："+instrument.rules.quantityStep.description+instrument.quantityUnit+" · 數量級距："+instrument.rules.quantityStep.description).font(.caption).foregroundStyle(.secondary)
+            Text("最小數量／級距："+(instrument.usesTaiwanBoards && unit=="張" ? "1 張（\(instrument.identity?.boardLot ?? 1000) 股）":instrument.rules.quantityStep.description+instrument.quantityUnit)+" · 價格級距："+instrument.rules.tick.description).font(.caption).foregroundStyle(.secondary)
+            if instrument.rules.minimumNotional > .zero{Text("最低委託金額："+instrument.rules.minimumNotional.description+" "+instrument.currency).font(.caption).foregroundStyle(.secondary)}
             if hedge{Picker("合約操作",selection:$contractAction){ForEach(ContractAction.allCases,id:\.self){Text($0.label)}}}else{
                 if instrument.asset.derivative{Picker("合約操作",selection:$reduceOnly){Text("開倉").tag(false);Text("平倉").tag(true)}.pickerStyle(.segmented)}
                 if instrument.asset.derivative && reduceOnly{LabeledContent("方向",value:directionLabel);Text("僅減少既有部位，不反向開倉。").font(.caption).foregroundStyle(.secondary)}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}

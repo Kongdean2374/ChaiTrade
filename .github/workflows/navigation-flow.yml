@@ -1,7 +1,7 @@
 name: Market detail and trading flow validation
 on:
   push:
-    branches: [navigation-flow-20261028]
+    branches: [navigation-flow-20261028, navigation-flow-20261028-v4]
   workflow_dispatch:
 permissions:
   contents: read

@@ -60,4 +60,22 @@ import XCTest
         app.buttons["完成"].tap();try check(app.tabBars.buttons["資產"].isHittable,"Journal close left keyboard over navigation")
     }
 
+    private func verifyTradePicker(theme:String,large:Bool)throws{
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog",theme=="dark" ? "--uitest-dark":"--uitest-light"]+(large ? ["--uitest-large-type"]:[]));defer{finish()};try ready(app)
+        let before=try state(app);try check(before["visualTheme"] as? String==theme,"Picker requested theme missing")
+        if large{try check(before["visualType"] as? String=="accessibility3","Picker large font not active")}
+        app.tabBars.buttons["交易"].tap();let choose=app.buttons["tradeProductPicker"];try reveal(choose,in:app);choose.tap()
+        let search=app.textFields["tradePickerSearch"];try reveal(search,in:app);search.tap();search.typeText("元大台灣")
+        capture("AFTER VISUAL "+theme+" trade picker Chinese keyboard")
+        let done=app.buttons["完成商品搜尋"];try check(done.isHittable,"Trade picker cannot dismiss search keyboard");done.tap()
+        let filters=app.buttons["tradePickerFilters"];try reveal(filters,in:app);filters.tap()
+        let clear=app.buttons["tradePickerClear"];try reveal(clear,in:app);try check(clear.isHittable,"Picker clear inaccessible with expanded filters")
+        capture("AFTER VISUAL "+theme+" picker filters and safe area");clear.tap()
+        app.buttons["取消"].tap();try check(app.tabBars.buttons["交易"].isHittable,"Picker cancel traps tab bar")
+        let after=try state(app);try check((before["cash"] as? [String:String])==(after["cash"] as? [String:String]),"Picker visual case changed funds")
+        try check((after["orders"] as? [String])?.isEmpty==true,"Picker visual case sent an order")
+    }
+    func testLightTradePickerChineseKeyboardAndFilters()throws{try verifyTradePicker(theme:"light",large:false)}
+    func testDarkLargeTradePickerChineseKeyboardAndFilters()throws{try verifyTradePicker(theme:"dark",large:true)}
+
 }

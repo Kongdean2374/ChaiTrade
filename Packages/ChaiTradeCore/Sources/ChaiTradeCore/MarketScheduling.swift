@@ -27,7 +27,7 @@ public actor VisibleQuoteScheduler {
         guard self.context==context,limit>0 else{return []}
         retryFloor=retryFloor.filter{$0.value>now}
         let ids=all.filter{flights[$0]==nil && max(due[$0] ?? 0,retryFloor[$0] ?? 0)<=now}.sorted{a,b in
-            let pa=a==selected || protected.contains(a) ? 0:1,pb=b==selected || protected.contains(b) ? 0:1
+            let pa=a==selected ? 0:visible.contains(a) ? 1:2,pb=b==selected ? 0:visible.contains(b) ? 1:2
             return (pa,attempted[a] ?? 0,a)<(pb,attempted[b] ?? 0,b)
         }.prefix(min(8,limit))
         return ids.map{id in let lease=QuoteLease(id:UUID(),instrumentID:id,context:context);flights[id]=lease;attempted[id]=now;return lease}

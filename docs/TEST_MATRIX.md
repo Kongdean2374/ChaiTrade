@@ -1,5 +1,10 @@
 # 48 項驗收矩陣
 
+## 最新操作流程測試索引（2026-10-28）
+
+新增 `NavigationFlowTests`（2330／BTC／ETH 各自全新資料）、`TradingHandoffTests`（ETH 賣出與市場→詳情→買進→獨立換商品→一次模擬成交）、`TradeWorkspaceInteractionTests`（草稿衝突保留／放棄、分類／搜尋／清除、B 快速刷新不變時鐘與行情）。核心另測精確身份、錯帳戶／epoch、舊 autosave、保存／重啟／加密備份、舊偏好相容、429 Retry-After 與目前／可見優先。新增大小螢幕深淺色的選擇器／中文鍵盤／展開篩選案例；不取代既有核心與互動測試。實跑結論以同提交 [TEST_REPORT.md](TEST_REPORT.md) 及 [NAVIGATION_FLOW_VALIDATION.md](NAVIGATION_FLOW_VALIDATION.md) 為準；新增案例尚未全數實跑通過。
+
+
 本表的「通過」僅適用明列的核心自動化案例；不是整體實機驗收。測試來源位於 Packages/ChaiTradeCore/Tests/ChaiTradeCoreTests/ 及 ChaiTradeUITests/SmokeTests.swift 及 InteractionTests.swift。UI／IPA 狀態以 Actions 實際結果更新。外部憑證測試尚無使用者權限，不捏造成功。
 
 | ID | 計劃書案例 | 狀態 | 方法與證據 |

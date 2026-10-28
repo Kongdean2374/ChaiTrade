@@ -7,6 +7,11 @@ struct RootView: View {
     @EnvironmentObject var model: AppModel
     @State private var settings=false
     @State private var recovery=false
+    private func marketNavigation(_ domain:MarketDomain)->some View{
+        NavigationStack(path:Binding(get:{model.marketPaths[domain] ?? []},set:{model.marketPaths[domain]=$0})){
+            MarketsView(domain:domain).navigationDestination(for:String.self){id in TradingView(browseInstrumentID:id)}
+        }.id(domain)
+    }
     var body: some View {
         Group {
             if !model.settings.onboarded { OnboardingView() }
@@ -31,7 +36,7 @@ struct RootView: View {
                     if model.tab != 2{MarketSwitcher()}
                     TabView(selection:$model.tab) {
                         NavigationStack { DashboardView(domain:model.market).id(model.market) }.tabItem{Label("總覽",systemImage:"square.grid.2x2")}.tag(0)
-                        NavigationStack(path:Binding(get:{model.marketPaths[model.market] ?? []},set:{model.marketPaths[model.market]=$0})) { MarketsView(domain:model.market).id(model.market).navigationDestination(for:String.self){id in TradingView(browseInstrumentID:id)} }.tabItem{Label("行情",systemImage:"chart.bar.xaxis")}.tag(1)
+                        marketNavigation(model.market).tabItem{Label("行情",systemImage:"chart.bar.xaxis")}.tag(1)
                         NavigationStack { TradingView() }.tabItem{Label("交易",systemImage:"arrow.left.arrow.right")}.tag(2)
                         NavigationStack { OrdersView() }.tabItem{Label("委託",systemImage:"list.bullet.rectangle")}.tag(3)
                         NavigationStack { PortfolioView() }.tabItem{Label("資產",systemImage:"wallet.bifold")}.tag(4)

@@ -16,6 +16,11 @@ import Testing
     for _ in 0..<8{let read=try await engine.marketSnapshot(context:ctx);#expect(read.productPreferences?.tradeWorkspace==workspace);#expect(read.simulation?.time==before.simulation?.time);#expect(read.quotes==before.quotes)}
     let saved=try #require(try repo.load());#expect(saved.productPreferences?.tradeWorkspace==workspace)
     #expect(saved.cash==before.cash);#expect(saved.orders.isEmpty);#expect(saved.fills.isEmpty)
+    let backup=try BackupService.export(saved,password:"draft-backup-test",time:before.simulation!.time)
+    let restored=try BackupService.validate(backup,expectedMode:.offline,password:"draft-backup-test")
+    #expect(restored.productPreferences?.tradeWorkspace==workspace)
+    var foreign=workspace;foreign.accountID=Mode.online.accountID
+    await #expect(throws:TradeError.self){try await engine.saveTradeWorkspace(foreign,context:ctx)}
     var next=TradeWorkspace(accountID:ctx.accountID,instrument:second,revision:2)
     try await engine.saveTradeWorkspace(next,context:ctx)
     try await engine.saveTradeWorkspace(workspace,context:ctx)
@@ -27,4 +32,10 @@ import Testing
     #expect(throws:TradeError.self){try AccountRepository.validate(corrupt,mode:.offline)}
     try await engine.retire(context:ctx)
     await #expect(throws:TradeError.self){try await engine.marketSnapshot(context:ctx)}
+}
+
+@Test func previousPreferencesWithoutATradeWorkspaceStillDecode()throws{
+    let old=Data(#"{"version":1,"activeMarket":"stocks","markets":{},"groups":[],"catalogMigrated":true}"#.utf8)
+    let preferences=try JSONDecoder().decode(ProductPreferences.self,from:old)
+    #expect(preferences.tradeWorkspace==nil);#expect(preferences.catalogMigrated)
 }
