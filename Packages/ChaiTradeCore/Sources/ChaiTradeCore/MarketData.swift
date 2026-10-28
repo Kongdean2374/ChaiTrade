@@ -131,16 +131,15 @@ public struct MarketDataProvider: Sendable {
         var q: Quote
         switch id {
         case .coinbase:
-            let ticker = try await fetch(path: "/products/\(symbol)/ticker")
-            let book = try await fetch(path: "/products/\(symbol)/book", query: ["level":"2"])
+            async let tickerRead=fetch(path:"/products/\(symbol)/ticker")
+            async let bookRead=fetch(path:"/products/\(symbol)/book",query:["level":"2"])
+            async let summaryRead=coinbaseSummary(symbol,enabled:includeSummary)
+            let(ticker,book,summary)=try await(tickerRead,bookRead,summaryRead)
             let time = try Self.timestamp(ticker["time"])
             let bids = try book["bids"].array.prefix(50).map { try Level($0[0].amount(), $0[1].amount()) }
             let asks = try book["asks"].array.prefix(50).map { try Level($0[0].amount(), $0[1].amount()) }
             q = Quote(instrumentID: instrument.id, source: id.label, time: time, sequence: book["sequence"].integer ?? time, last: try ticker["price"].amount(), bids: bids, asks: asks, coverage: "Coinbase 單一交易所；REST 快照估算", receivedAt: now)
-            if includeSummary{
-                do{let stats=try await fetch(path:"/products/\(symbol)/stats");q.summary=QuoteSummary(open:try? stats["open"].amount(),high:try? stats["high"].amount(),low:try? stats["low"].amount(),reference:try? stats["open"].amount(),volume:try? stats["volume"].amount(),window:"24小時")}
-                catch is CancellationError{throw CancellationError()}catch{q.summary=QuoteSummary(window:"24小時統計暫時無法讀取，可重試")}
-            }
+            q.summary=summary
         case .fugle,.fugleFutures:
             let family = id == .fugle ? "stock" : "futopt"
             let j = try await fetch(path: "/marketdata/v1.0/\(family)/intraday/quote/\(symbol)",query:id == .fugle && board == .oddLot ? ["type":"oddlot"]:[:])
@@ -190,6 +189,13 @@ public struct MarketDataProvider: Sendable {
 
         if q.bids.isEmpty || q.asks.isEmpty { q.grade = .E3 }
         return q
+    }
+    private func coinbaseSummary(_ symbol:String,enabled:Bool)async throws->QuoteSummary?{
+        guard enabled else{return nil}
+        do{
+            let stats=try await fetch(path:"/products/\(symbol)/stats")
+            return QuoteSummary(open:try? stats["open"].amount(),high:try? stats["high"].amount(),low:try? stats["low"].amount(),reference:try? stats["open"].amount(),volume:try? stats["volume"].amount(),window:"24小時")
+        }catch is CancellationError{throw CancellationError()}catch{return QuoteSummary(window:"24小時統計暫時無法讀取，可重試")}
     }
     public func news(symbols:[String],now:Int64)async throws->[MarketNewsStory]{
         guard id == .alpaca else{throw MarketDataFailure(.unsupported)}

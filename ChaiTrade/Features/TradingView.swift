@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 import ChaiTradeCore
 
+enum OrderSubmissionOutcome{case accepted,rejected(String)}
+
 private struct OrderDraft:Identifiable{
     let id=UUID()
     let instrument:Instrument
@@ -19,6 +21,7 @@ struct TradingView:View{
     @State private var drawing=false
     @State private var alert=false
     @State private var connections=false
+    @State private var contractAccess=false
     @State private var indicator="MA"
     @State private var period=20
     @State private var line=false
@@ -35,6 +38,7 @@ struct TradingView:View{
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
             .sheet(isPresented:$connections){NavigationStack{ConnectionsView()}}
+            .sheet(isPresented:$contractAccess){NavigationStack{ContractAccessView()}}
             .fullScreenCover(isPresented:$fullscreen){VStack(spacing:0){HStack{Text(model.selected?.name ?? "").font(.headline);Spacer();Button("完成"){fullscreen=false}.accessibilityIdentifier("closeFullscreenChart")}.padding();ChartView(indicator:indicator,period:period,line:line).accessibilityIdentifier("fullscreenChartWeb")}.background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreenChart")}
             .task(id:model.selectedID){if let p=model.state?.chartPreferences?[model.selectedID]{indicator=p.indicator;period=p.period;line=p.line;model.interval=p.interval};await model.loadChart();await model.loadNews()}
             .onChange(of:indicator){_,_ in saveChart()}.onChange(of:period){_,_ in saveChart()}.onChange(of:line){_,_ in saveChart()}
@@ -133,7 +137,8 @@ struct TradingView:View{
     private var indicatorPicker:some View{HStack{Picker("指標",selection:$indicator){ForEach(["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"],id:\.self){Text($0)}}.labelsHidden();Stepper("\(period)",value:$period,in:2...100).font(.caption).frame(maxWidth:150)}}
     private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption).padding(.vertical,8)}
     @ViewBuilder private var tradeBar:some View{
-        if let i=model.selected,i.asset != .index,model.canTrade(i),let context=model.context{HStack(spacing:12){Button(i.buyLabel){draft=OrderDraft(instrument:i,context:context,side:.buy,board:model.selectedBoard)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){draft=OrderDraft(instrument:i,context:context,side:.sell,board:model.selectedBoard)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")}
+        if let i=model.selected,i.asset.derivative,model.canTrade(i),model.state?.leverageEnabled != true{HStack{VStack(alignment:.leading){Text("合約功能尚未啟用").font(.subheadline);Text("既有部位仍可平倉").font(.caption).foregroundStyle(.secondary)};Spacer();Button("了解與啟用"){contractAccess=true}.buttonStyle(.borderedProminent).accessibilityIdentifier("enableContractTrading")}.padding(12).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")}
+        else if let i=model.selected,i.asset != .index,model.canTrade(i),let context=model.context{HStack(spacing:12){Button(i.buyLabel){draft=OrderDraft(instrument:i,context:context,side:.buy,board:model.selectedBoard)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){draft=OrderDraft(instrument:i,context:context,side:.sell,board:model.selectedBoard)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")}
         else if let i=model.selected{HStack{Image(systemName:"info.circle");Text(i.asset == .index ? "指數僅供參考；請選擇相關ETF或期貨。":model.interactionBlocked ? "市場補算中，暫停新委託":"目前行情或規則不符合新委託條件").font(.caption);Spacer();Button("查看委託"){model.tab=3}}.padding(12).background(.bar)}
     }
 }
@@ -182,6 +187,7 @@ struct OrderForm:View{
     @State private var confirm=false
     @State private var sending=false
     @State private var submitted=false
+    @State private var submitIssue:String?
     @State private var initialized=false
     @State private var requestID=UUID().uuidString
     @State private var ocoRequestID=UUID().uuidString
@@ -272,6 +278,7 @@ struct OrderForm:View{
     }
     private var submitSection:some View{
         VStack(spacing:0){
+        if let submitIssue{Text(submitIssue).font(.caption).foregroundStyle(.orange).frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,16).padding(.top,8).accessibilityIdentifier("orderSubmissionIssue")}
         Button{UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirm=true}label:{Text(sending ? "送出中…":"檢查委託").font(.headline).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.borderedProminent).controlSize(.large).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder").padding(.horizontal,16).padding(.vertical,8).background(.bar)
         }.accessibilityElement(children:.contain).accessibilityIdentifier("orderActionBar")
     }
@@ -292,18 +299,18 @@ struct OrderForm:View{
         }catch{model.error=error.localizedDescription}
     }
     private func send()async{
-        guard !sending,!submitted,!model.interactionBlocked,isCurrent else{return};sending=true;defer{sending=false}
+        guard !sending,!submitted,!model.interactionBlocked,isCurrent else{return};sending=true;submitIssue=nil;defer{sending=false}
         do{guard let size=orderQuantity else{throw TradeError.invalid("請填入正確數量")}
             var r=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:kind,quantity:size,price:[.limit,.stopLimit].contains(kind) ? try Amount(price):nil,trigger:kind.conditional && kind != .trailing ? try Amount(trigger):nil)
             r.board=board;r.positionSide=hedge ? contractAction.positionSide:nil
             r.requestID=requestID;r.timeInForce=tif;r.expiresAt=tif == .GTD ? Int64(expiry.timeIntervalSince1970):nil;r.postOnly=postOnly;r.reduceOnly=effectiveReduceOnly;r.leverage=leverage;r.marginMode=margin;r.triggerReference=reference
             if kind == .trailing{r.trailingDistance=try Amount(distance);r.trailingPercent=trailingPercent}
             if protection == "括號"{r.bracketProfit=try Amount(profit);r.bracketStop=try Amount(stop)}
-            let accepted:Bool
-            if protection == "OCO"{r.kind = .takeProfit;r.trigger=try Amount(profit);r.price=nil;r.reduceOnly=true;var second=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:.stopMarket,quantity:size,trigger:try Amount(stop));second.positionSide=r.positionSide;second.requestID=ocoRequestID;second.reduceOnly=true;second.leverage=leverage;second.marginMode=margin;accepted=await model.submit(r,oco:second,expectedContext:accountContext)}
-            else{accepted=await model.submit(r,expectedContext:accountContext)}
-            if accepted{submitted=true;onSubmitted()}
-        }catch{model.error=error.localizedDescription}
+            let outcome:OrderSubmissionOutcome
+            if protection == "OCO"{r.kind = .takeProfit;r.trigger=try Amount(profit);r.price=nil;r.reduceOnly=true;var second=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:.stopMarket,quantity:size,trigger:try Amount(stop));second.positionSide=r.positionSide;second.requestID=ocoRequestID;second.reduceOnly=true;second.leverage=leverage;second.marginMode=margin;outcome=await model.submit(r,oco:second,expectedContext:accountContext)}
+            else{outcome=await model.submit(r,expectedContext:accountContext)}
+            switch outcome{case .accepted:submitted=true;onSubmitted();case .rejected(let message):submitIssue=message}
+        }catch{submitIssue=error.localizedDescription}
     }
 }
 

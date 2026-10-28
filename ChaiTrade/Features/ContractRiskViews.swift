@@ -1,6 +1,30 @@
 import SwiftUI
 import ChaiTradeCore
 
+struct ContractAccessView:View{
+    @EnvironmentObject var model:AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var understood=false
+    @State private var saving=false
+    @State private var issue:String?
+    var body:some View{Form{
+        Section("先了解合約模擬"){
+            Text("合約與現貨不同：可開多、開空，並使用槓桿及保證金。價格、資金費與費用可能造成強平或穿倉；負債不會自動歸零。").font(.body)
+            Text("所有資金與委託都在本機模擬，不會連到交易所下單。啟用只影響目前帳戶；既有部位即使關閉合約功能仍可平倉。").font(.subheadline).foregroundStyle(.secondary)
+            Toggle("我已了解上述風險",isOn:$understood).accessibilityIdentifier("acknowledgeContractRisk")
+        }
+        if let issue{Text(issue).foregroundStyle(.orange)}
+        Button(saving ? "保存中…":"啟用本機合約功能"){enable()}.disabled(!understood || saving || model.interactionBlocked).accessibilityIdentifier("confirmContractAccess")
+    }.disabled(saving).navigationTitle("合約模擬風險").toolbar{Button("取消"){dismiss()}.disabled(saving)}.interactiveDismissDisabled(saving)}
+    private func enable(){
+        guard understood,!saving,let engine=model.engine,let context=model.context else{return};saving=true
+        Task{defer{saving=false};do{
+            try await engine.updatePreferences(leverageEnabled:true,context:context)
+            guard model.context==context else{return};await model.refresh();dismiss()
+        }catch{if model.context==context{issue=error.localizedDescription}}}
+    }
+}
+
 struct ContractPositionRiskView:View{
     @EnvironmentObject var model:AppModel
     let position:Position

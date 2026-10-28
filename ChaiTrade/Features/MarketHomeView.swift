@@ -48,9 +48,10 @@ struct MarketProductRow:View {
     @EnvironmentObject var model:AppModel
     let instrument:Instrument
     var owner:String="markets"
+    var onSelection:(()->Void)?=nil
     var body:some View{
         HStack(spacing:12){
-            Button{model.select(instrument)}label:{
+            Button{if let onSelection{onSelection()}else{model.select(instrument)}}label:{
                 HStack(spacing:12){
                     Text(String(instrument.symbol.prefix(2))).font(.caption.monospaced().bold()).frame(width:38,height:38).background(.orange.opacity(0.10),in:RoundedRectangle(cornerRadius:11))
                     VStack(alignment:.leading,spacing:4){Text(instrument.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2);Text(instrument.symbol+" · "+(instrument.identity?.exchange ?? instrument.asset.label)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)}

@@ -129,6 +129,10 @@ struct ChartAmendment: Identifiable {
     private var streamTask: Task<Void,Never>?
     let root: URL
     init() {
+        #if DEBUG
+        let modelInitStarted=ProcessInfo.processInfo.systemUptime
+        defer{if UITestSupport.session != nil{NSLog("CHAI_LAUNCH_PHASE modelInitMilliseconds %.1f",(ProcessInfo.processInfo.systemUptime-modelInitStarted)*1000)}}
+        #endif
         let base=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask).first!
         #if DEBUG
         root=UITestSupport.root(base:base)
@@ -161,6 +165,10 @@ struct ChartAmendment: Identifiable {
     }
     func boot() async {
         guard !booted,settings.onboarded else { return }
+        #if DEBUG
+        let accountBootStarted=ProcessInfo.processInfo.systemUptime
+        defer{if UITestSupport.session != nil{NSLog("CHAI_LAUNCH_PHASE accountBootMilliseconds %.1f",(ProcessInfo.processInfo.systemUptime-accountBootStarted)*1000)}}
+        #endif
         booted=true;loading=true;defer{loading=false}
         do {
             let target=settings.pendingMode ?? settings.activeMode
@@ -411,23 +419,23 @@ struct ChartAmendment: Identifiable {
             engine=replacement;context=next;state=await replacement.snapshot();clearChartCaches();restoreProductBrowsing();loadCredentialReadiness();stateRevision=UUID();restartStream()
         }catch{engine=nil;context=nil;state=nil;booted=false;throw error}
     }
-    @discardableResult func submit(_ request: OrderRequest, oco: OrderRequest? = nil, expectedContext:AccountContext?=nil) async ->Bool {
-        guard !interactionBlocked else{error="離線市場事件尚未處理完成，暫停新的委託";return false}
-        guard let engine,let context else{error="帳戶尚未準備完成";return false}
-        guard expectedContext == nil || expectedContext==context else{error="帳戶已變更，請重新開啟委託面板";return false}
+    func submit(_ request:OrderRequest,oco:OrderRequest?=nil,expectedContext:AccountContext?=nil)async->OrderSubmissionOutcome{
+        guard !interactionBlocked else{return .rejected("市場事件尚未處理完成，暫停新的委託")}
+        guard let engine,let context else{return .rejected("帳戶尚未準備完成")}
+        guard expectedContext==nil || expectedContext==context else{return .rejected("帳戶已變更，請重新開啟委託面板")}
         #if DEBUG
         await UITestSupport.submissionDelay()
         #endif
-        guard !interactionBlocked else{error="市場事件處理中，暫停新的委託";return false}
-        guard self.context==context else{error="帳戶已變更，未送出委託";return false}
-        if context.mode == .online,let instrument=state?.instruments.first(where:{$0.id==request.instrumentID}),!canTrade(instrument,board:instrument.board(for:request)){error="行情或交易條件已變更，請重新確認有效報價後再送出";return false}
+        guard !interactionBlocked else{return .rejected("市場事件處理中，暫停新的委託")}
+        guard self.context==context else{return .rejected("帳戶已變更，未送出委託")}
+        if context.mode == .online,let instrument=state?.instruments.first(where:{$0.id==request.instrumentID}),!canTrade(instrument,board:instrument.board(for:request)){return .rejected("行情或交易條件已變更，請重新確認有效報價後再送出")}
         do{
             if let oco{try await engine.submitOCO(request,oco,time:self.now,context:context)}else{_=try await engine.submit(request,time:self.now,context:context)}
-            notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh();return true
+            notice="委託已送入本機引擎；成交與保留請見委託頁";await refresh();return .accepted
         }catch{
             let message=error.localizedDescription
             if self.context==context{try? await engine.recordNotice("rejected",message:"委託拒絕："+String(message.prefix(250)),time:now,context:context);await refresh()}
-            self.error=message;return false
+            return .rejected(message)
         }
     }
 
@@ -461,14 +469,14 @@ struct ChartAmendment: Identifiable {
             case "both":
                 let otherMode: Mode=s.mode == .online ? .offline:.online
                 let root=self.root
-                let other=try await Task.detached{let repository=try AccountRepository(root:root,mode:otherMode);guard let full=try repository.fullSnapshot() else{throw TradeError.corrupt("另一帳戶不存在，完整備份中止")};return full}.value
-                let full=try await engine.fullSnapshot(context:context),time=self.now
+                let other=try await Task.detached{let repository=try AccountRepository(root:root,mode:otherMode);guard let full=try repository.fullSnapshot(maximumExpandedBytes:BackupService.legacyExpandedLimit) else{throw TradeError.corrupt("另一帳戶不存在，完整備份中止")};return full}.value
+                let full=try await engine.fullSnapshot(maximumExpandedBytes:BackupService.legacyExpandedLimit,context:context),time=self.now
                 data=try await Task.detached{try BackupService.exportBoth([full,other],password:password.isEmpty ? nil:password,time:time)}.value
             case "JSON":
                 var clean=try await engine.fullSnapshot(context:context);if s.mode == .online{clean.quotes=[:];clean.consumed=[:]};let full=clean
                 data=try await Task.detached{try AccountRepository.encode(full)}.value
             default:
-                let full=try await engine.fullSnapshot(context:context),time=self.now
+                let full=try await engine.fullSnapshot(maximumExpandedBytes:BackupService.legacyExpandedLimit,context:context),time=self.now
                 data=try await Task.detached{try BackupService.export(full,password:password.isEmpty ? nil:password,time:time)}.value
             }
             self.exportName="ChaiTrade-模擬交易-\(s.accountID)-\(kind).\(["CSV","ledger","orders"].contains(kind) ? "csv":kind == "JSON" ? "json":"chaitrade")"
@@ -487,13 +495,8 @@ struct ChartAmendment: Identifiable {
             let data=try Data(contentsOf:url,options:.mappedIfSafe)
             let restored=try await Task.detached{try BackupService.importAccount(data,expectedMode:context.mode,password:password)}.value
             self.maintainingAccount=true;defer{self.maintainingAccount=false}
-            let (token,current)=try await engine.beginMaintenance(context:context)
+            let token=try await engine.beginFileMaintenance(snapshotAt:self.recoveryURL("before-restore",context:context),context:context)
             do{
-            let time=self.now
-            let recovery=try await Task.detached{try BackupService.export(current,password:nil,time:time)}.value
-            let directory=self.root.appendingPathComponent("accounts/\(context.accountID)/snapshots")
-            try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
-            try recovery.write(to:directory.appendingPathComponent("before-restore-\(Date().timeIntervalSince1970).chaitrade"),options:.atomic)
             try await engine.restore(restored,maintenanceToken:token,retireAfterRestore:true,context:context);try await self.rebindRestoredAccount();self.notice="備份已驗證並原子還原；原帳戶已建立恢復點"
             }catch{try? await engine.endMaintenance(token:token,context:context);throw error}
         }

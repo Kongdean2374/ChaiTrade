@@ -64,10 +64,10 @@ public actor TradingEngine {
     public func journalPage(limit:Int=20,before:Int64?=nil,context:AccountContext)throws->[JournalPageRow]{try check(context);return try repository.journalPage(limit:limit,before:before)}
     public func journal(id:String,context:AccountContext)throws->JournalEntry?{try check(context);return try repository.journal(id:id)}
     public func equityPage(limit:Int=100,before:Int64?=nil,context:AccountContext)throws->[EquityPageRow]{try check(context);return try repository.equityPage(limit:limit,before:before)}
-    public nonisolated func fullSnapshot(context:AccountContext)async throws->AccountState{
+    public nonisolated func fullSnapshot(maximumExpandedBytes:Int?=nil,context:AccountContext)async throws->AccountState{
         guard context==self.context else{throw TradeError.wrongAccount}
         let repository=self.repository
-        return try await Task.detached(priority:.utility){guard let full=try repository.readSnapshot() else{throw TradeError.corrupt("帳戶不存在")};return full}.value
+        return try await Task.detached(priority:.utility){guard let full=try repository.readSnapshot(maximumExpandedBytes:maximumExpandedBytes) else{throw TradeError.corrupt("帳戶不存在")};return full}.value
     }
     public func beginMaintenance(context:AccountContext)async throws->(UUID,AccountState){
         try check(context);let token=UUID();maintenance=token

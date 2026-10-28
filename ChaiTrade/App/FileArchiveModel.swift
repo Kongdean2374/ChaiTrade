@@ -33,7 +33,7 @@ extension AppModel{
     private func fileProgress(_ generation:UUID)->@Sendable(Double)->Void{
         { [weak self] value in Task{@MainActor in guard let self,self.fileArchiveWorking,self.fileArchiveGeneration==generation else{return};if abs(value-self.fileArchiveProgress)>=0.005 || value>=1{self.fileArchiveProgress=value}} }
     }
-    private func recoveryURL(_ purpose:String,context:AccountContext)->URL{
+    func recoveryURL(_ purpose:String,context:AccountContext)->URL{
         root.appendingPathComponent("accounts/\(context.accountID)/snapshots/\(purpose)-\(Int64(Date().timeIntervalSince1970))-\(UUID().uuidString)/account.sqlite")
     }
     func startFileArchiveExport(password:String){

@@ -103,7 +103,7 @@ public final class AccountRepository: @unchecked Sendable {
             guard try SQLiteArchiveDatabase.strings(db,"PRAGMA journal_mode=DELETE")==["delete"] else{throw TradeError.unavailable("無法完成可攜式帳戶快照")}
         }
     }
-    public func readSnapshot()throws->AccountState?{try AccountRepository(reading:path,mode:mode).fullSnapshot()}
+    public func readSnapshot(maximumExpandedBytes:Int?=nil)throws->AccountState?{try AccountRepository(reading:path,mode:mode).fullSnapshot(maximumExpandedBytes:maximumExpandedBytes)}
     func exec(_ sql: String) throws {
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw TradeError.corrupt("SQLite 交易失敗（\(sqlite3_errcode(db))）；未套用本次變更") }
     }
@@ -403,11 +403,14 @@ public final class AccountRepository: @unchecked Sendable {
         return try readRows(AuditEvent.self,sql:"SELECT payload FROM events WHERE id=? AND account_id=? LIMIT 1",values:[id,mode.accountID]).first
     }
     /// Explicit full-history operation for backup/integrity checks, never used to render a screen.
-    public func fullSnapshot()throws->AccountState?{
+    public func fullSnapshot(maximumExpandedBytes:Int?=nil)throws->AccountState?{
         lock.lock();defer{lock.unlock()}
         try exec("BEGIN DEFERRED")
         var committed=false
         defer{if !committed{try? exec("ROLLBACK")}}
+        if let maximumExpandedBytes{
+            guard maximumExpandedBytes>0,try legacyJSONLowerBoundUnlocked()<=Int64(maximumExpandedBytes) else{throw TradeError.invalid("此帳戶已超過舊格式備份容量。請使用上方完整檔案封存；原帳戶與歷史保留。")}
+        }
         guard let json=try scalar("SELECT payload FROM account_state LIMIT 1") else{return nil}
         var s=try JSONDecoder().decode(AccountState.self,from:Data(json.utf8))
         s.orders=Dictionary(uniqueKeysWithValues:try readRows(Order.self,sql:"SELECT payload FROM orders").map{($0.id,$0)})

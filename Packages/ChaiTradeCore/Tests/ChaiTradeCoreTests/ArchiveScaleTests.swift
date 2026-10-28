@@ -41,6 +41,9 @@ private func scalePNG()->Data{
     let token=try await engine.beginFileMaintenance(snapshotAt:database,context:context);try await engine.endMaintenance(token:token,context:context)
     let size=try #require(try FileManager.default.attributesOfItem(atPath:database.path)[.size] as? NSNumber).int64Value
     try #require(size>512_000_000)
+    var legacyRejectedBeforeMaterializing=false
+    do{_=try repository.fullSnapshot(maximumExpandedBytes:BackupService.legacyExpandedLimit)}catch{legacyRejectedBeforeMaterializing=error.localizedDescription.contains("完整檔案封存")}
+    try #require(legacyRejectedBeforeMaterializing)
     let baseline=residentPeakBytes(),archive=root.appendingPathComponent("complete.chaitradearchive")
     try StreamingArchiveService.export(snapshotRoot:snapshot,mode:.online,to:archive,password:"large-file-password",time:1500)
     let stage=root.appendingPathComponent("restored"),verified=try StreamingArchiveService.validate(archive,stagingRoot:stage,expectedMode:.online,password:"large-file-password")
@@ -55,7 +58,9 @@ private func scalePNG()->Data{
     try #require(count==320);let peak=residentPeakBytes();let memoryPass=baseline>0 && peak>0 && peak-baseline<128*1024*1024
     let cancelled=root.appendingPathComponent("cancelled.chaitradearchive")
     let work=Task.detached{try StreamingArchiveService.export(snapshotRoot:snapshot,mode:.online,to:cancelled,password:nil,time:1500,progress:{_ in withUnsafeCurrentTask{$0?.cancel()}})}
-    await #expect(throws:CancellationError.self){try await work.value}
+    var cancelledCorrectly=false
+    do{try await work.value}catch is CancellationError{cancelledCorrectly=true}
+    try #require(cancelledCorrectly)
     try #require(!FileManager.default.fileExists(atPath:cancelled.path));try #require(try repository.journal(id:"scale-0")?.screenshot==image && repository.load()?.cash==initial.cash)
     let report:[String:Any]=["databaseBytes":size,"archiveBytes":try FileManager.default.attributesOfItem(atPath:archive.path)[.size] as Any,"journals":count,"hotJournals":hot.journals.count,"baselinePeakBytes":baseline,"peakBytes":peak,"additionalPeakBytes":peak-baseline,"elapsedSeconds":Double(started.duration(to:clock.now).components.seconds),"passed":memoryPass,"note":"Synthetic encrypted streaming SQLite/PNG archive; not iPhone memory, launch or UI performance acceptance"]
     let json=try JSONSerialization.data(withJSONObject:report,options:[.sortedKeys,.prettyPrinted]);print("ARCHIVE_SCALE_METRICS",String(decoding:json,as:UTF8.self))

@@ -32,6 +32,7 @@ func liveVisibleBTCETHContinuousQuotesChartsRecoveryAndLocalExecution()async thr
             let requestedAt=Int64(Date().timeIntervalSince1970),quote=try await provider.quote(instrument,now:requestedAt,includeSummary:true)
             let now=Int64(Date().timeIntervalSince1970)
             print("LIVE_QUOTE_TIMING_SECONDS",instrument.symbol,"request",requestedAt,"receipt",quote.receivedAt,"checked",now,"source",quote.time)
+            print("LIVE_QUOTE_QUALITY",instrument.symbol,quote.quality.rawValue,quote.grade.rawValue,"valid",quote.valid,"issue",quote.sourceIssue?.rawValue ?? "none","ageSeconds",now-quote.time,"maximumAge",quote.maximumAge)
             try #require(quote.valid && quote.quality == .realtime && quote.grade == .E1)
             try #require(quote.time<=now+5 && now-quote.time<=quote.maximumAge)
             try #require(quote.receivedAt>=requestedAt && abs(now-quote.receivedAt)<=1)

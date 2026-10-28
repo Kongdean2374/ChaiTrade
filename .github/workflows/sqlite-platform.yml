@@ -5,6 +5,22 @@ on:
 permissions:
   contents: read
 jobs:
+  archive-memory-independent:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Diagnose the same archive memory gate independently of live source availability
+        run: bash scripts/test_archive_scale.sh
+      - name: Preserve successful or failed memory evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: archive-memory-independent-${{ github.sha }}
+          path: build/logs/
+          if-no-files-found: error
   sqlite-platform:
     runs-on: macos-15
     timeout-minutes: 10

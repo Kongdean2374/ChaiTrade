@@ -31,7 +31,8 @@ public struct AccountBackupBundle: Codable, Sendable {
     public var checksums: [String]
 }
 public enum BackupService {
-    private static let expandedLimit = 512_000_000
+    public static let legacyExpandedLimit = 512_000_000
+    private static let expandedLimit = legacyExpandedLimit
     static func compress(_ data:Data)throws->Data{
         var size=compressBound(uLong(data.count)),out=Data(count:Int(compressBound(uLong(data.count))))
         let status=out.withUnsafeMutableBytes{dst in data.withUnsafeBytes{src in compress2(dst.bindMemory(to:UInt8.self).baseAddress,&size,src.bindMemory(to:UInt8.self).baseAddress,uLong(data.count),Z_BEST_SPEED)}}

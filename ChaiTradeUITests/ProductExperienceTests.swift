@@ -169,7 +169,7 @@ import XCTest
     func testActualPublicSourceDirectoryAddsOnlySelectedIdentityAndRoutesToProduct()throws{
         let app=launchClean();defer{finish()};try onboard(app,online:true)
         let before=try state(app),initialIDs=Set((before["instruments"] as? [[String:String]] ?? []).compactMap{$0["id"]})
-        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
+        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap();app.buttons["exploreSourceCatalogs"].tap()
         let source=app.buttons["catalogSource-coinbase"];try reveal(source,in:app);source.tap()
         let message=app.staticTexts["sourceCatalogMessage"]
         try waitUntil("Actual public source directory did not load",timeout:30){message.exists && message.label.contains("已取得")}
@@ -187,10 +187,24 @@ import XCTest
         for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Discovery created "+key)}
         capture("AFTER selected public identity in product")
     }
+    func testOfflineCatalogSearchSelectsRealETFWithoutChangingAccount()throws{
+        let app=launchClean();defer{finish()};try onboard(app)
+        let before=try state(app)
+        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
+        let search=app.textFields["catalogSearch"];try check(search.waitForExistence(timeout:5),"Catalog is an information dead end without direct search")
+        search.tap();search.typeText("0050")
+        let item=app.buttons["market-SIM:TWSE:0050"];try check(item.waitForExistence(timeout:5),"Real offline ETF cannot be found in catalog");try reveal(item,in:app)
+        capture("AFTER searchable real offline catalog and quote");item.tap()
+        try waitUntil("Catalog selection did not open the ETF product"){(try? self.state(app)["selected"] as? String)=="SIM:TWSE:0050" && !app.textFields["catalogSearch"].exists}
+        let after=try state(app)
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Catalog moved account money")
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Catalog created "+key)}
+        capture("AFTER selected real ETF opens product directly")
+    }
     func testMissingFugleKeyExplainsDirectoryFailureWithoutChangingAccount()throws{
         let app=launchClean();defer{finish()};try onboard(app,online:true)
         let before=try state(app)
-        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
+        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap();app.buttons["exploreSourceCatalogs"].tap()
         let source=app.buttons["catalogSource-fugle"];try reveal(source,in:app);source.tap()
         let message=app.staticTexts["sourceCatalogMessage"]
         try check(message.waitForExistence(timeout:10) && message.label.contains("金鑰"),"Missing directory credential was not explained")
@@ -203,7 +217,7 @@ import XCTest
     func testActualOfficialUSDirectoryReturnsToETFWithoutGrantingQuotePermission()throws{
         let app=launchClean();defer{finish()};try onboard(app,online:true)
         let before=try state(app)
-        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
+        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap();app.buttons["exploreSourceCatalogs"].tap()
         let source=app.buttons["catalogSource-alpaca"];try reveal(source,in:app);source.tap();app.buttons["搜尋官方美股／ETF目錄"].tap()
         let search=app.textFields["usDirectorySearch"];try check(search.waitForExistence(timeout:5),"US identity search missing");search.tap();search.typeText("SPY")
         let update=app.buttons["搜尋官方目錄"];try reveal(update,in:app);update.tap()
@@ -266,6 +280,13 @@ import XCTest
         let app=launchClean();defer{finish()};try onboard(app,currency:"USDT")
         app.buttons["marketCrypto"].tap();app.tabBars.buttons["行情"].tap();app.buttons["合約"].tap()
         let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app);product.tap()
+        let originalCash=try state(app)["cash"] as? [String:String]
+        let enable=app.buttons["enableContractTrading"];try check(enable.waitForExistence(timeout:5),"Disabled contract feature has no clear next step");enable.tap()
+        app.switches["acknowledgeContractRisk"].tap();app.buttons["取消"].tap()
+        try check(try state(app)["leverageEnabled"] as? Bool==false,"Canceled consent enabled contracts")
+        try check((try state(app)["cash"] as? [String:String])==originalCash,"Canceled consent changed money")
+        enable.tap();app.switches["acknowledgeContractRisk"].tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app);accept.tap()
+        try waitUntil("Explicit risk acceptance did not enable this account"){(try? self.state(app)["leverageEnabled"] as? Bool)==true && app.buttons["openOrder"].exists}
         app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         let size=app.textFields["orderQuantity"];try reveal(size,in:app);size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"0.001")
         var review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()

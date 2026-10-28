@@ -82,22 +82,60 @@ struct MarketsView:View {
         if !recent.isEmpty{ScrollView(.horizontal,showsIndicators:false){HStack{Text("最近瀏覽").font(.caption).foregroundStyle(.secondary);ForEach(Array(recent.prefix(8))){i in Button(i.symbol){model.select(i)}.font(.caption).buttonStyle(.bordered)}}}}
     }
 }
+private struct CatalogBrowse{var query:String;var category:String;var page=0}
 struct ProductCatalogView:View{
     @EnvironmentObject var model:AppModel
     @Environment(\.dismiss) var dismiss
+    @State private var filters:[MarketDomain:CatalogBrowse]=[:]
+    private var domain:MarketDomain{model.market}
+    private var browsing:CatalogBrowse{filters[domain] ?? CatalogBrowse(query:model.currentBrowsing.search,category:categories.contains(model.currentBrowsing.category) ? model.currentBrowsing.category:(domain == .crypto ? "現貨":"全部"))}
+    private var query:String{browsing.query}
+    private var category:String{browsing.category}
+    private var page:Int{browsing.page}
+    private var categories:[String]{domain == .stocks ? ["全部","台股","美股","ETF"]:domain == .crypto ? ["現貨","合約"]:["全部","外匯","期貨","指數"]}
+    private var matching:[Instrument]{
+        (model.state?.instruments ?? []).filter{i in
+            guard i.identity?.legacy != true,i.market==domain else{return false}
+            let asset:AssetClass?=switch category{case "台股":.taiwanStock;case "美股":.usStock;case "ETF":.etf;case "現貨":.crypto;case "合約":.perpetual;case "外匯":.forex;case "期貨":.future;case "指數":.index;default:nil}
+            guard asset==nil || i.asset==asset else{return false}
+            return query.isEmpty || i.symbol.localizedCaseInsensitiveContains(query) || i.name.localizedCaseInsensitiveContains(query)
+        }.sorted{($0.symbol,$0.id)<($1.symbol,$1.id)}
+    }
     var body:some View{List{
-        Section("內建商品"){
-            Text("股票、ETF、加密現貨、合約、外匯與期貨均有獨立身份；相同代碼在不同交易所不會合併。")
-            LabeledContent("目前商品數",value:String(model.state?.instruments.filter{$0.identity?.legacy != true}.count ?? 0))
-            Text(model.state?.mode == .offline ? "內建真實名稱與代碼，價格、新聞及成交全為離線模擬。飛航模式也可探索。":"目錄有商品身份不代表已取得即時行情或交易規則授權。請查看每個商品的狀態。").font(.caption)
+        Section("搜尋本機商品目錄"){
+            TextField("代碼或商品名稱",text:Binding(get:{query},set:{value in var updated=browsing;updated.query=value;updated.page=0;filters[domain]=updated;model.editBrowsing(domain){$0.search=value}})).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("catalogSearch")
+            Picker("市場",selection:Binding(get:{domain},set:{model.switchMarket($0)})){ForEach(MarketDomain.allCases,id:\.self){Text($0.label)}}.accessibilityIdentifier("catalogMarket")
+            Picker("分類",selection:Binding(get:{category},set:{value in var updated=browsing;updated.category=value;updated.page=0;filters[domain]=updated;model.editBrowsing(domain){$0.category=value}})){ForEach(categories,id:\.self){Text($0)}}.accessibilityIdentifier("catalogCategory")
+            Text(model.state?.mode == .offline ? "真實名稱與代碼；所有價格、新聞與成交均為離線模擬。飛航也可搜尋與選取。":"身份不代表行情或交易權限；選取後會顯示可用價格及具體限制。").font(.caption).foregroundStyle(.secondary)
         }
-        if model.state?.mode == .online{Section("從來源更新商品目錄"){
+        if model.state?.mode == .online{Section{NavigationLink("探索更多來源商品"){SourceCatalogLinksView()}.accessibilityIdentifier("exploreSourceCatalogs")}}
+        Section("符合 \(matching.count) 個商品 · 第 \(page+1) 頁"){
+            ForEach(Array(matching.dropFirst(page*20).prefix(20))){instrument in
+                MarketProductRow(instrument:instrument,owner:"catalog",onSelection:{
+                    guard model.context != nil else{return};model.catalogVisible=false;dismiss();model.select(instrument)
+                })
+            }
+            if matching.isEmpty{Text("此市場沒有符合的商品。可調整分類、搜尋或切換市場。").font(.subheadline).foregroundStyle(.secondary)}
+            HStack{Button("上一頁"){guard page>0 else{return};var updated=browsing;updated.page-=1;filters[domain]=updated}.disabled(page==0);Spacer();Button("下一頁"){guard (page+1)*20<matching.count else{return};var updated=browsing;updated.page+=1;filters[domain]=updated}.disabled((page+1)*20>=matching.count)}
+        }
+        Section("商品身份"){
+            Text("股票、ETF、現貨、合約、外匯與期貨各自保留交易所、幣別及交易單位；同名跨交易所商品不合併。").font(.caption)
+            LabeledContent("全部本機商品",value:String(model.state?.instruments.filter{$0.identity?.legacy != true}.count ?? 0))
+            if model.state?.mode == .offline{NavigationLink("自訂離線商品"){CustomInstrumentView()};NavigationLink("舊版自訂商品與原部位"){LegacyProductsView()}}
+        }
+    }.navigationTitle("商品目錄").scrollDismissesKeyboard(.immediately).toolbar{Button("完成"){dismiss()}}
+        .onDisappear{model.removeVisibleOwner("catalog")}
+    }
+}
+struct SourceCatalogLinksView:View{
+    @EnvironmentObject var model:AppModel
+    var body:some View{List{
+        if model.context?.mode == .online{Section("合法來源商品身份"){
             NavigationLink("搜尋官方美股／ETF目錄"){USStockDiscoveryView()}
             ForEach(ProviderID.allCases,id:\.self){id in NavigationLink(id.label){SourceProductDiscoveryView(id:id)}.accessibilityIdentifier("catalogSource-"+id.rawValue)}
-            Text("來源頁會說明支援市場、權限與限制。更新採加入及核對身份；不改寫既有部位成別的商品。").font(.caption)
-        }}else{Section{NavigationLink("自訂離線商品"){CustomInstrumentView()};NavigationLink("舊版自訂商品"){LegacyProductsView()}}}
-        Section("尋找商品"){Text("關閉此頁後，在行情頁搜尋 BTC、ETH、2330 或 0050。可依市場、分類、自選及分組篩選。").font(.subheadline)}
-    }.navigationTitle("商品目錄").toolbar{Button("完成"){dismiss()}}}
+            Text("依來源權限查核並加入單一商品；不覆寫原持倉、歷史或規則。目錄、行情與可成交權限分開確認。").font(.caption)
+        }}else{Text("B完全離線；可返回本機目錄探索商品。")}
+    }.navigationTitle("來源商品目錄")}
 }
 struct LegacyProductsView:View{
     @EnvironmentObject var model:AppModel
