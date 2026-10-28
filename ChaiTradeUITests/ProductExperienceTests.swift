@@ -307,7 +307,9 @@ import XCTest
         try check((try state(app)["positions"] as? [String:String])?[instrument]=="0.001","Contract open produced the wrong position")
         app.tabBars.buttons["交易"].tap();let close=app.buttons["closePosition-"+instrument];try reveal(close,in:app)
         capture("AFTER contract position with explicit close and risk");close.tap()
-        try check(app.staticTexts["平多"].firstMatch.waitForExistence(timeout:5),"Close draft lost its direction")
+        let direction=app.descendants(matching:.any)["orderDirection"].firstMatch
+        try check(direction.waitForExistence(timeout:5) && direction.value as? String=="平多","Close draft lost its direction")
+        let closeDraft=try state(app);try check(closeDraft["tradeSide"] as? String=="sell" && closeDraft["tradeProduct"] as? String==instrument,"Close draft identity or declared sell direction changed")
         try check(app.textFields["orderQuantity"].value as? String=="0.001","Close draft did not use held quantity")
         app.buttons["orderKind"].tap();app.buttons["市價"].tap();review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
         try waitUntil("Contract close did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}

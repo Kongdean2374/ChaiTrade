@@ -51,6 +51,7 @@ struct ChartAmendment: Identifiable {
 
 @MainActor final class AppModel: ObservableObject {
     #if DEBUG
+    @Published var uiTestOrderDismissRequests=0
     @Published var uiTestOperations=0
     @Published var uiTestMutationStarts=0
     @Published var uiTestMaxOperations=0

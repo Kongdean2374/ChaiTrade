@@ -61,7 +61,7 @@ import XCTest
         let eth=app.buttons["trade-product-SIM:Coinbase_Exchange:ETH-USD"];try reveal(eth,in:app);eth.tap()
         try waitUntil("Independent trade picker failed"){(try? self.state(app)["tradeProduct"] as? String)=="SIM:Coinbase_Exchange:ETH-USD"}
         capture("FLOW independent trade picker changed BTC to ETH")
-        app.buttons["openOrder"].tap();let size=app.textFields["orderQuantity"];try reveal(size,in:app)
+        let open=app.buttons["openOrder"];try check(open.waitForExistence(timeout:5),"New ETH quote did not enable an explicit order entry");open.tap();let size=app.textFields["orderQuantity"];try reveal(size,in:app)
         try check(size.value as? String=="0.001","Another product quantity leaked into ETH")
         size.tap();size.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:8)+"0.01")
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
@@ -138,6 +138,45 @@ import XCTest
         try check(try state(app)["market"] as? String=="stocks","News changed browser market")
         try check((try state(app)["orders"] as? [String])?.isEmpty==true,"Reading news submitted an order")
         capture("FLOW crypto trade news remains crypto with stock browser preserved")
+    }
+    func testKeyboardOpenCanScrollAndSelectASecondSearchResultWithoutChangingFavorites()throws{
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
+        app.tabBars.buttons["交易"].tap();app.buttons["tradeProductPicker"].tap();app.buttons["tradePickerMarket"].tap();app.buttons["加密貨幣"].tap()
+        let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("ETH")
+        try check(app.keyboards.firstMatch.exists,"Picker scroll case did not open keyboard")
+        let rows=app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","trade-product-"))
+        try check(rows.firstMatch.identifier=="trade-product-SIM:Coinbase_Exchange:ETH-USD","Exact ETH ticker is ranked below a name substring")
+        let second=app.buttons["trade-product-SIM:Coinbase_Exchange:ETC-USD"];try reveal(second,in:app);second.tap()
+        try waitUntil("Second result could not be selected after keyboard scrolling"){(try? self.state(app)["tradeProduct"] as? String)=="SIM:Coinbase_Exchange:ETC-USD"}
+        let after=try state(app);try check((after["watchlist"] as? [String])?.isEmpty==true,"Scroll accidentally toggled a favorite")
+        try check((after["orders"] as? [String])?.isEmpty==true,"Search result selection sent an order")
+        capture("FLOW keyboard second result scrolls and selects with favorites unchanged")
+    }
+    func testOrderKindWholeRowOpensRepeatedlyWhileChartLoadsBehindModal()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let baseline=try state(app);app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
+        try check(app.navigationBars["模擬下單"].waitForExistence(timeout:5),"Order form missing")
+        for label in ["市價","限價","市價","限價","市價","限價"]{
+            let kind=app.buttons["orderKind"];try check(kind.isHittable,"Order kind row is not reachable")
+            kind.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)).tap()
+            let option=app.buttons[label];try check(option.waitForExistence(timeout:3),"Whole-row order menu tap did not present "+label);option.tap()
+            try check(app.navigationBars["模擬下單"].exists,"Menu changed page or dismissed order form")
+        }
+        let after=try state(app);try check((after["orders"] as? [String])?.isEmpty==true && (after["cash"] as? [String:String])==(baseline["cash"] as? [String:String]),"Order type changes submitted or moved funds")
+        capture("FLOW repeated order type row taps remain in exact unsent form")
+    }
+    func testVerticalDragInsideRenderedInlineChartScrollsTheProductPage()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        app.tabBars.buttons["交易"].tap();let chart=app.webViews["inlineChartWeb"].firstMatch
+        try check(chart.waitForExistence(timeout:10),"Inline chart missing");try reveal(chart,in:app)
+        try waitUntil("Scroll case has no actual rendered chart",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
+        let frame=chart.frame,baseline=try state(app);capture("FLOW chart fully visible before vertical page drag")
+        let origin=app.coordinate(withNormalizedOffset:.zero),x=frame.midX,y=frame.midY
+        origin.withOffset(CGVector(dx:x,dy:y)).press(forDuration:0.1,thenDragTo:origin.withOffset(CGVector(dx:x,dy:y-120)),withVelocity:.slow,thenHoldForDuration:0.1)
+        try check(chart.frame.minY<frame.minY-40,"Inline chart consumed vertical page drag")
+        let after=try state(app);try check(after["selected"] as? String==baseline["selected"] as? String,"Chart page drag changed product")
+        try check((after["orders"] as? [String])?.isEmpty==true && (after["cash"] as? [String:String])==(baseline["cash"] as? [String:String]),"Chart drag changed account")
+        capture("FLOW vertical chart gesture scrolls page without changing product or account")
     }
     func testUnsentTradeDraftAndIdentitySurviveColdRelaunch()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)

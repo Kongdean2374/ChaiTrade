@@ -52,9 +52,9 @@ struct RootView: View {
         .onChange(of:model.catalogNavigationRevision){_,_ in settings=false}
         .confirmationDialog("保留目前未送出的交易草稿？",isPresented:Binding(get:{model.pendingTrade != nil},set:{if !$0{model.pendingTrade=nil}}),titleVisibility:.visible){
             Button("保留原草稿"){model.pendingTrade=nil}
-            Button("放棄草稿並切換商品／方向",role:.destructive){model.discardAndApplyTrade()}
+            if let intent=model.pendingTrade{Button("放棄草稿並切換商品／方向",role:.destructive){model.applyTrade(intent)}}
             Button("取消",role:.cancel){model.pendingTrade=nil}
-        }message:{Text("新商品會重新載入價格、數量、單位與風險規則。保留原草稿將取消本次切換；任何選擇都不會自動送單。")}
+        }message:{Text(model.tradeConflictDescription)}
         .onReceive(NoticeTapMailbox.shared.$pending.compactMap{$0}){link in NoticeTapMailbox.shared.pending=nil;Task{await model.handleNoticeLink(link)}}
         .confirmationDialog("這則通知屬於另一個獨立帳戶",isPresented:Binding(get:{model.requestedAccountNotice != nil},set:{if !$0{model.requestedAccountNotice=nil}}),titleVisibility:.visible){
             if let link=model.requestedAccountNotice{Button("下次完整啟動切換至 "+link.mode.label){model.queueNoticeAccountSwitch(link)}}

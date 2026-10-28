@@ -9,6 +9,9 @@ vm.runInNewContext(fs.readFileSync('ChaiTrade/Resources/ChartWeb/chart.js','utf8
 const candle={time:Date.parse('2026-10-27T01:30:00Z')/1000,open:100,high:102,low:99,close:101,volume:10};
 const data={id:'synthetic-chart-test',account:'test',epoch:'test',candles:[candle],overlays:[],drawings:[],lines:[],line:false,taiwan:true,dark:false,timeZone:'Asia/Taipei',fontSize:16};
 sandbox.window.render(data);
+assert.equal(options[0].handleScroll?.vertTouchDrag,false,"Inline charts must yield vertical drags to the page");
+assert.equal(options[0].handleScroll?.horzTouchDrag,true);
+assert.equal(options[0].handleScale?.axisPressedMouseMove?.price,false,"Inline price axis must not consume page scroll");
 assert.equal(document.body.style.background,'#fff');assert.equal(options[0].layout.fontSize,16);
 assert.match(options[0].timeScale.tickMarkFormatter(candle.time,3),/09:30/);
 assert.match(options[0].localization.timeFormatter(candle.time),/2026.*10.*27.*09:30/);
@@ -18,4 +21,7 @@ sandbox.window.render({...data,taiwan:false,timeZone:'America/New_York',dark:tru
 assert.equal(document.body.style.background,'#101318');assert.match(options.at(-1).timeScale.tickMarkFormatter(candle.time,3),/21:30/);
 assert.equal(plotted.filter(s=>s.kind==='volume').at(-1).data[0].color,'#35b79238');
 assert.equal(styles['--chart-font'],'16px');assert.match(node('credit').textContent,/模擬交易.*America\/New_York/);
+sandbox.window.render({...data,fullscreen:true});
+assert.equal(options.at(-1).handleScroll.vertTouchDrag,true);
+assert.equal(options.at(-1).handleScale.axisPressedMouseMove.price,true);
 console.log('Chart timezone, theme, accessibility font, volume axis/colors and local rendering checks passed.');

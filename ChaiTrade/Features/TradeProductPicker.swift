@@ -21,6 +21,12 @@ struct TradeProductPicker:View {
     private var pool:[Instrument]{(model.state?.instruments ?? []).filter{$0.market==domain && $0.asset != .index}}
     private var categories:[String]{domain == .stocks ? ["全部","台股","美股","ETF"]:domain == .crypto ? ["現貨","合約"]:["全部","外匯","期貨"]}
     private var recent:[String]{model.browsing[domain]?.recent ?? []}
+    private func queryPriority(_ i:Instrument)->Int{
+        let query=current.query.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard !query.isEmpty else{return 0}
+        if i.symbol.caseInsensitiveCompare(query) == .orderedSame || i.identity?.baseAsset.caseInsensitiveCompare(query) == .orderedSame{return 0}
+        return i.symbol.lowercased().hasPrefix(query.lowercased()) ? 1:2
+    }
     private var matching:[Instrument]{pool.filter{i in
         let f=current,query=f.query.trimmingCharacters(in:.whitespacesAndNewlines)
         if !query.isEmpty && ![i.name,i.symbol,i.id,i.identity?.exchange ?? ""].contains(where:{$0.localizedCaseInsensitiveContains(query)}){return false}
@@ -36,6 +42,7 @@ struct TradeProductPicker:View {
         return true
     }.sorted{a,b in
         if current.collection == "最近查看"{return (recent.firstIndex(of:a.id) ?? Int.max)<(recent.firstIndex(of:b.id) ?? Int.max)}
+        if queryPriority(a) != queryPriority(b){return queryPriority(a)<queryPriority(b)}
         return (a.identity?.legacy == true ? 1:0,a.symbol,a.id)<(b.identity?.legacy == true ? 1:0,b.symbol,b.id)
     }}
     var body:some View{List{
@@ -51,7 +58,7 @@ struct TradeProductPicker:View {
                 Picker("可交易狀態",selection:value(\.availability)){ForEach(["全部","目前可交易","暫不可交易"],id:\.self){Text($0)}}
             }.accessibilityIdentifier("tradePickerFilters")}
             HStack{Text("符合 \(matching.count) 個商品").accessibilityIdentifier("tradePickerCount");Spacer();Button("清除篩選"){filters[domain]=defaults;page=40}.accessibilityIdentifier("tradePickerClear")}.font(.subheadline)
-            if searching{Button("顯示搜尋結果"){searching=false}.accessibilityIdentifier("tradePickerFinishSearch")}
+            if searching && matching.isEmpty{Button("顯示搜尋結果"){searching=false}.accessibilityIdentifier("tradePickerFinishSearch")}
             if !searching{Text("選取商品只更新表單；不會切換 A／B 帳戶或自動送單。行情權限與開市狀態會再次檢查。").font(.caption).foregroundStyle(.secondary)}
         }
         Section{

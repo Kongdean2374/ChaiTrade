@@ -11,6 +11,13 @@ struct TradeHandoff:Identifiable {
     let closingPosition:Position?
 }
 extension AppModel {
+    var tradeConflictDescription:String{
+        let old=tradeInstrument.map{$0.name+"（"+$0.symbol+"）"} ?? "目前商品"
+        let target=pendingTrade.flatMap{intent in state?.instruments.first{intent.product.matches($0)}}
+        let next=target.map{$0.name+"（"+$0.symbol+" · "+($0.identity?.exchange ?? "自訂")+" · "+$0.currency+"）"} ?? "新商品"
+        let direction=target.map{pendingTrade?.side == .sell ? $0.sellLabel:$0.buyLabel} ?? ""
+        return "目前草稿："+old+"。\n將切換為："+next+" "+direction+"。\n新商品重新載入價格、數量、單位與風險規則。保留原草稿會取消本次切換；不會自動送單。"
+    }
     var tradeInstrument:Instrument?{guard let product=tradeWorkspace?.product else{return nil};return state?.instruments.first{product.matches($0)}}
     func restoreTradeWorkspace(){
         tradeSaveTask?.cancel();tradeDirty=false;pendingTrade=nil;tradeFormRequest=nil;tradeClosingPosition=nil;tradeSession=UUID();marketPaths=[:]
@@ -32,6 +39,7 @@ extension AppModel {
         applyTrade(intent)
     }
     func applyTrade(_ intent:TradeHandoff){
+        if let pendingTrade,pendingTrade.id != intent.id{return}
         guard context==intent.context,let i=state?.instruments.first(where:{intent.product.matches($0)}) else{pendingTrade=nil;return}
         let same=tradeWorkspace?.product==intent.product && tradeWorkspace?.side==intent.side && tradeWorkspace?.board==intent.board && intent.closingPosition==nil
         if !same{tradeWorkspace=TradeWorkspace(accountID:intent.context.accountID,instrument:i,side:intent.side,revision:(tradeWorkspace?.revision ?? 0)+1);tradeWorkspace?.board=intent.board;tradeSession=UUID();saveTradeSoon()}

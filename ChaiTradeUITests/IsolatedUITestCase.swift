@@ -41,6 +41,8 @@ import XCTest
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
         let screen=app.frame,navigation=app.navigationBars.allElementsBoundByIndex.last,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
         let keyboardAssistant=app.otherElements["SystemInputAssistantView"].firstMatch,keyboardInput=app.otherElements["inputView"].firstMatch
+        let keyboardToolbars=app.toolbars.allElementsBoundByIndex
+        var measuredKeyboard:CGRect?,keyboardOcclusion:CGFloat?
         // A presented sheet retains the underlying TabBar in the AX tree. Its frame
         // does not occlude the sheet; use the foreground navigation and hittable bars.
         let tabBottom=tabs.exists && tabs.isHittable ? tabs.frame.minY:screen.maxY
@@ -51,10 +53,19 @@ import XCTest
         let hasFooter = !["openOrder","openSellOrder","submitOrder","saveJournal","enableContractTrading"].contains(targetID) && footer.exists && footer.isHittable
         func usableViewport()->CGRect{
             let top=navigation?.frame.maxY ?? screen.minY
-            var bottom=keyboard.exists ? keyboard.frame.minY:tabBottom
-            // The iOS prediction/accessory strip sits above Keyboard.frame.
-            // Starting a drag there hits the keyboard, never the foreground list.
-            if keyboard.exists{for strip in [keyboardAssistant,keyboardInput] where strip.exists{let frame=strip.frame;if frame.height>0,frame.minY>top{bottom=min(bottom,frame.minY)}}}
+            var bottom=tabBottom
+            if keyboard.exists{
+                let frame=keyboard.frame
+                if measuredKeyboard != frame{
+                    measuredKeyboard=frame;var obstruction=frame.minY
+                    for strip in [keyboardAssistant,keyboardInput] where strip.exists{let rect=strip.frame;if rect.height>0,rect.minY>top{obstruction=min(obstruction,rect.minY)}}
+                    // The custom 48pt keyboard toolbar is above the prediction strip.
+                    // Use its actual frame; otherwise swipes land on the Done button.
+                    for bar in keyboardToolbars where bar.exists{let rect=bar.frame;if rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=frame.minY+1,rect.maxY>=frame.minY-180{obstruction=min(obstruction,rect.minY)}}
+                    keyboardOcclusion=obstruction
+                }
+                bottom=min(frame.minY,keyboardOcclusion ?? frame.minY)
+            }
             if hasFooter{bottom=min(bottom,footer.frame.minY)}
             return CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
         }
@@ -96,11 +107,11 @@ import XCTest
     func enterVerified(_ text:String,into element:XCUIElement)throws{
         element.tap()
         try check((element.value as? String ?? "").isEmpty,"Text editor did not start empty")
-        var expected=""
-        for character in text{
-            element.typeText(String(character));expected.append(character)
-            try check(element.value as? String==expected,"Keyboard input differs before any save")
-        }
+        // Inject the complete rapid input, then verify the entire exact value before
+        // saving. Per-character automation round trips were consuming the 120s case
+        // budget; persisted-text and idempotency assertions remain unchanged.
+        element.typeText(text)
+        try check(element.value as? String==text,"Keyboard input differs before any save")
     }
     func finish(){
         capture("final")

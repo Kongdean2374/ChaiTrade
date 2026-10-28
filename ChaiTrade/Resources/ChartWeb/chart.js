@@ -16,7 +16,7 @@ function create(data){
  document.documentElement.style.setProperty('--chart-bottom',(font+25)+'px');
  document.getElementById('credit').textContent='TradingView Lightweight Charts™ · 模擬交易 · '+zone;
 
- chart=LightweightCharts.createChart(root,{autoSize:true,layout:{background:{color:data.dark?'#101318':'#fff'},textColor:data.dark?'#a6b0c0':'#444',fontSize:font,attributionLogo:false},grid:{vertLines:{color:'#77777712'},horzLines:{color:'#77777712'}},localization:{locale:"zh-TW",timeFormatter:time=>chartTimeFormat(time,"full",zone)},timeScale:{tickMarkFormatter:(time,kind)=>chartTimeFormat(time,kind,zone),timeVisible:true,secondsVisible:false,borderColor:'#3335'},rightPriceScale:{borderColor:'#3335'},crosshair:{mode:LightweightCharts.CrosshairMode.Normal}});
+ chart=LightweightCharts.createChart(root,{autoSize:true,handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:data.fullscreen===true},handleScale:{axisPressedMouseMove:{time:data.fullscreen===true,price:data.fullscreen===true},mouseWheel:true,pinch:true},layout:{background:{color:data.dark?'#101318':'#fff'},textColor:data.dark?'#a6b0c0':'#444',fontSize:font,attributionLogo:false},grid:{vertLines:{color:'#77777712'},horzLines:{color:'#77777712'}},localization:{locale:"zh-TW",timeFormatter:time=>chartTimeFormat(time,"full",zone)},timeScale:{tickMarkFormatter:(time,kind)=>chartTimeFormat(time,kind,zone),timeVisible:true,secondsVisible:false,borderColor:'#3335'},rightPriceScale:{borderColor:'#3335'},crosshair:{mode:LightweightCharts.CrosshairMode.Normal}});
  const up=data.taiwan?'#e65c66':'#35b792',down=data.taiwan?'#35b792':'#e65c66';
  series=chart.addSeries(data.line?LightweightCharts.LineSeries:LightweightCharts.CandlestickSeries,data.line?{color:'#ffb454',lineWidth:2}:{upColor:up,downColor:down,borderVisible:false,wickUpColor:up,wickDownColor:down});
  volume=chart.addSeries(LightweightCharts.HistogramSeries,{priceFormat:{type:'volume'},priceScaleId:'volume',lastValueVisible:false,priceLineVisible:false});
@@ -26,7 +26,7 @@ function create(data){
  chart.timeScale().subscribeVisibleLogicalRangeChange(draw);
 }
 window.render=function(data){
- const key=[data.id,data.line,data.taiwan,data.dark,data.timeZone,data.fontSize].join('|'),changed=mode!==key;
+ const key=[data.id,data.line,data.taiwan,data.dark,data.timeZone,data.fontSize,data.fullscreen].join('|'),changed=mode!==key;
  if(changed){create(data);mode=key;}
  lastData=data;
  const clean=data.candles.filter(c=>Number.isFinite(c.close)&&c.time>0);

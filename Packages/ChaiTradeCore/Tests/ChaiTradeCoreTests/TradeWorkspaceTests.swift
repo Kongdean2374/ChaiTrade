@@ -9,7 +9,7 @@ import Testing
     let engine=try TradingEngine(context:ctx,repository:repo,initial:initial)
     let before=await engine.snapshot(),first=try #require(before.instruments.first{$0.asset == .crypto}),second=try #require(before.instruments.first{$0.asset == .taiwanStock})
     var workspace=TradeWorkspace(accountID:ctx.accountID,instrument:first,side:.sell)
-    var fields=TradeEditor();fields.side = .sell;fields.quantity="0.173";fields.price="12345";workspace.editor=fields
+    var fields=TradeEditor();fields.side = .sell;fields.unit=first.quantityUnit;fields.quantity="0.173";fields.price="12345";workspace.editor=fields
     try await engine.saveTradeWorkspace(workspace,context:ctx)
     var browse=MarketBrowsingState();browse.selectedID=second.id;browse.search="2330"
     try await engine.saveMarketBrowsing(browse,market:.stocks,activate:true,context:ctx)
@@ -38,4 +38,20 @@ import Testing
     let old=Data(#"{"version":1,"activeMarket":"stocks","markets":{},"groups":[],"catalogMigrated":true}"#.utf8)
     let preferences=try JSONDecoder().decode(ProductPreferences.self,from:old)
     #expect(preferences.tradeWorkspace==nil);#expect(preferences.catalogMigrated)
+}
+
+@Test func restoredDraftCannotHideAnotherMarketUnitOrFlipItsDeclaredSide()throws{
+    let state=try TradingEngine.initial(mode:.offline,capital:Amount("1000000"),time:1730772000)
+    let crypto=try #require(state.instruments.first{$0.asset == .crypto})
+    var workspace=TradeWorkspace(accountID:state.accountID,instrument:crypto)
+    var editor=TradeEditor();editor.unit=crypto.quantityUnit;workspace.editor=editor
+    try workspace.validate(in:state)
+    workspace.editor!.unit="張"
+    #expect(throws:TradeError.self){try workspace.validate(in:state)}
+    workspace.editor=editor;workspace.editor!.side = .sell
+    #expect(throws:TradeError.self){try workspace.validate(in:state)}
+    let contract=try #require(state.instruments.first{$0.asset == .perpetual})
+    workspace=TradeWorkspace(accountID:state.accountID,instrument:contract,side:.sell)
+    editor.unit=contract.quantityUnit;editor.side = .sell;editor.contractAction="openLong";workspace.editor=editor
+    #expect(throws:TradeError.self){try workspace.validate(in:state)}
 }

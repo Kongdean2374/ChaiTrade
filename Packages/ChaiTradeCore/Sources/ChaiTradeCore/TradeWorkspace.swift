@@ -39,6 +39,11 @@ public struct TradeWorkspace:Codable,Equatable,Sendable {
     public func validate(in state:AccountState)throws{
         guard accountID==state.accountID,revision>0,let i=state.instruments.first(where:{$0.id==product.id}),product.matches(i),i.asset != .index else{throw TradeError.invalid("交易草稿的帳戶或商品身份不符")}
         if let e=editor{
+            let units=i.usesTaiwanBoards ? ["股","張"]:[i.quantityUnit]
+            let expectedBoard:TradingBoard=i.usesTaiwanBoards && e.unit=="股" ? .oddLot:.regular
+            let actions=["openLong","openShort","closeLong","closeShort"]
+            let actionSide:Side=["openLong","closeShort"].contains(e.contractAction) ? .buy:.sell
+            guard units.contains(e.unit),e.side==side,board==expectedBoard,actions.contains(e.contractAction),!i.asset.derivative || actionSide==e.side else{throw TradeError.invalid("交易草稿單位、盤別或方向與商品不符")}
             let strings=[e.price,e.quantity,e.unit,e.trigger,e.distance,e.protection,e.profit,e.stop,e.requestID,e.ocoRequestID,e.contractAction]
             guard strings.allSatisfy({$0.utf8.count<=256}),!e.requestID.isEmpty,!e.ocoRequestID.isEmpty,e.leverage>=1,e.leverage<=i.rules.maxLeverage else{throw TradeError.invalid("交易草稿內容不合法")}
         }

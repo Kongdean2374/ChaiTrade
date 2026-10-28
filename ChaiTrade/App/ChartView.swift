@@ -9,12 +9,16 @@ struct ChartView: UIViewRepresentable {
     var period: Int
     var line: Bool
     var role:String="inline"
+    var interactionEnabled=true
     func makeCoordinator() -> Coordinator { Coordinator(model:model,role:role) }
     func makeUIView(context: Context) -> WKWebView {
         let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript=true
         config.userContentController.add(context.coordinator,name:"intent")
         let view=WKWebView(frame:.zero,configuration:config);view.isOpaque=false;view.backgroundColor = .clear
+        // The inline document has no own scrollable page. Let native vertical
+        // drags scroll its SwiftUI parent while JavaScript keeps horizontal tools.
+        if role=="inline"{view.scrollView.isScrollEnabled=false;view.scrollView.bounces=false}
         let spinner=UIActivityIndicatorView(style:.medium);spinner.startAnimating()
         let label=UILabel();label.text="正在繪製圖表…";label.font = .preferredFont(forTextStyle:.caption1);label.textColor = .secondaryLabel
         let overlay=UIStackView(arrangedSubviews:[spinner,label]);overlay.axis = .vertical;overlay.alignment = .center;overlay.spacing=8;overlay.translatesAutoresizingMaskIntoConstraints=false;overlay.isAccessibilityElement=true;overlay.accessibilityLabel="正在繪製圖表"
@@ -32,6 +36,7 @@ struct ChartView: UIViewRepresentable {
         if coordinator.model.chartWebView===web{coordinator.model.chartWebView=nil}
     }
     func updateUIView(_ web: WKWebView, context: Context) {
+        web.accessibilityElementsHidden = !interactionEnabled;web.isUserInteractionEnabled=interactionEnabled
         model.chartWebView=web
         let candles=model.candles
         let values=candles.map(\.close)
@@ -57,7 +62,7 @@ struct ChartView: UIViewRepresentable {
         for order in model.state?.orders.values.filter({$0.status.open && $0.request.instrumentID==model.selectedID}) ?? [] {
             if let p=order.request.price ?? order.request.trigger {priceLines.append(["id":order.id,"price":p.displayDouble,"title":order.request.kind.label,"color":"#82aaff"])}
         }
-        let data: [String:Any]=["id":model.selectedID,"account":model.context?.accountID ?? "","epoch":model.context?.epoch.uuidString ?? "","candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume.map{$0 as Any} ?? NSNull()]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"timeZone":model.selected?.rules.timeZone ?? "UTC","fontSize":dynamicTypeSize.isAccessibilitySize ? 16:12,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme == "system" ? web.traitCollection.userInterfaceStyle == .dark:model.settings.theme != "light"]
+        let data: [String:Any]=["id":model.selectedID,"account":model.context?.accountID ?? "","epoch":model.context?.epoch.uuidString ?? "","fullscreen":role=="fullscreen","candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume.map{$0 as Any} ?? NSNull()]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"timeZone":model.selected?.rules.timeZone ?? "UTC","fontSize":dynamicTypeSize.isAccessibilitySize ? 16:12,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme == "system" ? web.traitCollection.userInterfaceStyle == .dark:model.settings.theme != "light"]
         context.coordinator.payload=data
         context.coordinator.interval=model.interval
         context.coordinator.render(web)

@@ -1,5 +1,10 @@
 # Implementation status
 
+## 最新：1.2.3（6）完整原生驗證待完成
+
+目前核心177項本地通過，前一版新UI10／11通過仍不算完成。實際失敗已保留再修：ETH鍵盤工具列／搜尋排序、委託選單整列點擊、下滑關閉、內嵌圖表捲動；平倉方向是AX定位錯誤，已改固定識別與精確值，最終帳務斷言保留。最新版14個新流程、原20次及所有產品／頁面／視覺／核心／T45須同提交完整重跑，無新IPA。見 [TEST_REPORT.md](TEST_REPORT.md) 及 [NAVIGATION_FLOW_VALIDATION.md](NAVIGATION_FLOW_VALIDATION.md)；以下是先前批次紀錄。
+
+
 ## 最新：1.2.2（5）尚待完整實跑（2026-10-28）
 
 前一輪新流程UI 5／8通過，3例失敗，不能結案。已保存並實看失敗證據，針對picker鍵盤、草稿衝突呈現與跨市場新聞／訂閱補修；新增11例新流程，原核心、互動、產品與視覺回歸保留。以 [NAVIGATION_FLOW_VALIDATION.md](NAVIGATION_FLOW_VALIDATION.md) 與 [TEST_REPORT.md](TEST_REPORT.md) 最新證據為準，以下為先前批次紀錄。沒有新IPA，沒有重置帳戶或降低驗收門檻。
