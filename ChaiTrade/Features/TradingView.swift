@@ -17,6 +17,7 @@ struct TradingView:View{
     var browseInstrumentID:String?=nil
     @EnvironmentObject var model:AppModel
     @State private var choosingProduct=false
+    @State private var pickerChoice:TradeHandoff?
     @State private var draft:OrderDraft?
     @State private var showOrdersAfterDismiss=false
     @State private var fullscreen=false
@@ -42,7 +43,7 @@ struct TradingView:View{
             .refreshable{await model.fetchQuotes()}
             .safeAreaInset(edge:.bottom){tradeBar}
             .sheet(item:$draft,onDismiss:{if showOrdersAfterDismiss{showOrdersAfterDismiss=false;model.tab=3}}){intent in NavigationStack{OrderForm(instrument:intent.instrument,accountContext:intent.context,initialSide:intent.side,initialBoard:intent.board,initialPosition:intent.closingPosition,workspaceSession:intent.workspaceSession,onSubmitted:{if let session=intent.workspaceSession{model.clearTradeEditor(session:session)};showOrdersAfterDismiss=true;draft=nil})}}
-            .sheet(isPresented:$choosingProduct){NavigationStack{TradeProductPicker()}.modifier(UITestVisualEnvironment())}
+            .sheet(isPresented:$choosingProduct,onDismiss:applyPickerChoice){NavigationStack{TradeProductPicker(onSelection:{i in guard let context=model.context else{return};pickerChoice=TradeHandoff(product:TradeProduct(i),context:context,side:model.tradeWorkspace?.side ?? .buy,openForm:false,board:i.usesTaiwanBoards ? .oddLot:.regular,closingPosition:nil)})}.modifier(UITestVisualEnvironment())}
             .sheet(isPresented:$details){NavigationStack{InstrumentDetails()}}
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
@@ -52,6 +53,11 @@ struct TradingView:View{
             .task(id:"\(active)-\(instrument?.id ?? "")"){guard active,let i=instrument else{return};if browseInstrumentID==nil{model.focusTradeProduct(i)}else{model.focusProduct(i)};if let p=model.state?.chartPreferences?[i.id]{indicator=p.indicator;period=p.period;line=p.line;model.interval=p.interval}else{indicator="MA";period=20;line=false;model.interval=60};consumeFormRequest();await model.loadChart();await model.loadNews()}
             .onChange(of:model.tradeFormRequest){_,_ in consumeFormRequest()}
             .onChange(of:indicator){_,_ in saveChart()}.onChange(of:period){_,_ in saveChart()}.onChange(of:line){_,_ in saveChart()}
+    }
+    private func applyPickerChoice(){
+        guard let choice=pickerChoice else{return};pickerChoice=nil
+        guard model.context==choice.context,let i=model.state?.instruments.first(where:{choice.product.matches($0)}) else{return}
+        model.requestTrade(i,side:choice.side,openForm:false,board:choice.board)
     }
     private var tradeSelector:some View{VStack(alignment:.leading,spacing:8){
         Button{choosingProduct=true}label:{HStack{VStack(alignment:.leading){Text(instrument?.name ?? "選擇交易商品").font(.headline);Text((instrument?.symbol ?? "搜尋、分類、自選或最近查看")+" · "+(instrument?.identity?.exchange ?? "")).font(.caption)};Spacer();Image(systemName:"chevron.down")}.frame(maxWidth:.infinity,minHeight:44)}.accessibilityIdentifier("tradeProductPicker")
@@ -134,7 +140,7 @@ struct TradingView:View{
             MarketSectionTitle(title:"相關新聞與事件")
             ForEach(Array(stories.prefix(3))){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain)}
             if stories.isEmpty{Text("目前沒有已取得的相關新聞。").font(.footnote).foregroundStyle(.secondary)}
-            NavigationLink("查看全部市場新聞"){MarketNewsView(initialCategory:category)}
+            NavigationLink("查看全部市場新聞"){MarketNewsView(initialCategory:category,domain:i.market)}
         }
     }
     private func saveChart(){guard active,let id=instrument?.id,let context=model.context else{return};let capturedIndicator=indicator,capturedPeriod=period,capturedLine=line,capturedInterval=model.interval;Task{guard model.context==context,let engine=model.engine else{return};await model.run{try await engine.saveChartPreferences(instrumentID:id,preferences:ChartPreferences(interval:capturedInterval,indicator:capturedIndicator,period:capturedPeriod,line:capturedLine),context:context)}}}

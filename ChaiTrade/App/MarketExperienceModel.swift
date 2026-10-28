@@ -11,10 +11,14 @@ extension AppModel {
     var visibleQuoteIDs:Set<String>{visibleOwners.values.reduce(into:Set<String>()){$0.formUnion($1)}}
     var protectedQuoteIDs:Set<String>{
         guard let state else{return []}
-        return state.watchlist.union(state.positions.values.filter{$0.quantity != .zero}.map(\.instrumentKey)).union(state.orders.values.filter{$0.status.open}.map{$0.request.instrumentID}).union(state.alerts.filter{$0.firedAt==nil}.map(\.instrumentID))
+        let catalog=Dictionary(uniqueKeysWithValues:state.instruments.map{($0.id,$0)})
+        var ids=state.watchlist.union(state.positions.values.filter{$0.quantity != .zero}.map(\.instrumentKey)).union(state.alerts.filter{$0.firedAt==nil}.map(\.instrumentID))
+        for order in state.orders.values where order.status.open{ids.insert(order.request.instrumentID);if let i=catalog[order.request.instrumentID]{ids.insert(i.quoteKey(board:order.request.board))}}
+        return ids
     }
-    var selectedQuoteID:String{selected?.quoteKey(board:selected?.usesTaiwanBoards==true ? selectedBoard:nil) ?? selectedID}
-    var requiredQuoteIDs:Set<String>{visibleQuoteIDs.union(protectedQuoteIDs).union(selectedID.isEmpty ? []:[selectedID,selectedQuoteID])}
+    var activeProductID:String?{if tab==2{return tradeInstrument?.id};if tab==1{return marketPaths[market]?.last};return nil}
+    var selectedQuoteID:String{guard let id=activeProductID,let i=state?.instruments.first(where:{$0.id==id}) else{return ""};return i.quoteKey(board:i.usesTaiwanBoards ? selectedBoard:nil)}
+    var requiredQuoteIDs:Set<String>{visibleQuoteIDs.union(protectedQuoteIDs).union(activeProductID.map{[$0,selectedQuoteID]} ?? [])}
     func restoreProductBrowsing(){
         guard let state else{return}
         latestOrderReceipt=nil
@@ -135,8 +139,8 @@ extension AppModel {
     }
     func ensureQuoteService()async{
         guard let context else{return}
-        if context.mode == .offline{if let engine{do{try await engine.setSimulationDemand(selectedID.isEmpty ? []:[selectedID],context:context);guard self.context==context else{return};state=await engine.snapshot()}catch{self.notice=error.localizedDescription}};await updateSimulatedSummaries();return}
-        await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(selectedID.isEmpty ? []:[selectedID]),selected:selectedQuoteID,protected:protectedQuoteIDs)
+        if context.mode == .offline{if let engine{do{try await engine.setSimulationDemand(activeProductID.map{[$0]} ?? [],context:context);guard self.context==context else{return};state=await engine.snapshot()}catch{if self.context==context{self.notice=error.localizedDescription}}};await updateSimulatedSummaries();return}
+        await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(activeProductID.map{[$0]} ?? []),selected:selectedQuoteID.isEmpty ? nil:selectedQuoteID,protected:protectedQuoteIDs)
         guard foreground,quoteServiceTask==nil else{return}
         let generation=UUID();quoteServiceGeneration=generation
         quoteServiceTask=Task{await quoteLoop(context:context,generation:generation)}
@@ -144,7 +148,7 @@ extension AppModel {
     private func quoteLoop(context:AccountContext,generation:UUID)async{
         defer{if quoteServiceGeneration==generation{fetching=false;quoteServiceTask=nil}}
         while !Task.isCancelled,foreground,self.context==context,state?.mode == .online{
-            await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(selectedID.isEmpty ? []:[selectedID]),selected:selectedQuoteID,protected:protectedQuoteIDs)
+            await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(activeProductID.map{[$0]} ?? []),selected:selectedQuoteID.isEmpty ? nil:selectedQuoteID,protected:protectedQuoteIDs)
             let leases=await quoteScheduler.next(context:context,now:Int64(Date().timeIntervalSince1970),limit:3)
             if leases.isEmpty{do{try await Task.sleep(for:.milliseconds(500))}catch{return};continue}
             var work:[(QuoteLease,Instrument,MarketDataProvider,TradingBoard?)]=[]

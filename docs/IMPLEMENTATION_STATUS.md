@@ -1,5 +1,10 @@
 # Implementation status
 
+## 最新：1.2.2（5）尚待完整實跑（2026-10-28）
+
+前一輪新流程UI 5／8通過，3例失敗，不能結案。已保存並實看失敗證據，針對picker鍵盤、草稿衝突呈現與跨市場新聞／訂閱補修；新增11例新流程，原核心、互動、產品與視覺回歸保留。以 [NAVIGATION_FLOW_VALIDATION.md](NAVIGATION_FLOW_VALIDATION.md) 與 [TEST_REPORT.md](TEST_REPORT.md) 最新證據為準，以下為先前批次紀錄。沒有新IPA，沒有重置帳戶或降低驗收門檻。
+
+
 ## 2026-10-28 最新操作流程補完進行中
 
 已提交 1.2.0（3）／a12d865：行情內導覽詳情、明確買賣帶入交易、交易獨立選擇器、按帳戶保留草稿與衝突處理、一般／零股共用行情排程、手動刷新去重及來源退避。原資料未重置，工作流先測試，不自動打包 IPA。174 項 macOS 核心、T45、裝置／模擬器編譯及大型備份關卡通過；UI 尚待完成。下一本地修正 1.2.1（4）尚未提交／驗證，不算完成。具體 NF01–NF09 及證據見 [NAVIGATION_FLOW_VALIDATION.md](NAVIGATION_FLOW_VALIDATION.md)。

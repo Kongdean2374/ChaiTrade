@@ -15,7 +15,7 @@ struct MarketRefreshStatus:View {
             else{Text("尚未成功載入；各商品下方顯示來源狀態").font(.caption2).foregroundStyle(.secondary)}
         };Spacer();Button(refreshing ? "更新中":"刷新"){guard !refreshing else{return};refreshing=true;Task{await model.fetchQuotes();refreshing=false}}.disabled(refreshing).accessibilityIdentifier("refreshMarketQuotes")}
         if let i=instrument{
-            if let q=quotes.first{Text("來源："+q.source+" · "+(model.state?.mode == .offline ? "模擬":q.quality == .realtime ? "即時":q.quality == .delayed ? "延遲":"快照")).font(.caption2).foregroundStyle(.secondary)}
+            if let q=quotes.first{Text("來源："+(model.state?.mode == .offline ? "ChaiTrade 本機模擬":q.source)+" · "+(model.state?.mode == .offline ? "模擬":q.quality == .realtime ? "即時":q.quality == .delayed ? "延遲":"快照")).font(.caption2).foregroundStyle(.secondary)}
             let status=model.status(for:i,board:i.usesTaiwanBoards ? model.selectedBoard:nil)
             if status != .ready{Text(status.label+"。"+status.nextStep).font(.caption).foregroundStyle(.orange)}
         }

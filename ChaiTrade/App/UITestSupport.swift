@@ -64,6 +64,7 @@ struct UITestProbe: View {
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
             "fileArchiveWorking":model.fileArchiveWorking,"fileArchiveReady":model.fileArchiveURL != nil,"fileArchiveProgress":model.fileArchiveProgress,
             "dataShareReady":model.dataShareURL != nil,"dataShareFormat":model.dataShareURL?.pathExtension ?? "",
+            "quoteFocus":model.activeProductID ?? "",
             "tradeProduct":model.tradeWorkspace?.product.id ?? "","tradeSide":model.tradeWorkspace?.side.rawValue ?? "","tradeDraftQuantity":model.tradeWorkspace?.editor?.quantity ?? "","marketPath":model.marketPaths[model.market] ?? [],
             "appVersion":AppVersion.number,"appBuild":AppVersion.build,
             "mode":s?.mode.rawValue ?? "", "market":model.market.rawValue,"search":model.currentBrowsing.search,"category":model.currentBrowsing.category,"sort":model.currentBrowsing.sort.rawValue,

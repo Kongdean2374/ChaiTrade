@@ -21,6 +21,7 @@ import XCTest
         capture("FLOW markets-only detail "+query)
         app.navigationBars.buttons.element(boundBy:0).tap()
         try check(app.textFields["marketSearch"].value as? String==query,"Back reset market search")
+        try check(try state(app)["quoteFocus"] as? String=="","Back retained an invisible detail subscription")
     }
     func test2330DetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:TWSE:2330",query:"2330",crypto:false)}
     func testBTCDetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:Coinbase_Exchange:BTC-USD",query:"BTC",crypto:true)}
@@ -109,6 +110,34 @@ import XCTest
         try check((selected["cash"] as? [String:String])==(original["cash"] as? [String:String]),"Picker changed funds")
         try check((selected["orders"] as? [String])?.isEmpty==true,"Picker auto submitted")
         capture("FLOW direct trade categorized picker search clear and selection")
+    }
+    func testPickerDismissesBeforeDirtyDraftConfirmationAndKeepCancelsSwitch()throws{
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
+        app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
+        let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap();quantity.typeText(XCUIKeyboardKey.delete.rawValue+"7");app.buttons["完成"].tap()
+        let original=try state(app)["tradeProduct"] as? String
+        let choose=app.buttons["tradeProductPicker"];try reveal(choose,in:app);choose.tap();app.buttons["tradePickerMarket"].tap();app.buttons["加密貨幣"].tap()
+        let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("BTC")
+        let product=app.buttons["trade-product-SIM:Coinbase_Exchange:BTC-USD"];try reveal(product,in:app);product.tap()
+        try check(app.buttons["保留原草稿"].waitForExistence(timeout:5),"Picker dismissal lost draft confirmation")
+        try check(!app.navigationBars["選擇交易商品"].exists,"Draft confirmation stacked over picker")
+        app.buttons["保留原草稿"].tap();let kept=try state(app)
+        try check(kept["tradeProduct"] as? String==original && kept["tradeDraftQuantity"] as? String=="7","Keeping picker conflict overwrote original draft")
+        try check((kept["orders"] as? [String])?.isEmpty==true,"Picker confirmation sent order")
+        capture("FLOW picker fully closed then keep original unsent draft")
+    }
+    func testCryptoTradeNewsDoNotUseTheStockBrowserMarket()throws{
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
+        app.tabBars.buttons["交易"].tap();app.buttons["tradeProductPicker"].tap();app.buttons["tradePickerMarket"].tap();app.buttons["加密貨幣"].tap()
+        let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("BTC")
+        let product=app.buttons["trade-product-SIM:Coinbase_Exchange:BTC-USD"];try reveal(product,in:app);product.tap()
+        try check(try state(app)["market"] as? String=="stocks","Trade selection changed browser market")
+        let news=app.buttons["查看全部市場新聞"];try reveal(news,in:app);news.tap()
+        try check(app.staticTexts["加密貨幣新聞"].waitForExistence(timeout:5),"BTC all-news link opened stock news")
+        try check(!app.staticTexts["股票新聞"].exists,"Crypto news mixed stock browsing category")
+        try check(try state(app)["market"] as? String=="stocks","News changed browser market")
+        try check((try state(app)["orders"] as? [String])?.isEmpty==true,"Reading news submitted an order")
+        capture("FLOW crypto trade news remains crypto with stock browser preserved")
     }
     func testUnsentTradeDraftAndIdentitySurviveColdRelaunch()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)

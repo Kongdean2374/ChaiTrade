@@ -10,7 +10,7 @@ struct RootView: View {
     private func marketNavigation(_ domain:MarketDomain)->some View{
         NavigationStack(path:Binding(get:{model.marketPaths[domain] ?? []},set:{model.marketPaths[domain]=$0})){
             MarketsView(domain:domain).navigationDestination(for:String.self){id in TradingView(browseInstrumentID:id)}
-        }.id(domain)
+        }.id(domain).onChange(of:model.marketPaths[domain] ?? []){_,_ in if model.tab==1 && model.market==domain{model.focusActivePage()}}
     }
     var body: some View {
         Group {

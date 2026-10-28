@@ -78,7 +78,8 @@ jobs:
   product-ui:
     needs: native
     runs-on: macos-15
-    timeout-minutes: 35
+    # Full suite and diagnostics; no individual case or product performance gate changes.
+    timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:

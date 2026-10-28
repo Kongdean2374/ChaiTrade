@@ -290,14 +290,14 @@ struct ChartAmendment: Identifiable {
     }
     func restartStream() {
         streamTask?.cancel();streamTask=nil
-        guard foreground,let i=selected,i.provider == .coinbase,context?.mode == .online,let context,let engine else{return}
+        guard foreground,activeProductID==selectedID,let i=selected,i.provider == .coinbase,context?.mode == .online,let context,let engine else{return}
         streamTask=Task{
             var attempts=0
-            while !Task.isCancelled && self.foreground && self.context==context && self.selectedID==i.id {
+            while !Task.isCancelled && self.foreground && self.context==context && self.activeProductID==i.id && self.selectedID==i.id {
                 do{
                     let stream=try CoinbaseMarketStream(mode:.online).quotes(instrument:i)
                     for try await quote in stream {
-                        guard !Task.isCancelled,self.foreground,self.context==context else{return}
+                        guard !Task.isCancelled,self.foreground,self.context==context,self.activeProductID==i.id else{return}
                         try await engine.ingest(quote,now:Int64(Date().timeIntervalSince1970),context:context)
                         self.providerStatus[.coinbase]="WebSocket level2 已同步；本機估算成交"
                         attempts=0;await self.refresh()
@@ -368,7 +368,7 @@ struct ChartAmendment: Identifiable {
     func fetchQuotes()async{
         guard let context,let engine else{return}
         if context.mode == .offline{
-            do{let snapshot=try await engine.marketSnapshot(context:context);guard self.context==context else{return};state=snapshot;await updateSimulatedSummaries();if tab==1 || tab==2{await loadChart()}}catch{notice=error.localizedDescription}
+            do{let snapshot=try await engine.marketSnapshot(context:context);guard self.context==context else{return};state=snapshot;await updateSimulatedSummaries();if tab==1 || tab==2{await loadChart()}}catch{if self.context==context{notice=error.localizedDescription}}
             return
         }
         await ensureQuoteService()

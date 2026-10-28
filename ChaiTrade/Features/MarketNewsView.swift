@@ -2,8 +2,8 @@ import SwiftUI
 import ChaiTradeCore
 
 extension AppModel{
-    func news(category:String,favoritesOnly:Bool)->[MarketNewsStory]{
-        MarketNewsSelection.filter(marketNews,instruments:state?.instruments ?? [],market:market,category:category,watchlist:state?.watchlist ?? [],favoritesOnly:favoritesOnly,now:now,origin:state?.mode == .offline ? .simulated:.real)
+    func news(category:String,favoritesOnly:Bool,domain:MarketDomain?=nil)->[MarketNewsStory]{
+        MarketNewsSelection.filter(marketNews,instruments:state?.instruments ?? [],market:domain ?? market,category:category,watchlist:state?.watchlist ?? [],favoritesOnly:favoritesOnly,now:now,origin:state?.mode == .offline ? .simulated:.real)
     }
     var filteredNews:[MarketNewsStory]{news(category:currentBrowsing.newsCategory ?? (market == .crypto ? "現貨":"全部"),favoritesOnly:currentBrowsing.newsFavoritesOnly)}
     var homeNews:[MarketNewsStory]{news(category:market == .crypto ? "現貨":"全部",favoritesOnly:false)}
@@ -21,20 +21,24 @@ struct MarketNewsCard:View{
 struct MarketNewsView:View{
     @EnvironmentObject var model:AppModel
     var initialCategory:String?=nil
+    var domain:MarketDomain?=nil
+    private var market:MarketDomain{domain ?? model.market}
+    private var preferences:MarketBrowsingState{model.browsing[market] ?? MarketBrowsingState()}
+    private var stories:[MarketNewsStory]{model.news(category:preferences.newsCategory ?? (market == .crypto ? "現貨":"全部"),favoritesOnly:preferences.newsFavoritesOnly,domain:market)}
     @State private var initialized=false
     var body:some View{ScrollView{LazyVStack(alignment:.leading,spacing:16){
-        Text(model.market.label+"新聞").font(.largeTitle.bold())
-        Picker("新聞分類",selection:Binding(get:{model.currentBrowsing.newsCategory ?? (model.market == .crypto ? "現貨":"全部")},set:{category in model.editBrowsing(model.market){$0.newsCategory=category}})){
-            ForEach(model.market == .crypto ? ["現貨","合約"]:model.market == .stocks ? ["全部","台股","美股","ETF"]:["全部","外匯","期貨"],id:\.self){Text($0)}
+        Text(market.label+"新聞").font(.largeTitle.bold())
+        Picker("新聞分類",selection:Binding(get:{preferences.newsCategory ?? (market == .crypto ? "現貨":"全部")},set:{category in model.editBrowsing(market){$0.newsCategory=category}})){
+            ForEach(market == .crypto ? ["現貨","合約"]:market == .stocks ? ["全部","台股","美股","ETF"]:["全部","外匯","期貨"],id:\.self){Text($0)}
         }.pickerStyle(.segmented).accessibilityIdentifier("newsCategory")
-        Toggle("只看自選相關",isOn:Binding(get:{model.currentBrowsing.newsFavoritesOnly},set:{v in model.editBrowsing(model.market){$0.newsFavoritesOnly=v}})).accessibilityIdentifier("newsFavorites")
+        Toggle("只看自選相關",isOn:Binding(get:{preferences.newsFavoritesOnly},set:{v in model.editBrowsing(market){$0.newsFavoritesOnly=v}})).accessibilityIdentifier("newsFavorites")
         if model.state?.mode == .offline{Text("模擬情境，非真實新聞。依本機種子與模擬時間產生；未發布的事件不會預先顯示。").font(.footnote).foregroundStyle(.orange)}else{Text("來源提供的標題與摘要，點入可看原文。官方總體新聞與自選公司新聞分開標明；無公司新聞授權時不會捏造公告。").font(.footnote).foregroundStyle(.secondary)}
         if model.newsLoading{ProgressView("載入新聞…")}
         if let issue=model.newsIssue{Text(issue).font(.caption).foregroundStyle(.orange)}
-        if model.filteredNews.isEmpty && !model.newsLoading{ContentUnavailableView("目前沒有符合的新聞",systemImage:"newspaper",description:Text(model.currentBrowsing.newsFavoritesOnly ? "可關閉自選篩選查看此市場的其他新聞。":"可稍後重試，或前往行情連線查看來源權限。"))}
-        ForEach(model.filteredNews){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain).accessibilityIdentifier("news-"+story.id)}
+        if stories.isEmpty && !model.newsLoading{ContentUnavailableView("目前沒有符合的新聞",systemImage:"newspaper",description:Text(preferences.newsFavoritesOnly ? "可關閉自選篩選查看此市場的其他新聞。":"可稍後重試，或前往行情連線查看來源權限。"))}
+        ForEach(stories){story in NavigationLink{MarketNewsDetail(story:story)}label:{MarketNewsCard(story:story)}.buttonStyle(.plain).accessibilityIdentifier("news-"+story.id)}
         Text("已到新聞列表底部").font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity).accessibilityIdentifier("newsBottom")
-    }.padding(18)}.background(Color(.systemGroupedBackground)).navigationTitle("新聞").toolbar{if model.state?.mode == .online{NavigationLink("來源"){NewsSourcesView()}};Button("重新整理"){Task{await model.loadNews(force:true)}}}.task{if !initialized{initialized=true;if let initialCategory{model.editBrowsing(model.market){$0.newsCategory=initialCategory}}};await model.loadNews()}}
+    }.padding(18)}.background(Color(.systemGroupedBackground)).navigationTitle("新聞").toolbar{if model.state?.mode == .online{NavigationLink("來源"){NewsSourcesView()}};Button("重新整理"){Task{await model.loadNews(force:true)}}}.task{if !initialized{initialized=true;if let initialCategory{model.editBrowsing(market){$0.newsCategory=initialCategory}}};await model.loadNews()}}
 }
 struct NewsSourcesView:View{
     @EnvironmentObject var model:AppModel

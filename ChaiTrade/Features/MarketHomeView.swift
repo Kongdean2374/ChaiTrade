@@ -111,6 +111,6 @@ struct MarketIndexStrip:View {
 struct MarketRankingPreview:View {
     @EnvironmentObject var model:AppModel
     var ranked:[Instrument]{(model.state?.instruments ?? []).filter{$0.market==model.market && $0.asset != .index && $0.identity?.legacy != true && (model.market != .crypto || $0.asset == .crypto) && model.summary(for:$0)?.reference != nil && model.state?.quotes[$0.id] != nil}.sorted{a,b in let qa=model.state!.quotes[a.id]!,qb=model.state!.quotes[b.id]!;let aa=(try? (qa.last/model.summary(for:a)!.reference!)-Amount.one) ?? .zero,bb=(try? (qb.last/model.summary(for:b)!.reference!)-Amount.one) ?? .zero;return aa>bb}}
-    var body:some View{MarketCard{MarketSectionTitle(title:"漲跌與活躍榜",subtitle:"範圍：目前集合中已取得可比較資料的 \(ranked.count) 個商品");if ranked.isEmpty{Text("來源尚未提供足夠漲跌統計，取得資料後才會排序。").font(.subheadline).foregroundStyle(.secondary)}else{ForEach(Array(ranked.prefix(3))){MarketProductRow(instrument:$0,owner:"home")}};HStack{Button("漲幅"){open(.gainers)};Button("跌幅"){open(.losers)};Button("成交量"){open(.volume)}}}}
+    var body:some View{MarketCard{MarketSectionTitle(title:"漲跌與活躍榜",subtitle:"範圍：目前集合中已取得可比較資料的 \(ranked.count) 個商品");if ranked.isEmpty{Text("來源尚未提供足夠漲跌統計，取得資料後才會排序。").font(.subheadline).foregroundStyle(.secondary)}else{ForEach(Array(ranked.prefix(3))){MarketProductRow(instrument:$0,owner:"home-"+$0.market.rawValue)}};HStack{Button("漲幅"){open(.gainers)};Button("跌幅"){open(.losers)};Button("成交量"){open(.volume)}}}}
     func open(_ sort:MarketSort){model.editBrowsing(model.market){$0.sort=sort;$0.favoritesOnly=false};model.tab=1}
 }

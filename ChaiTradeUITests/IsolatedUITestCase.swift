@@ -40,6 +40,7 @@ import XCTest
     }
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
         let screen=app.frame,navigation=app.navigationBars.allElementsBoundByIndex.last,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
+        let keyboardAssistant=app.otherElements["SystemInputAssistantView"].firstMatch,keyboardInput=app.otherElements["inputView"].firstMatch
         // A presented sheet retains the underlying TabBar in the AX tree. Its frame
         // does not occlude the sheet; use the foreground navigation and hittable bars.
         let tabBottom=tabs.exists && tabs.isHittable ? tabs.frame.minY:screen.maxY
@@ -51,6 +52,9 @@ import XCTest
         func usableViewport()->CGRect{
             let top=navigation?.frame.maxY ?? screen.minY
             var bottom=keyboard.exists ? keyboard.frame.minY:tabBottom
+            // The iOS prediction/accessory strip sits above Keyboard.frame.
+            // Starting a drag there hits the keyboard, never the foreground list.
+            if keyboard.exists{for strip in [keyboardAssistant,keyboardInput] where strip.exists{let frame=strip.frame;if frame.height>0,frame.minY>top{bottom=min(bottom,frame.minY)}}}
             if hasFooter{bottom=min(bottom,footer.frame.minY)}
             return CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
         }

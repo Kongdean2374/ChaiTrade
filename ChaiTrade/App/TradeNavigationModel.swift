@@ -63,5 +63,6 @@ extension AppModel {
     func focusActivePage(){
         if tab==2,let i=tradeInstrument{focusTradeProduct(i)}
         else if tab==1,let id=marketPaths[market]?.last,let i=state?.instruments.first(where:{$0.id==id}){focusProduct(i)}
+        restartStream();Task{await ensureQuoteService()}
     }
 }
