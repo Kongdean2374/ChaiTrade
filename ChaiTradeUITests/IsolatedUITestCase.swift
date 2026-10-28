@@ -52,6 +52,60 @@ import XCTest
         capture("Clean baseline")
     }
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
+        let targetID=element.exists ? element.identifier:"requested control"
+        let isFooterAction=["openOrder","openSellOrder","submitOrder","saveJournal","enableContractTrading"].contains(targetID) || targetID.hasPrefix("closePosition-")
+        func descendants(_ node:XCUIElementSnapshot)->[XCUIElementSnapshot]{
+            [node]+node.children.flatMap{descendants($0)}
+        }
+        for attempt in 0...7{
+            // One native snapshot supplies the geometry for this gesture. The
+            // previous helper requested every bar, keyboard strip and frame
+            // separately, spending 20s finding an already visible board button
+            // in the retained 12bd page failure. Keep the same full-frame and
+            // live hit-test requirements, keyboard exclusions and seven swipes.
+            guard let snapshot=try? app.snapshot() else{
+                if attempt==0{try revealWithIndividualQueries(element,in:app);return}
+                try check(false,"Cannot obtain current geometry for: "+targetID);return
+            }
+            let nodes=descendants(snapshot),screen=snapshot.frame
+            let navigation=nodes.last{$0.elementType == .navigationBar}
+            let tabs=nodes.first{$0.elementType == .tabBar}
+            let keyboard=nodes.first{$0.elementType == .keyboard}
+            let top=navigation?.frame.maxY ?? screen.minY
+            var bottom=screen.maxY
+            if let tabs,app.tabBars.firstMatch.isHittable{bottom=min(bottom,tabs.frame.minY)}
+            if let keyboard{
+                var obstruction=keyboard.frame.minY
+                for strip in nodes where ["SystemInputAssistantView","inputView"].contains(strip.identifier){
+                    let rect=strip.frame
+                    if rect.height>0,rect.minY>top{obstruction=min(obstruction,rect.minY)}
+                }
+                for bar in nodes where bar.elementType == .toolbar{
+                    let rect=bar.frame
+                    if rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=keyboard.frame.minY+1,rect.maxY>=keyboard.frame.minY-180{obstruction=min(obstruction,rect.minY)}
+                }
+                bottom=min(bottom,obstruction)
+            }
+            let footerID=nodes.contains{$0.identifier=="submitOrder"} ? "orderActionBar":"tradeActionBar"
+            if !isFooterAction,let footer=nodes.first(where:{$0.identifier==footerID}),app.otherElements[footerID].firstMatch.isHittable{
+                bottom=min(bottom,footer.frame.minY)
+            }
+            let viewport=CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
+            let exists=element.exists,frame=exists ? element.frame:nil
+            if let frame,viewport.contains(frame),element.isHittable{return}
+            guard attempt<7 else{break}
+            let distance=frame.map{$0.midY-viewport.midY} ?? viewport.height*2
+            let up=distance>0,far=abs(distance)>viewport.height*1.5
+            let travel=far ? viewport.height*0.75:min(viewport.height*0.65,max(35,abs(distance)))
+            let startY=up ? viewport.maxY-viewport.height*0.1:viewport.minY+viewport.height*0.1
+            let base=app.coordinate(withNormalizedOffset:.zero)
+            let start=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY))
+            let end=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY+(up ? -travel:travel)))
+            start.press(forDuration:0.1,thenDragTo:end,withVelocity:far ? .fast:.slow,thenHoldForDuration:0.1)
+        }
+        try check(false,"Control is not completely visible and reachable: "+targetID)
+    }
+    private func revealWithIndividualQueries(_ element:XCUIElement,in app:XCUIApplication)throws{
         let screen=app.frame,navigation=app.navigationBars.allElementsBoundByIndex.last,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
         let keyboardAssistant=app.otherElements["SystemInputAssistantView"].firstMatch,keyboardInput=app.otherElements["inputView"].firstMatch
         var measuredKeyboard:CGRect?,keyboardOcclusion:CGFloat?

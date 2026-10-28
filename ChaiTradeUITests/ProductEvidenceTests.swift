@@ -72,11 +72,15 @@ import XCTest
         let specification=app.buttons["商品規格"];try reveal(specification,in:app);specification.tap()
         let unit=app.staticTexts["specQuantityUnit"].firstMatch
         try waitUntil("Product specification content has not finished presenting",timeout:5){unit.exists && unit.isHittable}
-        try check(app.staticTexts["specBoardLot"].value as? String=="1 張 = 1000 股","Stock specifications lost the board lot conversion")
+        // SwiftUI localizes the integral interpolation as 1,000. Verify the
+        // complete units and conversion while accepting that grouping separator.
+        let lot=(app.staticTexts["specBoardLot"].value as? String)?.replacingOccurrences(of:",",with:"")
+        try check(lot=="1 張 = 1000 股","Stock specifications lost the board lot conversion")
         pageCapture("AFTER stock identity and explicit trading units")
         let precision=app.staticTexts["specPricePrecision"];try reveal(precision,in:app)
         try check(precision.value as? String=="1","2330 price precision does not match its current price tier")
-        try check(app.staticTexts["specQuantityStep"].value as? String=="1 張（1000 股）","Whole-lot minimum quantity is incorrect")
+        let minimum=(app.staticTexts["specQuantityStep"].value as? String)?.replacingOccurrences(of:",",with:"")
+        try check(minimum=="1 張（1000 股）","Whole-lot minimum quantity is incorrect")
         pageCapture("AFTER stock price precision and minimum quantities")
         app.swipeUp();try reveal(app.staticTexts["規則版本"],in:app);pageCapture("AFTER stock rules and execution limits")
         app.buttons["完成"].firstMatch.tap();try unchanged(app)
