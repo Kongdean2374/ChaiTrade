@@ -113,6 +113,28 @@ import XCTest
 }
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
+    func testStockOrderTickTracksEditedLimitPriceWithoutSubmitting()throws{
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
+        let before=try state(app);app.tabBars.buttons["交易"].tap()
+        let board=app.buttons["整股（張）"];try reveal(board,in:app,identifier:"board-regular");board.tap()
+        let open=app.buttons["openOrder"];try reveal(open,in:app,identifier:"openOrder");open.tap()
+        let rules=app.staticTexts["orderTradingRules"]
+        try check(rules.waitForExistence(timeout:5) && rules.label.contains("價格級距：0.1 TWD"),"Own2330quote band should be0.1TWD, not base0.01")
+        capture("FLOW stock order current price band is 0.1 TWD",includeHierarchy:false)
+        let price=app.textFields["orderPrice"];try reveal(price,in:app,identifier:"orderPrice")
+        let old=try XCTUnwrap(price.value as? String);price.tap();price.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:old.count)+"1000")
+        try waitUntil("Edited limit price was not delivered exactly",timeout:3){price.value as? String=="1000"}
+        let keyboard=app.buttons["收起鍵盤"];try check(keyboard.isHittable,"Cannot dismiss keyboard while verifying own price band");keyboard.tap()
+        try reveal(rules,in:app,identifier:"orderTradingRules")
+        try check(rules.label.contains("價格級距：5 TWD"),"At1000TWD stock limit, displayed band should be5TWD without changing the quote")
+        capture("FLOW stock limit 1000 updates displayed tick to 5 TWD without submitting",includeHierarchy:false)
+        app.navigationBars["模擬下單"].buttons["完成"].tap()
+        try waitUntil("Tick inspection cancel left an overlay",timeout:5){!app.navigationBars["模擬下單"].exists && app.tabBars.buttons["交易"].isHittable}
+        let after=try state(app)
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Inspecting tick bands changed cash")
+        try check((after["orders"] as? [String])?.isEmpty==true && (after["fills"] as? [[String:String]])?.isEmpty==true,"Editing a tick reference submitted an order")
+        try check(after["tradeProduct"] as? String=="SIM:TWSE:2330","Tick reference used another product identity")
+    }
     func testOrderTypeChooserCancelAndSlideKeepTheExactUnsentDraft()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)
         let before=try state(app);app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()

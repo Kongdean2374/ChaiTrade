@@ -326,6 +326,19 @@ struct OrderForm:View{
         else if !advanced{Text("其他條件類型可在原表單展開「進階委託與保護」。").font(.footnote)}
     }.navigationTitle("委託類型").navigationBarTitleDisplayMode(.inline).toolbar{ToolbarItem(placement:.cancellationAction){Button("取消選擇"){choosingOrderKind=false}}}.overlay(alignment:.bottomLeading){UITestProbe()}}.modifier(UITestVisualEnvironment())}
     private var availableMoney:String{model.money(try? model.state.map{try TradingEngine.available($0,currency:instrument.currency)})}
+    private var priceTickLabel:String{
+        let reference:Amount?
+        let basis:String
+        if [.limit,.stopLimit].contains(kind),let entered=try? Amount(price),entered > .zero{
+            reference=entered;basis="依限價"
+        }else{
+            reference=quote?.last;basis="依目前報價"
+        }
+        guard let reference,reference > .zero else{
+            return instrument.rules.priceTicks == nil ? instrument.rules.tick.description+" "+instrument.currency:"待有效價格"
+        }
+        return instrument.rules.tick(at:reference).description+" "+instrument.currency+"（"+basis+"）"
+    }
     private var confirmationText:String{
         let direction=directionLabel
         return "\(accountContext.mode.label)\n\(instrument.name)（\(instrument.symbol)）\n\(instrument.identity?.exchange ?? "自訂") · \(instrument.asset.label) · \(instrument.currency)\n\(direction) · \(MarketText.number(orderQuantity))\(instrument.quantityUnit)\n\(kind.label) · \(instrument.currency)\n不會向交易所傳送委託。"
@@ -333,7 +346,7 @@ struct OrderForm:View{
     private var basicSection:some View{
         Section(instrument.name+" · "+instrument.symbol){
             Text(accountContext.mode.label+" · "+(instrument.identity?.exchange ?? "自訂")+" · "+instrument.currency).font(.caption).foregroundStyle(.secondary)
-            Text("最小數量／級距："+(instrument.usesTaiwanBoards && unit=="張" ? "1 張（\(instrument.identity?.boardLot ?? 1000) 股）":instrument.rules.quantityStep.description+instrument.quantityUnit)+" · 價格級距："+instrument.rules.tick.description).font(.caption).foregroundStyle(.secondary)
+            Text("最小數量／級距："+(instrument.usesTaiwanBoards && unit=="張" ? "1 張（\(instrument.identity?.boardLot ?? 1000) 股）":instrument.rules.quantityStep.description+instrument.quantityUnit)+" · 價格級距："+priceTickLabel).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("orderTradingRules")
             if instrument.rules.minimumNotional > .zero{Text("最低委託金額："+instrument.rules.minimumNotional.description+" "+instrument.currency).font(.caption).foregroundStyle(.secondary)}
             if hedge{Picker("合約操作",selection:$contractAction){ForEach(ContractAction.allCases,id:\.self){Text($0.label)}}}else{
                 if instrument.asset.derivative{Picker("合約操作",selection:$reduceOnly){Text("開倉").tag(false);Text("平倉").tag(true)}.pickerStyle(.segmented)}

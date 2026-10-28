@@ -66,8 +66,10 @@ import XCTest
         try reveal(app.staticTexts["productBottom"],in:app,identifier:"productBottom")
         capture("AFTER B stock related news and product bottom",includeHierarchy:false)
         let open=app.buttons["openOrder"];try check(open.isHittable,"Valid local quote has no reachable buy entry");open.tap()
-        app.buttons["orderKind"].tap();app.buttons["市價"].tap()
+        let rules=app.staticTexts["orderTradingRules"]
+        try check(rules.waitForExistence(timeout:5) && rules.label.contains("價格級距：0.1 TWD"),"Stock order header showed a base tick instead of its own current price band")
         capture("AFTER stock basic order summary",includeHierarchy:false)
+        app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         let submit=app.buttons["submitOrder"];try reveal(submit,in:app,identifier:"submitOrder");submit.tap();app.buttons["確認送出"].tap()
         try waitUntil("Stock receipt did not close and navigate",timeout:15){self.receiptVisible(app)}
         let s=try state(app);try check((s["positions"] as? [String:String])?["SIM:TWSE:2330"]=="1000","A one-lot order did not produce exactly 1,000 shares")
