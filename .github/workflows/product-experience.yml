@@ -34,7 +34,7 @@ jobs:
           retention-days: 7
   core:
     runs-on: macos-15-intel
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
@@ -53,7 +53,7 @@ jobs:
 
   interaction:
     needs: native
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
@@ -77,7 +77,7 @@ jobs:
           retention-days: 7
   product-ui:
     needs: native
-    runs-on: macos-15-intel
+    runs-on: macos-15
     # Full suite and diagnostics; no individual case or product performance gate changes.
     timeout-minutes: 45
     env:
@@ -102,7 +102,7 @@ jobs:
 
   product-evidence:
     needs: native
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
@@ -126,7 +126,7 @@ jobs:
 
   product-visual:
     needs: native
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 30
     strategy:
       fail-fast: false

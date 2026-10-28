@@ -22,3 +22,12 @@
 
 - [runner labels](https://github.com/actions/runner-images/blob/main/README.md)：macOS 15 x64 提供 `macos-15-intel`；ARM 為 `macos-15`。
 - [macOS 15 Intel image](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md)：macOS 15.7.9、Xcode 26.2、iOS 26.2 SDK／Simulator 與相應裝置。
+
+
+## Intel Simulator 實際準備失敗與後續分工
+
+fbf7024的Intel iPhoneOS arm64及x86_64 Simulator編譯成功，但不能把編譯當UI驗收。原互動job122972038998兩次主機模擬器準備失敗（約196／36秒），Pro job122972039375也在188／186秒逾時；資料庫摘要為空，零App案例，不能算20／6通過。原包12835803748（SHA89668dd0bb5911f105f31e8a84e51ce4f423e6cf433fc71209744cbc1da1d3ec）、12836503309（SHAcdf8236d2b226fc21cf199983b2cce2ea116d8f60df917e1b2020fa9a389c9cc）先保留。原180秒單次host boot及一次同裝置新實例準備重試沒有提高，更不等於App冷啟動2秒。
+
+後續UI與包含UI的原未簽名workflow回到已能實際執行的macos-15 ARM；native編譯及兩組核心／儲存仍用Intel，明列架構。Intel第二組T45真實181.911253ms失敗另行找根因，不能因Simulator主機失敗而忽略。
+
+Intel第一組完整核心工作實際接近19分鐘，包含乾淨Debug／Release編譯及223秒大封存。產品core工作原15分鐘的整個CI預算改為20分鐘，與既有navigation core一致，以容納乾淨編譯及全部封存；不是放寬產品效能斷言。100000／100001／30、150ms寫入、300ms分頁、3秒熱載入／報表、120秒UI、10秒圖表、35秒補算、2秒正常iPhone冷啟動與未簽名UI step原35分鐘全部維持；測試不跳過、不分拆降低完整旅程要求。

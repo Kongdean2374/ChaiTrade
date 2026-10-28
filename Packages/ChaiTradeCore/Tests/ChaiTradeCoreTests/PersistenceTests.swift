@@ -9,6 +9,96 @@ private func sql(_ path:String,_ command:String)throws{
     defer{sqlite3_close(db)}
     guard sqlite3_exec(db,command,nil,nil,nil)==SQLITE_OK else{throw TradeError.corrupt("test SQL")}
 }
+@Test func completeProjectionSurvivesEquityWindowSlidesRollbackAndReload()throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let repo=try AccountRepository(root:root,mode:.online)
+    var original=try TradingEngine.initial(mode:.online,capital:Amount("100000"),time:1000)
+    for n in 1...1500{
+        let value:Amount?=n.isMultiple(of:11) ? nil:try Amount(String(100000+n)+".125")
+        original.equity.append(EquityPoint(time:Int64(1000+n),value:value,flow:.zero))
+    }
+    var expected=original.equity,hot=try repo.save(original)
+    func checkProjection(_ value:AccountState)throws{
+        let payload=try #require(try repo.scalar("SELECT payload FROM account_state"))
+        let decoded=try JSONDecoder().decode(AccountState.self,from:Data(payload.utf8))
+        #expect(decoded.equity.count==1000,"The complete original hot window must remain persisted")
+        #expect(decoded.equity==value.equity)
+        #expect(try AccountRepository.encode(decoded)==AccountRepository.encode(value))
+        #expect(try repo.scalar("PRAGMA synchronous")=="2")
+    }
+    try checkProjection(hot)
+    for n in 1...8{
+        let value:Amount?=n.isMultiple(of:3) ? nil:try Amount(String(110000+n)+".375")
+        let point=EquityPoint(time:Int64(2500+n),value:value,flow:.zero)
+        hot.equity.append(point);expected.append(point);hot=try repo.save(hot)
+        try checkProjection(hot)
+    }
+    let archive=root.appendingPathComponent("projection-before-more-writes.sqlite")
+    try repo.createArchiveSnapshot(at:archive)
+    let archivedHot=hot,archivedEquity=expected
+    let before=try repo.scalar("SELECT payload FROM account_state")
+    var rejected=hot;rejected.equity[500].value=try Amount("999999.99")
+    rejected.equity.append(EquityPoint(time:2509,value:try Amount("123456.75"),flow:.zero))
+    #expect(throws:TradeError.self){try repo.save(rejected)}
+    #expect(try repo.scalar("SELECT payload FROM account_state")==before)
+    // Abort after the new projection has been assembled, not only at the
+    // earlier immutable-point guard. Neither SQL nor encoding caches may advance.
+    try sql(repo.path,"CREATE TRIGGER fail_projection BEFORE UPDATE ON account_state BEGIN SELECT RAISE(ABORT,'injected projection failure'); END")
+    var failedCommit=hot
+    failedCommit.equity.append(EquityPoint(time:2509,value:try Amount("998877.125"),flow:.zero))
+    #expect(throws:TradeError.self){try repo.save(failedCommit)}
+    #expect(try repo.scalar("SELECT payload FROM account_state")==before)
+    #expect(try repo.scalar("SELECT count(*) FROM equity")==String(expected.count))
+    try sql(repo.path,"DROP TRIGGER fail_projection")
+    // A failed attempt must not poison the bytes reused by the next real commit.
+    let next=EquityPoint(time:2509,value:try Amount("112233.875"),flow:.zero)
+    hot.equity.append(next);expected.append(next);hot=try repo.save(hot);try checkProjection(hot)
+    hot=try #require(try repo.load())
+    let afterReload=EquityPoint(time:2510,value:nil,flow:.zero)
+    hot.equity.append(afterReload);expected.append(afterReload);hot=try repo.save(hot);try checkProjection(hot)
+    let full=try #require(try repo.fullSnapshot())
+    #expect(full.equity==expected);#expect(full.cash==original.cash)
+    let reopened=try AccountRepository(root:root,mode:.online)
+    #expect(try reopened.load()?.equity==hot.equity)
+    #expect(try reopened.fullSnapshot()?.equity==expected)
+    // Replacing the database on an already-used repository must invalidate all
+    // former window bytes, including the same-sized window of a later timeline.
+    let verified=try SQLiteArchiveDatabase.verify(archive,mode:.online)
+    _=try repo.installArchiveSnapshot(verified)
+    hot=try repo.save(archivedHot);try checkProjection(hot)
+    #expect(try repo.fullSnapshot()?.equity==archivedEquity)
+}
+@Test(arguments:["events","ledger"])
+func reusedDuplicateChecksStillBindEveryIdentityAndRejectChangedContent(_ table:String)throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let repo=try AccountRepository(root:root,mode:.online)
+    var original=try TradingEngine.initial(mode:.online,capital:Amount("100000"),time:1000)
+    for n in 0..<4{
+        let id="immutable-binding-\(n)"
+        original.post(event:id,currency:"TWD",debit:"synthetic-left",credit:"synthetic-right",amount:.one,time:Int64(1010+n))
+        original.audit("fixture","different content \(n)",time:Int64(1010+n),id:id)
+    }
+    let saved=try repo.save(original)
+    _=try repo.save(saved) // Several distinct duplicate keys use the same prepared check.
+    let before=try repo.scalar("SELECT payload FROM account_state")
+    var rejected=saved
+    if table=="events"{
+        rejected.events[3].message="changed immutable content"
+    }else{
+        // Keep the group balanced and cash unchanged so validation reaches the
+        // canonical-row comparison rather than failing an unrelated money guard.
+        let old=rejected.ledger[6].amount
+        rejected.ledger[6].amount=try old+old;rejected.ledger[7].amount=rejected.ledger[6].amount.negated
+    }
+    #expect(throws:TradeError.self){try repo.save(rejected)}
+    #expect(try repo.scalar("SELECT payload FROM account_state")==before)
+    _=try repo.save(saved)
+    let full=try #require(try repo.fullSnapshot())
+    #expect(full.cash==original.cash)
+    #expect(try AccountRepository.encode(full.events)==AccountRepository.encode(original.events))
+    #expect(try AccountRepository.encode(full.ledger)==AccountRepository.encode(original.ledger))
+    #expect(try repo.scalar("PRAGMA synchronous")=="2")
+}
 @Test(arguments:["ledger","equity"])
 func indexedExactCountsStillRejectArchivedHistoryHoles(_ table:String)throws{
     let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

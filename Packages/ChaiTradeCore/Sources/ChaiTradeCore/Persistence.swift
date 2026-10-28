@@ -13,6 +13,7 @@ public final class AccountRepository: @unchecked Sendable {
     let lock = NSLock()
     private var cachedEquity:[EquityPoint]=[]
     private var cachedEquityOffset=0
+    private var cachedEquityJSON:[String]=[]
     public let mode: Mode
     public let path: String
     public init(root: URL, mode: Mode) throws {
@@ -97,7 +98,7 @@ public final class AccountRepository: @unchecked Sendable {
         guard verified.mode==mode else{throw TradeError.wrongAccount}
         guard try ArchiveDigest.file(verified.url)==verified.digest else{throw TradeError.corrupt("已驗證的恢復檔案發生變更，原帳戶未變")}
         var source:OpaquePointer?;guard sqlite3_open_v2(verified.url.path,&source,SQLITE_OPEN_READONLY,nil)==SQLITE_OK,let source else{throw TradeError.corrupt("無法開啟已驗證的恢復檔案")};defer{sqlite3_close(source)}
-        try withArchiveConnection{target in try SQLiteArchiveDatabase.copy(source:source,target:target);cachedEquity=[];cachedEquityOffset=0}
+        try withArchiveConnection{target in try SQLiteArchiveDatabase.copy(source:source,target:target);cachedEquity=[];cachedEquityOffset=0;cachedEquityJSON=[]}
         guard let state=try load() else{throw TradeError.corrupt("已恢復檔案缺少帳戶")};return state
     }
     func prepareArchiveFile()throws{
@@ -144,7 +145,7 @@ public final class AccountRepository: @unchecked Sendable {
         if let count=state.history?.appliedEventCount{guard try appliedEventCountUnlocked()==count else{throw TradeError.corrupt("冪等事件歷史檢查點不符，原資料保留")}}
         if let counts=state.history?.lifecycleCounts{guard try lifecycleCountsUnlocked()==counts else{throw TradeError.corrupt("帳務歷史檢查點不符，原資料保留")}}
         try Self.validate(state, mode: mode)
-        cachedEquity=state.equity;cachedEquityOffset=state.history?.equityOffset ?? 0
+        cachedEquity=state.equity;cachedEquityOffset=state.history?.equityOffset ?? 0;cachedEquityJSON=[]
         return state
     }
     public func fillPage(limit: Int = 100,before cursor: Int64? = nil,instrumentID:String? = nil) throws -> [FillPageRow] {
@@ -261,9 +262,9 @@ public final class AccountRepository: @unchecked Sendable {
     /// Prepared once per batch. A duplicate immutable key must contain exactly the same payload.
     func batch(_ sql: String, rows: [[String]], immutableTable: String? = nil, key: String = "id") throws {
         guard !rows.isEmpty else{return}
-        var stmt: OpaquePointer?
+        var stmt: OpaquePointer?,check:OpaquePointer?
         guard sqlite3_prepare_v2(db,sql,-1,&stmt,nil)==SQLITE_OK else{throw TradeError.corrupt("歷史寫入準備失敗")}
-        defer{sqlite3_finalize(stmt)}
+        defer{sqlite3_finalize(stmt);sqlite3_finalize(check)}
         for row in rows {
             sqlite3_reset(stmt);sqlite3_clear_bindings(stmt)
             for (n,value) in row.enumerated(){
@@ -272,11 +273,14 @@ public final class AccountRepository: @unchecked Sendable {
             }
             guard sqlite3_step(stmt)==SQLITE_DONE else{throw TradeError.corrupt("歷史唯一鍵衝突，已回滾")}
             if let table=immutableTable,sqlite3_changes(db)==0 {
-                var check:OpaquePointer?
-                guard sqlite3_prepare_v2(db,"SELECT payload FROM \(table) WHERE \(key)=?",-1,&check,nil)==SQLITE_OK else{throw TradeError.corrupt("重複事件查核失敗")}
-                defer{sqlite3_finalize(check)}
-                _=row[0].withCString{sqlite3_bind_text(check,1,$0,-1,unsafeBitCast(-1,to:sqlite3_destructor_type.self))}
+                if check==nil{
+                    guard sqlite3_prepare_v2(db,"SELECT payload FROM \(table) WHERE \(key)=?",-1,&check,nil)==SQLITE_OK else{throw TradeError.corrupt("重複事件查核失敗")}
+                }
+                sqlite3_reset(check);sqlite3_clear_bindings(check)
+                let bound=row[0].withCString{sqlite3_bind_text(check,1,$0,-1,unsafeBitCast(-1,to:sqlite3_destructor_type.self))}
+                guard bound==SQLITE_OK else{throw TradeError.corrupt("重複事件參數查核失敗")}
                 guard sqlite3_step(check)==SQLITE_ROW,let text=sqlite3_column_text(check,0),String(cString:text)==row.last! else{throw TradeError.corrupt("同一事件識別的內容不符，已回滾")}
+                sqlite3_reset(check)
             }
         }
     }
@@ -357,7 +361,10 @@ public final class AccountRepository: @unchecked Sendable {
             profile.mark("compact")
             #endif
         let rebuildFillReport=(Int(try scalar("PRAGMA user_version") ?? "0") ?? 0)<5
-        func json<T:Encodable>(_ x:T)throws->String{String(decoding:try Self.encode(x),as:UTF8.self)}
+        // The repository lock serializes this encoder; identical canonical
+        // formatting is retained without allocating an encoder for every row.
+        let encoder=JSONEncoder();encoder.outputFormatting=[.sortedKeys,.withoutEscapingSlashes]
+        func json<T:Encodable>(_ x:T)throws->String{String(decoding:try encoder.encode(x),as:UTF8.self)}
         try exec("BEGIN IMMEDIATE")
             #if CHAI_STORAGE_PROFILE
             profile.mark("begin")
@@ -444,7 +451,22 @@ public final class AccountRepository: @unchecked Sendable {
             #if CHAI_STORAGE_PROFILE
             profile.mark("performance")
             #endif
-            try insert("INSERT INTO account_state(account_id,payload) VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(compact)])
+            // Persist the complete original projection, including all 1,000 hot
+            // equity points. Reuse only canonical bytes for equal points at the
+            // same absolute ordinal in this repository's last committed window.
+            // Every existing row/count/immutability check above still runs.
+            let equityOffset=compact.history?.equityOffset ?? 0
+            let reusable = !replacing && cachedEquityJSON.count==cachedEquity.count
+            var equityJSON:[String]=[];equityJSON.reserveCapacity(compact.equity.count)
+            for (n,point) in compact.equity.enumerated(){
+                let oldIndex=equityOffset+n-cachedEquityOffset
+                if reusable,oldIndex>=0,oldIndex<cachedEquity.count,cachedEquity[oldIndex]==point{
+                    equityJSON.append(cachedEquityJSON[oldIndex])
+                }else{equityJSON.append(try json(point))}
+            }
+            var projection=compact;projection.equity=[]
+            let encodedPoints="["+equityJSON.joined(separator:",")+"]"
+            try insert("INSERT INTO account_state(account_id,payload) VALUES(?,json_set(?,'$.equity',json(?))) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(projection),encodedPoints])
             #if CHAI_STORAGE_PROFILE
             profile.mark("projection_encode_write")
             #endif
@@ -453,6 +475,7 @@ public final class AccountRepository: @unchecked Sendable {
             profile.mark("full_sync_commit")
             #endif
             cachedEquity=compact.equity;cachedEquityOffset=compact.history?.equityOffset ?? 0
+            cachedEquityJSON=equityJSON
             return compact
         } catch { try? exec("ROLLBACK"); throw error }
     }

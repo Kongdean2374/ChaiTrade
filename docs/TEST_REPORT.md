@@ -1,22 +1,18 @@
-> **最新候選1.2.16（19）待181核心及75UI完整回歸**：075963c第二組T45寫入p95為162.381875ms，原150ms關卡失敗，未接受IPA。原圖價格級距已修正並由21項導航驗證，但不能代替T45及其餘完整回歸。失敗、修正與不變門檻見[T45寫入路徑驗證](T45_WRITE_PATH_VALIDATION.md)。以下舊來源結果僅供歷史核對。
+# 最新候選測試報告
 
-> **最新候選1.2.15（18）待75次完整回歸**：173d683最後原圖複核發現台股下單標頭動態級距錯誤，已撤回其完整驗收並取消IPA流程40710216847。修正與先留證據見[價格級距驗證](ORDER_TICK_DISPLAY_VALIDATION.md)。以下173d683結果為歷史，不能算新版通過。
+候選App **1.2.18（21）**：目前僅本地資源／版本／安全格式／圖表腳本檢查通過。預期183核心與75次UI仍待同提交Apple CI實跑、原圖／獨立帳戶及實際流程驗證；沒有本版IPA。
 
-# 測試報告
+行情→詳情仍留行情，明確買賣才帶入交易；交易獨立選擇器、草稿與刷新及原帳戶資料全部保留。本次續修T45的第二個實測失敗，詳見[T45_WRITE_PATH_VALIDATION.md](T45_WRITE_PATH_VALIDATION.md)。背景測試按真正系統Home及App生命週期雙重取證，原10秒與完整冷啟動／帳務斷言保留，見[背景觀察](BACKGROUND_OBSERVATION_VALIDATION.md)。
 
-本版App **1.2.14（17）**，精確來源 `173d68397512d66aa5fdf22a2e7fe7b1e5f61156`。Apple Release及XCTest編譯、兩組178核心（含實際公開HTTP）、原十萬筆T45與大型封存，以及完整74次原生UI均已通過同提交核對。這不是整份計劃或實機驗收完成聲明，IPA還需原未簽名流程成功。
+前版fbf7024的一組181／T45通過73.14ms不能抵銷另一組181.91ms失敗；診斷候選8d423d5亦重現179.25ms。原包與失敗在修改前保留。Intel UI為App啟動前的主機開機失敗，零案例不算通過；UI及原未簽名流程回原ARM，native／核心仍Intel，見[CI主機紀錄](CI_HOST_CAPACITY_20261028.md)。核心CI整個編譯／封存工作預算20分鐘與既有另一組一致，沒有改150ms、120秒、圖表／補算或原未簽名UI step35分鐘等產品門檻。
 
-| 組別 | 實際執行 | 最長單例 | 獨立資料庫 | 原包 |
-|---|---:|---:|---:|---|
-| 行情／交易新流程 | 20/20 | 98.035s | 40 | [artifact 12821824919](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40700941053/artifacts/12821824919) |
-| 原互動／冷啟動／補算 | 20/20 | 109.089s | 40 | [artifact 12824813783](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40700941103/artifacts/12824813783) |
-| 完整產品旅程 | 17/17 | 99.75s | 36 | [artifact 12824985074](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40700941103/artifacts/12824985074) |
-| 逐頁功能 | 5/5 | 114.086s | 10 | [artifact 12823586097](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40700941103/artifacts/12823586097) |
-| SE深淺色／大字體／鍵盤 | 6/6 | 59.846s | 12 | [artifact 12824330700](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40700941103/artifacts/12824330700) |
-| Pro深淺色／大字體／鍵盤 | 6/6 | 98.034s | 12 | [artifact 12824756502](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40700941103/artifacts/12824756502) |
+| 本提交關卡 | 狀態 |
+|---|---|
+| iPhoneOS Release／XCTest編譯 | 尚待 |
+| 兩組183完整核心／公開真實HTTP | 尚待 |
+| 兩組原T45／超512MB封存 | 尚待 |
+| 新21／原20／產品17／逐頁5／SE6／Pro6 | 全75次尚待 |
+| 同提交原圖九階段／25組對照 | 尚待 |
+| 最新未簽名IPA | 不先產出，待完整軟體驗證 |
 
-原門檻未放寬；每次獨立乾淨資料，150份資料庫完整性與74個UUID關聯已查核。新流程20例包含2330／BTC／ETH行情內詳情、明確方向帶入、交易換商品、合法預填限價、草稿、重啟／返回／交錯回應、B唯讀刷新及鍵盤滑下。原20次互動保留日誌連點、下單一次、取消、Tab、A／B、補算等全部斷言。產品17例另含完整股票／現貨／合約、行情探索、新聞、通知、匯出與還原。
-
-兩組十萬寫入p95 **57.968750ms／61.976167ms**；每組100000成交、100001估值點與30樣本，原150ms儲存門檻不變。超512MB加密封存核對320張合成測試附件原始位元。macOS儲存不等於iPhone2秒正常冷啟動或150ms操作回饋。
-
-實際數值與流程原圖說明見[VALIDATION_CURRENT.md](VALIDATION_CURRENT.md)，逐例與原包SHA見[TEST_EVIDENCE.json](TEST_EVIDENCE.json)，原48項驗收及外部條件見[TEST_MATRIX.md](TEST_MATRIX.md)／[REMAINING_WORK.md](REMAINING_WORK.md)。歷史的成功、失敗、逾時與取消不改判，見[歷次失敗與修正](history/NAVIGATION_FAILURE_HISTORY_20261028.md)及[改版前測試報告](history/515b7da-TEST_REPORT.md)。
+原[完整計劃](REQUIREMENTS.md)及[T01–T48](TEST_MATRIX.md)保留；完整功能不因介面重做或測試失敗刪減。簽署實體iPhone／iOS18.x、合法Key與付費資料授權、Binance環境451等外部項目仍未實測，不能用fixture代替。此候選與本地檢查不代表完整產品或實機驗收通過。

@@ -73,10 +73,26 @@ import XCTest
         try waitUntil("Settings sheet did not dismiss before backgrounding"){
             !app.navigationBars["設定"].exists && app.tabBars.buttons["總覽"].isHittable
         }
+        // Retained source30 failure already showed the real Home screen and
+        // foreground=false, but XCUIApplication.state never reported either
+        // background enum. Require independent system and App scene evidence;
+        // keep the same Home event and original ten-second deadline.
+        let expectedBackground=try state(app)
+        let expectedMode=try XCTUnwrap(expectedBackground["mode"] as? String)
+        let springboard=XCUIApplication(bundleIdentifier:"com.apple.springboard")
         XCUIDevice.shared.press(.home)
-        try waitUntil("Application never reached the background",timeout:10){
-            let state=app.state;return state == .runningBackground || state == .runningBackgroundSuspended
+        var backgroundEvidence:[String:Any]=[:]
+        try waitUntil("System Home and App lifecycle did not confirm background",timeout:10){
+            let systemState=springboard.state,applicationState=app.state
+            guard systemState == .runningForeground,
+                  let snapshot=try? app.staticTexts["uiTestState"].firstMatch.snapshot(),
+                  let raw=try? JSONSerialization.jsonObject(with:Data(snapshot.label.utf8)),
+                  let scene=raw as? [String:Any] else{return false}
+            backgroundEvidence=["systemHomeState":String(describing:systemState),"applicationState":String(describing:applicationState),"foreground":scene["foreground"] ?? "missing","mode":scene["mode"] ?? "missing","session":scene["session"] ?? "missing"]
+            let observedMode=scene["mode"] as? String,observedSession=scene["session"] as? String
+            return scene["foreground"] as? Bool == false && observedMode == expectedMode && observedSession == self.session
         }
+        capture("System Home and application background verified",includeHierarchy:false,snapshot:backgroundEvidence)
         app.activate()
         XCTAssertEqual(app.staticTexts["activeModeBanner"].label,"B 離線市場・模擬交易")
         app.terminate();app.launch()
