@@ -216,19 +216,33 @@ import XCTest
         rapid(app.buttons["確認送出"])
         try waitUntil("A locally matched order did not reach its receipt",timeout:10){self.receiptVisible(app)}
         let filled=try state(app),intents=try XCTUnwrap(filled["orderIntents"] as? [[String:String]]),fills=try XCTUnwrap(filled["fills"] as? [[String:String]])
-        try check(intents.count==1 && intents[0]["instrument"]=="coinbase:BTC-USD" && intents[0]["side"]=="buy" && intents[0]["status"]=="filled","A rapid confirmation created a wrong, partial or duplicate intent")
-        try check(fills.count==1,"A rapid confirmation did not produce exactly one local fill")
-        let fill=try XCTUnwrap(fills.first)
-        try check(fill["instrument"]=="coinbase:BTC-USD" && fill["quantity"]=="0.001" && fill["estimated"]=="false","A fill used another product, quantity or an estimated price")
-        let cost=number(try XCTUnwrap(fill["price"])).multiplying(by:number(try XCTUnwrap(fill["quantity"]))).multiplying(by:number(try XCTUnwrap(fill["multiplier"]))).adding(number(try XCTUnwrap(fill["fee"]))).adding(number(try XCTUnwrap(fill["tax"])))
+        try check(intents.count==1 && intents[0]["instrument"]=="coinbase:BTC-USD" && intents[0]["side"]=="buy" && intents[0]["quantity"]=="0.001" && intents[0]["status"]=="filled","A rapid confirmation created a wrong, partial or duplicate intent")
+        // A real book may legitimately fill one intent across several levels.
+        // Audit every execution instead of confusing fill count with order count.
+        try check(!fills.isEmpty,"A filled intent has no local executions")
+        let intentID=try XCTUnwrap(intents[0]["id"])
+        let fillIDs=try fills.map{try XCTUnwrap($0["id"])}
+        try check(Set(fillIDs).count==fills.count,"A rapid confirmation duplicated an execution ID")
+        var totalQuantity=NSDecimalNumber.zero,cost=NSDecimalNumber.zero
+        let cashEntries=try XCTUnwrap(filled["fillCash"] as? [[String:String]])
+        try check(cashEntries.allSatisfy{fillIDs.contains($0["event"] ?? "")},"A debit belongs to another execution")
+        for fill in fills{
+            try check(fill["order"]==intentID && fill["instrument"]=="coinbase:BTC-USD" && fill["estimated"]=="false","A fill used another intent, product or an estimated price")
+            let quantity=number(try XCTUnwrap(fill["quantity"])),price=number(try XCTUnwrap(fill["price"]))
+            try check(quantity.compare(NSDecimalNumber.zero) == .orderedDescending && price.compare(NSDecimalNumber.zero) == .orderedDescending,"An execution has an invalid quantity or price")
+            let fillCost=price.multiplying(by:quantity).multiplying(by:number(try XCTUnwrap(fill["multiplier"]))).adding(number(try XCTUnwrap(fill["fee"]))).adding(number(try XCTUnwrap(fill["tax"])))
+            let debit=cashEntries.filter{$0["event"]==fill["id"]}.reduce(NSDecimalNumber.zero){$0.adding(number($1["amount"] ?? "NaN"))}
+            try check(debit==fillCost.multiplying(by:number("-1")),"An execution was debited incorrectly or more than once")
+            totalQuantity=totalQuantity.adding(quantity);cost=cost.adding(fillCost)
+        }
+        try check(totalQuantity==number("0.001"),"A rapid confirmation overfilled or underfilled the requested BTC quantity")
         let initialCash=number(try XCTUnwrap((initial["cash"] as? [String:String])?["USD"]))
         let expected=initialCash.subtracting(cost)
         try check(number((filled["cash"] as? [String:String])?["USD"] ?? "NaN")==expected,"A virtual USD was not debited exactly once")
-        let cashEntries=try XCTUnwrap(filled["fillCash"] as? [[String:String]])
         let debit=cashEntries.reduce(NSDecimalNumber.zero){$0.adding(number($1["amount"] ?? "NaN"))}
         try check(debit==cost.multiplying(by:number("-1")),"A fill cash ledger does not reconcile exactly")
-        try check((filled["positions"] as? [String:String])?["coinbase:BTC-USD"]=="0.001","A BTC position does not match the single local fill")
-        capture("AFTER A actual public BTC single local fill receipt",includeHierarchy:false,snapshot:filled)
+        try check((filled["positions"] as? [String:String])?["coinbase:BTC-USD"]=="0.001","A BTC position does not match the single local order")
+        capture("AFTER A actual public BTC single local order receipt",includeHierarchy:false,snapshot:filled)
         app.tabBars.buttons["資產"].tap()
         let realized=app.staticTexts.matching(NSPredicate(format:"label BEGINSWITH %@","已實現價差（未扣費）")).firstMatch;try reveal(realized,in:app)
         try check(app.staticTexts["Bitcoin 比特幣"].firstMatch.isHittable && app.staticTexts["0.001"].firstMatch.isHittable,"A actual BTC holding and quantity are not visibly present")
@@ -236,6 +250,7 @@ import XCTest
         app.terminate();app.launch();try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"A order cold relaunch failed")
         let restored=try state(app)
         try check(restored["mode"] as? String=="online" && (restored["fills"] as? [[String:String]])==fills && (restored["orders"] as? [String])==(filled["orders"] as? [String]),"A restart duplicated a fill, lost its order or changed account")
+        try check((restored["fillCash"] as? [[String:String]])==cashEntries,"A restart duplicated or changed an execution debit")
         try check(number((restored["cash"] as? [String:String])?["USD"] ?? "NaN")==expected && (restored["positions"] as? [String:String])?["coinbase:BTC-USD"]=="0.001","A restart changed exact virtual cash or BTC position")
         completed=true
     }
