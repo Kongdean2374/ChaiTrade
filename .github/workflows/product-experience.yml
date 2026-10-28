@@ -1,7 +1,7 @@
 name: Product experience development validation
 on:
   push:
-    branches: [product-experience-20261027, navigation-flow-20261028, navigation-flow-20261028-v4, navigation-flow-20261028-v8, navigation-flow-20261028-v9]
+    branches: [product-experience-20261027, navigation-flow-20261028, navigation-flow-20261028-v4, navigation-flow-20261028-v8, navigation-flow-20261028-v9, navigation-flow-20261028-v11]
   workflow_dispatch:
 permissions:
   contents: read

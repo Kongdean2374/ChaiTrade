@@ -41,9 +41,14 @@ import XCTest
         // Home's first stock is reachable directly; no hidden settings or catalog prerequisite.
         let product=app.buttons["market-SIM:TWSE:2330"].firstMatch;try reveal(product,in:app);product.tap()
         try check((try state(app))["selected"] as? String=="SIM:TWSE:2330","2330 selected the wrong identity")
+        // WebKit may suspend animation frames outside the visible scroll area.
+        // Retained a79f64 evidence places the entire canvas below the pinned
+        // actions. Inspect the actual visible chart before requiring its draw;
+        // keep the same ten-second draw and 120-second complete-case limits.
+        try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app)
         try waitUntil("Stock chart has data but was never drawn",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         capture("AFTER B stock detail chart")
-        app.buttons["整股（張）"].tap()
+        let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
         let open=app.buttons["openOrder"];try check(open.isHittable,"Valid local quote has no reachable buy entry");open.tap()
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         capture("AFTER stock basic order summary")
