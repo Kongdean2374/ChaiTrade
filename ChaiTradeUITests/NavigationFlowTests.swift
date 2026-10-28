@@ -78,6 +78,29 @@ import XCTest
 }
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
+    func testOrderSwipeWithKeyboardAndAcrossNavigationBarKeepsDraftAndAccount()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let before=try state(app)
+        for attempt in 0..<2{
+            try marketOrder(app)
+            let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap();quantity.typeText("0")
+            try check(app.keyboards.firstMatch.exists,"Order swipe regression did not open the keyboard")
+            let typed=try XCTUnwrap(quantity.value as? String)
+            capture("FLOW order keyboard before navigation swipe \(attempt+1)")
+            let bar=app.navigationBars["模擬下單"]
+            if attempt==0{bar.swipeDown()}
+            else{bar.coordinate(withNormalizedOffset:CGVector(dx:0.25,dy:0.2)).press(forDuration:0.05,thenDragTo:bar.coordinate(withNormalizedOffset:CGVector(dx:0.25,dy:1.6)))}
+            try waitUntil("A downward navigation drag with keyboard did not close the order sheet"){
+                !app.navigationBars["模擬下單"].exists && app.tabBars.buttons["交易"].isHittable && !app.keyboards.firstMatch.exists
+            }
+            let after=try state(app)
+            try check(after["tradeDraftQuantity"] as? String==typed,"Swipe silently discarded the unsubmitted trade draft")
+            try check(after["tradeProduct"] as? String==before["tradeProduct"] as? String && after["tradeSide"] as? String==before["tradeSide"] as? String,"Swipe changed the product or side")
+            try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Order swipe changed cash")
+            for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Order swipe changed "+key)}
+            capture("FLOW navigation swipe closed order with preserved draft \(attempt+1)")
+        }
+    }
     func testMarketEmptySearchClearResetsVisibleQueryAndResultsWithoutChangingTrade()throws{
         let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
         let baseline=try state(app);app.tabBars.buttons["行情"].tap()

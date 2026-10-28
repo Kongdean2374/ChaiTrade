@@ -270,12 +270,8 @@ struct OrderForm:View{
         summarySection
     }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
         ToolbarItem(placement:.principal){
-            Text("模擬下單").font(.headline).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())
-                .accessibilityHint("向下拖曳可取消尚未送出的委託")
-                .simultaneousGesture(DragGesture(minimumDistance:12,coordinateSpace:.global).onChanged{value in
-                    guard !sending,!confirm,value.translation.height>24,abs(value.translation.width)<value.translation.height else{return}
-                    cancelUnsentForm()
-                })
+            OrderDismissTitle(enabled:!sending && !confirm && !submitted && !cancelling,onDismiss:cancelUnsentForm)
+                .frame(maxWidth:.infinity,minHeight:44)
         }
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){cancelUnsentForm()}.disabled(sending || cancelling)}
