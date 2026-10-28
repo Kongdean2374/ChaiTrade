@@ -50,7 +50,6 @@ import XCTest
     func reveal(_ element:XCUIElement,in app:XCUIApplication)throws{
         let screen=app.frame,navigation=app.navigationBars.allElementsBoundByIndex.last,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
         let keyboardAssistant=app.otherElements["SystemInputAssistantView"].firstMatch,keyboardInput=app.otherElements["inputView"].firstMatch
-        let keyboardToolbars=app.toolbars.allElementsBoundByIndex
         var measuredKeyboard:CGRect?,keyboardOcclusion:CGFloat?
         // A presented sheet retains the underlying TabBar in the AX tree. Its frame
         // does not occlude the sheet; use the foreground navigation and hittable bars.
@@ -71,7 +70,7 @@ import XCTest
                     for strip in [keyboardAssistant,keyboardInput] where strip.exists{let rect=strip.frame;if rect.height>0,rect.minY>top{obstruction=min(obstruction,rect.minY)}}
                     // The custom 48pt keyboard toolbar is above the prediction strip.
                     // Use its actual frame; otherwise swipes land on the Done button.
-                    for bar in keyboardToolbars where bar.exists{let rect=bar.frame;if rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=frame.minY+1,rect.maxY>=frame.minY-180{obstruction=min(obstruction,rect.minY)}}
+                    for bar in app.toolbars.allElementsBoundByIndex where bar.exists{let rect=bar.frame;if rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=frame.minY+1,rect.maxY>=frame.minY-180{obstruction=min(obstruction,rect.minY)}}
                     keyboardOcclusion=obstruction
                 }
                 bottom=min(frame.minY,keyboardOcclusion ?? frame.minY)
@@ -121,6 +120,13 @@ import XCTest
         // saving. Per-character automation round trips were consuming the 120s case
         // budget; persisted-text and idempotency assertions remain unchanged.
         element.typeText(text)
+        // Retained source14 evidence shows the full text on screen 0.7s after
+        // an AX read returned two characters short. Wait for delivery of the
+        // single input event; never retype, accept a prefix or extend the case.
+        let deadline=Date().addingTimeInterval(3)
+        while element.value as? String != text,Date()<deadline{
+            RunLoop.current.run(until:Date().addingTimeInterval(0.05))
+        }
         let actual=element.value as? String
         let detail:String
         if let actual{detail=String(reflecting:actual)}else{detail="<unavailable>"}

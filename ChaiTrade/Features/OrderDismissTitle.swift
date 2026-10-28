@@ -1,8 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// Own the observer from the order content's controller, rather than a toolbar
-/// title whose SwiftUI hosting view may live outside UINavigationBar's subtree.
+/// Own the observer from the order content's controller. A sheet's visible
+/// navigation chrome can be hosted outside the navigation controller's view.
+/// Observe its window, accepting touches only inside this order's actual bar.
 struct OrderNavigationDismissObserver:UIViewControllerRepresentable{
     @EnvironmentObject private var model:AppModel
     var enabled:Bool
@@ -54,11 +55,12 @@ struct OrderNavigationDismissObserver:UIViewControllerRepresentable{
         private func attach(){
             guard isViewLoaded,view.window != nil else{return}
             guard let owner=navigationController else{record("waiting for order navigation controller");return}
-            let bar=owner.navigationBar;let host:UIView=owner.view
+            let bar=owner.navigationBar
+            guard let host=view.window else{return}
             guard bar.window === view.window else{return}
             guard gestureHost !== host || navigationBar !== bar else{return}
             detach();navigationBar=bar;gestureHost=host;host.addGestureRecognizer(pan)
-            record("attached to order navigation controller")
+            record("attached to order window; bar \(bar.topItem?.title ?? "") \(bar.convert(bar.bounds,to:host))")
         }
         func detach(){gestureHost?.removeGestureRecognizer(pan);gestureHost=nil;navigationBar=nil;requested=false}
         func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldReceive touch:UITouch)->Bool{
@@ -66,7 +68,10 @@ struct OrderNavigationDismissObserver:UIViewControllerRepresentable{
             // Observe through the controller's common ancestor, but only accept
             // gestures beginning in the visible navigation bar. Form scrolling,
             // keyboard input and ordinary buttons keep their native behavior.
-            return bar.convert(bar.bounds,to:host).contains(touch.location(in:host))
+            let frame=bar.convert(bar.bounds,to:host),point=touch.location(in:host)
+            let accepts=frame.contains(point)
+            if point.y<=frame.maxY+20{record("navigation touch \(point); bar \(frame); accepted \(accepts)")}
+            return accepts
         }
         func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldRecognizeSimultaneouslyWith otherGestureRecognizer:UIGestureRecognizer)->Bool{true}
         @objc private func dragged(_ recognizer:UIPanGestureRecognizer){

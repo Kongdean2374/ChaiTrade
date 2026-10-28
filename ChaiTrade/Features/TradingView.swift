@@ -77,7 +77,16 @@ struct TradingView:View{
     private func productContent(_ i:Instrument)->some View{
         VStack(alignment:.leading,spacing:20){
             productHeader(i)
-            if i.usesTaiwanBoards{Picker("台股交易盤別",selection:Binding(get:{model.selectedBoard},set:{board in if browseInstrumentID==nil{model.requestTrade(i,side:model.tradeWorkspace?.side ?? .buy,openForm:false,board:board)}else{model.changeBoard(board)}})){ForEach(TradingBoard.allCases,id:\.self){Text($0.label)}}.pickerStyle(.segmented)}
+            if i.usesTaiwanBoards{HStack(spacing:4){ForEach(TradingBoard.allCases,id:\.self){board in
+                Button{
+                    #if DEBUG
+                    if UITestSupport.session != nil{model.uiTestBoardRequests=Array((model.uiTestBoardRequests+[board.rawValue]).suffix(20))}
+                    #endif
+                    if browseInstrumentID==nil{model.requestTrade(i,side:model.tradeWorkspace?.side ?? .buy,openForm:false,board:board)}else{model.changeBoard(board)}
+                }label:{Text(board.label).font(.subheadline).multilineTextAlignment(.center).fixedSize(horizontal:false,vertical:true).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}
+                .buttonStyle(.plain).background(model.selectedBoard==board ? Color.accentColor.opacity(0.2):Color.clear,in:RoundedRectangle(cornerRadius:9))
+                .accessibilityAddTraits(model.selectedBoard==board ? .isSelected:[]).accessibilityIdentifier("board-"+board.rawValue)
+            }}.padding(4).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12)).accessibilityElement(children:.contain).accessibilityLabel("台股交易盤別")}
             MarketRefreshStatus(instrument:i)
             if browseInstrumentID==nil{holdingSection(i)}
             chartSection
@@ -309,7 +318,7 @@ struct OrderForm:View{
             if instrument.rules.minimumNotional > .zero{Text("最低委託金額："+instrument.rules.minimumNotional.description+" "+instrument.currency).font(.caption).foregroundStyle(.secondary)}
             if hedge{Picker("合約操作",selection:$contractAction){ForEach(ContractAction.allCases,id:\.self){Text($0.label)}}}else{
                 if instrument.asset.derivative{Picker("合約操作",selection:$reduceOnly){Text("開倉").tag(false);Text("平倉").tag(true)}.pickerStyle(.segmented)}
-                if instrument.asset.derivative && reduceOnly{LabeledContent("方向",value:directionLabel).accessibilityElement(children:.ignore).accessibilityLabel("方向").accessibilityValue(directionLabel).accessibilityIdentifier("orderDirection");Text("僅減少既有部位，不反向開倉。").font(.caption).foregroundStyle(.secondary)}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
+                if instrument.asset.derivative && reduceOnly{LabeledContent("方向",value:directionLabel).accessibilityElement(children:.ignore).accessibilityLabel("方向").accessibilityValue(directionLabel).accessibilityAddTraits(.isStaticText).accessibilityIdentifier("orderDirection");Text("僅減少既有部位，不反向開倉。").font(.caption).foregroundStyle(.secondary)}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
             }
             Menu{ForEach(availableKinds,id:\.self){choice in Button{kind=choice}label:{if choice==kind{Label(choice.label,systemImage:"checkmark")}else{Text(choice.label)}}.accessibilityLabel(choice.label)}}label:{HStack{Text("委託類型").foregroundStyle(.primary);Spacer();Text(kind.label);Image(systemName:"chevron.up.chevron.down").font(.caption)}.frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.accessibilityIdentifier("orderKind").accessibilityValue(kind.label)
             if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad).focused($editing,equals:.price)}

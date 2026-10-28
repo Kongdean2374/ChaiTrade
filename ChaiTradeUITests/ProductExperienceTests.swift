@@ -49,6 +49,7 @@ import XCTest
         try waitUntil("Stock chart has data but was never drawn",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         capture("AFTER B stock detail chart")
         let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
+        try waitUntil("Stock journey did not actually select whole lots",timeout:5){regularBoard.isSelected}
         let open=app.buttons["openOrder"];try check(open.isHittable,"Valid local quote has no reachable buy entry");open.tap()
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         capture("AFTER stock basic order summary")
@@ -320,7 +321,7 @@ import XCTest
         try check((try state(app)["positions"] as? [String:String])?[instrument]=="0.001","Contract open produced the wrong position")
         app.tabBars.buttons["交易"].tap();let close=app.buttons["closePosition-"+instrument];try reveal(close,in:app)
         capture("AFTER contract position with explicit close and risk");close.tap()
-        let direction=app.descendants(matching:.any)["orderDirection"].firstMatch
+        let direction=app.staticTexts["orderDirection"].firstMatch
         try check(direction.waitForExistence(timeout:5) && direction.value as? String=="平多","Close draft lost its direction")
         let closeDraft=try state(app);try check(closeDraft["tradeSide"] as? String=="sell" && closeDraft["tradeProduct"] as? String==instrument,"Close draft identity or declared sell direction changed")
         try check(app.textFields["orderQuantity"].value as? String=="0.001","Close draft did not use held quantity")

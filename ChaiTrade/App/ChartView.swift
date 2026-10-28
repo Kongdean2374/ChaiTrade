@@ -2,6 +2,17 @@ import SwiftUI
 import WebKit
 import ChaiTradeCore
 
+@MainActor private final class LayoutAwareChartWebView:WKWebView{
+    var geometryChanged:((WKWebView)->Void)?
+    private var previousSize=CGSize.zero
+    override func layoutSubviews(){
+        super.layoutSubviews()
+        guard bounds.size != previousSize else{return}
+        previousSize=bounds.size;geometryChanged?(self)
+    }
+    override func didMoveToWindow(){super.didMoveToWindow();geometryChanged?(self)}
+}
+
 struct ChartView: UIViewRepresentable {
     @EnvironmentObject var model: AppModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -15,7 +26,10 @@ struct ChartView: UIViewRepresentable {
         let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript=true
         config.userContentController.add(context.coordinator,name:"intent")
-        let view=WKWebView(frame:.zero,configuration:config);view.isOpaque=false;view.backgroundColor = .clear
+        let view=LayoutAwareChartWebView(frame:.zero,configuration:config);view.isOpaque=false;view.backgroundColor = .clear
+        view.geometryChanged={ [weak coordinator=context.coordinator] web in
+            Task{@MainActor [weak web] in await Task.yield();guard let web else{return};coordinator?.render(web)}
+        }
         // The inline document has no own scrollable page. Let native vertical
         // drags scroll its SwiftUI parent while JavaScript keeps horizontal tools.
         if role=="inline"{view.scrollView.isScrollEnabled=false;view.scrollView.bounces=false}
@@ -32,6 +46,7 @@ struct ChartView: UIViewRepresentable {
         return view
     }
     static func dismantleUIView(_ web:WKWebView,coordinator:Coordinator){
+        coordinator.cancel();(web as? LayoutAwareChartWebView)?.geometryChanged=nil
         web.configuration.userContentController.removeScriptMessageHandler(forName:"intent");web.navigationDelegate=nil;web.stopLoading()
         if coordinator.model.chartWebView===web{coordinator.model.chartWebView=nil}
     }
@@ -76,6 +91,22 @@ struct ChartView: UIViewRepresentable {
         var ready=false
         var payload: [String:Any]=[:]
         private var lastRendered:Data?
+        private var inFlight:Data?
+        private var retryTask:Task<Void,Never>?
+        private var lastAttempt:Data?
+        private var deferredAttempts=0
+        private var processReloads=0
+        func cancel(){retryTask?.cancel();retryTask=nil;inFlight=nil}
+        private func record(_ message:String){
+            #if DEBUG
+            guard UITestSupport.session != nil else{return}
+            let value=role+": "+message
+            Task{@MainActor [weak self] in
+                guard let self,self.model.uiTestChartDiagnostics.last != value else{return}
+                self.model.uiTestChartDiagnostics=Array((self.model.uiTestChartDiagnostics+[value]).suffix(20))
+            }
+            #endif
+        }
         func userContentController(_ userContentController: WKUserContentController,didReceive message: WKScriptMessage) {
             guard message.name=="intent",message.frameInfo.isMainFrame,let body=message.body as? [String:Any],body.count<=8,
                   body["type"] as? String=="amend",body["account"] as? String==model.context?.accountID,body["epoch"] as? String==model.context?.epoch.uuidString,
@@ -88,24 +119,47 @@ struct ChartView: UIViewRepresentable {
                 model.chartAmendment=ChartAmendment(order:order,price:quantized)
             }catch{model.error=error.localizedDescription}
         }
-        func webView(_ webView: WKWebView,didFinish navigation: WKNavigation!) {ready=true;render(webView)}
+        func webView(_ webView: WKWebView,didFinish navigation: WKNavigation!) {ready=true;record("local document ready");render(webView)}
         func render(_ web: WKWebView) {
-            guard ready,let encoded=try? JSONSerialization.data(withJSONObject:payload,options:.sortedKeys),encoded != lastRendered else{return}
-            lastRendered=encoded
+            guard ready,web.window != nil,web.bounds.width>0,web.bounds.height>0,inFlight==nil,
+                  let candles=payload["candles"] as? [[String:Any]],!candles.isEmpty,
+                  let encoded=try? JSONSerialization.data(withJSONObject:payload,options:.sortedKeys),
+                  encoded != lastRendered || model.chartRenderings[role]==nil else{return}
+            if lastAttempt != encoded{lastAttempt=encoded;deferredAttempts=0}
+            retryTask?.cancel();retryTask=nil;inFlight=encoded
             let capturedContext=model.context,instrument=payload["id"] as? String,renderInterval=interval
-            web.callAsyncJavaScript("window.render(data); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); const box=document.getElementById('chart'); return {count:data.candles.length,visible:box.clientWidth>0 && box.clientHeight>0 && box.querySelectorAll('canvas').length>0};",arguments:["data":payload],in:nil,in:.page){[weak self] result in
+            record("render requested \(candles.count), size \(web.bounds.size)")
+            web.callAsyncJavaScript("window.render(data); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); const box=document.getElementById('chart'); return {count:data.candles.length,visible:box.clientWidth>0 && box.clientHeight>0 && box.querySelectorAll('canvas').length>0};",arguments:["data":payload],in:nil,in:.page){[weak self,weak web] result in
+                Task{@MainActor in
+                guard let self,let web,self.inFlight==encoded else{return};self.inFlight=nil
+                guard let capturedContext,let instrument,self.model.context==capturedContext,self.model.selectedID==instrument,self.model.interval==renderInterval else{return}
+                guard (try? JSONSerialization.data(withJSONObject:self.payload,options:.sortedKeys))==encoded else{self.render(web);return}
                 switch result{
-                case .failure(let error):let code=(error as NSError).code;Task{@MainActor in guard let self,self.lastRendered==encoded,self.model.context==capturedContext,self.model.selectedID==instrument else{return};self.lastRendered=nil;self.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"}
+                case .failure(let error):let code=(error as NSError).code;self.lastRendered=nil;self.record("render failed \(code)");self.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"
                 case .success(let value):
                     let result=value as? [String:Any],count=result?["count"] as? Int ?? 0,visible=result?["visible"] as? Bool ?? false
-                    Task{@MainActor in
-                        guard let self,let capturedContext,let instrument,self.lastRendered==encoded,self.model.context==capturedContext,self.model.selectedID==instrument,self.model.interval==renderInterval,visible,count>0 else{return}
+                        guard visible,count>0 else{
+                            self.lastRendered=nil;self.deferredAttempts+=1;self.record("waiting for canvas layout \(self.deferredAttempts)")
+                            if self.deferredAttempts<=8{self.retryTask=Task{@MainActor [weak self,weak web] in
+                                do{try await Task.sleep(for:.milliseconds(250))}catch{return}
+                                guard let self,let web else{return};self.render(web)
+                            }}
+                            return
+                        }
+                        self.lastRendered=encoded;self.record("canvas rendered \(count)")
                         self.loadingOverlay?.isHidden=true
                         let evidence=ChartRenderEvidence(context:capturedContext,instrumentID:instrument,interval:renderInterval,count:count)
                         if self.model.chartRenderings[self.role] != evidence{self.model.chartRenderings[self.role]=evidence}
-                    }
+                }
                 }
             }
+        }
+        func webViewWebContentProcessDidTerminate(_ webView:WKWebView){
+            cancel();lastRendered=nil;ready=false
+            guard payload["account"] as? String==model.context?.accountID,payload["epoch"] as? String==model.context?.epoch.uuidString,payload["id"] as? String==model.selectedID else{return}
+            model.chartRenderings[role]=nil;loadingOverlay?.isHidden=false
+            guard processReloads==0 else{model.chartError="本機圖表程序再次中斷，請重新開啟商品。";return}
+            processReloads+=1;record("local content process interrupted; reload once");webView.reload()
         }
         func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error){failedLocalLoad()}
         func webView(_ webView:WKWebView,didFailProvisionalNavigation navigation:WKNavigation!,withError error:Error){failedLocalLoad()}

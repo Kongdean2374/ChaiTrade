@@ -1,11 +1,18 @@
 import XCTest
 
 @MainActor final class SmokeTests: IsolatedUITestCase {
+    private func startFreshOffline(_ app:XCUIApplication)throws{
+        // launchClean always owns a new empty directory. Assert its onboarding
+        // directly instead of waiting for a tab known not to exist yet.
+        let start=app.buttons["startTrading"]
+        try check(start.waitForExistence(timeout:15),"Fresh account did not show onboarding")
+        for _ in 0..<5 where !start.isHittable{app.swipeUp()}
+        try check(start.isHittable,"Fresh onboarding start is unreachable");start.tap()
+        try check(app.tabBars.buttons["交易"].waitForExistence(timeout:30),"Fresh offline account did not open")
+    }
     func testOfflineMarketOrderUsesLocalEngine() throws {
         let app=launchClean();defer{finish()}
-        let start=app.buttons["startTrading"]
-        if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
-        XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
+        try startFreshOffline(app)
         app.tabBars.buttons["交易"].tap()
         let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
         try waitUntil("Whole-lot selection did not take effect before opening an order",timeout:5){regularBoard.isSelected}
@@ -29,8 +36,7 @@ import XCTest
         print("APP_LAUNCH_STATE",app.state.rawValue)
         XCTAssertTrue(app.wait(for:.runningForeground,timeout:15),"App terminated during startup")
         guard app.state == .runningForeground else{return}
-        let start=app.buttons["startTrading"]
-        if !app.tabBars.buttons["行情"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
+        try startFreshOffline(app)
         XCTAssertTrue(app.tabBars.buttons["行情"].waitForExistence(timeout:30),app.debugDescription)
         app.tabBars.buttons["行情"].tap()
         XCTAssertTrue(app.textFields["marketSearch"].waitForExistence(timeout:5))
@@ -49,9 +55,7 @@ import XCTest
     }
     func testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition() throws {
         let app=launchClean();defer{finish()}
-        let start=app.buttons["startTrading"]
-        if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
-        XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30))
+        try startFreshOffline(app)
         app.tabBars.buttons["交易"].tap()
         let regularBoard=app.buttons["整股（張）"];try reveal(regularBoard,in:app);regularBoard.tap()
         try waitUntil("Whole-lot selection did not take effect before opening an order",timeout:5){regularBoard.isSelected}
@@ -88,9 +92,7 @@ import XCTest
 
     func testChartScreenshotCanBeAttachedToLocalJournal()throws{
         let app=launchClean();defer{finish()}
-        let start=app.buttons["startTrading"]
-        if !app.tabBars.buttons["交易"].waitForExistence(timeout:3){for _ in 0..<5 where !start.isHittable{app.swipeUp()};XCTAssertTrue(start.isHittable);start.tap()}
-        XCTAssertTrue(app.tabBars.buttons["交易"].waitForExistence(timeout:30));app.tabBars.buttons["交易"].tap()
+        try startFreshOffline(app);app.tabBars.buttons["交易"].tap()
         let capture=app.buttons["截圖"]
         // Retained c333 failure put the entire canvas below the fixed actions.
         // Inspect the visible chart before the same 10-second draw assertion.

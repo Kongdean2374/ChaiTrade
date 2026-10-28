@@ -53,6 +53,7 @@ import XCTest
         let app=launchClean();defer{finish()};try start(app)
         app.tabBars.buttons["交易"].tap()
         let board=app.buttons["整股（張）"];try reveal(board,in:app);board.tap()
+        try waitUntil("Evidence did not actually select whole lots",timeout:5){board.isSelected}
         let chart=app.webViews["inlineChartWeb"];try check(chart.waitForExistence(timeout:10),"Inline chart missing");try reveal(chart,in:app)
         try waitUntil("Evidence chart has no rendered candles",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         capture("AFTER complete inline stock chart volume and indicators")
