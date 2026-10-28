@@ -16,7 +16,9 @@ import XCTest
         let bottom=app.staticTexts["homeBottom"];try reveal(bottom,in:app);try check(bottom.isHittable,"Light home bottom blocked");capture("AFTER VISUAL light home bottom")
         app.tabBars.buttons["行情"].tap();let search=app.textFields["marketSearch"];search.tap();search.typeText("台積電")
         let item=app.buttons["market-SIM:TWSE:2330"];try check(item.waitForExistence(timeout:5),"Chinese product search failed with keyboard present")
-        capture("AFTER VISUAL Chinese search keyboard");item.tap()
+        capture("AFTER VISUAL Chinese search keyboard");try reveal(item,in:app)
+        capture("AFTER VISUAL fully visible Chinese search result before selection");item.tap()
+        try check(app.navigationBars["商品詳情"].waitForExistence(timeout:5),"Tapping a completely visible Chinese result did not enter market detail")
         try check(app.buttons["openOrder"].waitForExistence(timeout:10),"Light product buy action missing")
         capture("AFTER VISUAL light stock detail")
     }

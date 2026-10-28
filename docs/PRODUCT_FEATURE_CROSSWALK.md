@@ -1,6 +1,8 @@
 # 產品功能對照與驗收狀態
 
-截至 2026-10-27；本表與原完整開發計劃、REQUIREMENTS、REMAINING_WORK、IMPLEMENTATION_STATUS、TEST_MATRIX 一起使用。程式接入、核心測試、模擬器操作與實機驗收分別記錄；未宣告完整版完成。
+**目前版本1.2.5（8）／345d4cb的實測以 [目前驗證紀錄](VALIDATION_CURRENT.md) 為準，69次UI尚未完成，不宣告產品驗收通過。** 下表為2026-10-27歷史基準，待本輪實際結果核對更新；保留原缺口，不把編譯或核心綠燈充作產品完成。
+
+歷史基準表與原完整開發計劃、REQUIREMENTS、REMAINING_WORK、IMPLEMENTATION_STATUS、TEST_MATRIX 一起使用。程式接入、核心測試、模擬器操作與實機驗收分別記錄；未宣告完整版完成。
 
 | 要求 | 目前實作／證據 | 尚未完成或外部阻擋 |
 |---|---|---|

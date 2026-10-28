@@ -120,7 +120,10 @@ import XCTest
         // saving. Per-character automation round trips were consuming the 120s case
         // budget; persisted-text and idempotency assertions remain unchanged.
         element.typeText(text)
-        try check(element.value as? String==text,"Keyboard input differs before any save")
+        let actual=element.value as? String
+        let detail:String
+        if let actual{detail=String(reflecting:actual)}else{detail="<unavailable>"}
+        try check(actual==text,"Keyboard input differs before any save. Actual: "+detail)
     }
     func finish(){
         capture("final")
