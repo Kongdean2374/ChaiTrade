@@ -82,7 +82,7 @@ struct UITestProbe: View {
             "cash":s?.cash.mapValues(\.description) ?? [:],"watchlist":s?.watchlist.sorted() ?? [],
             "journals":s?.journals.map{["id":$0.id,"text":$0.text]} ?? [],
             "orders":s?.orders.keys.sorted() ?? [],
-            "orderIntents":s?.orders.values.map{["id":$0.id,"instrument":$0.request.instrumentID,"side":$0.request.side.rawValue,"reduceOnly":String($0.request.reduceOnly),"positionSide":$0.request.positionSide?.rawValue ?? ""]} ?? [],
+            "orderIntents":s?.orders.values.map{["id":$0.id,"instrument":$0.request.instrumentID,"side":$0.request.side.rawValue,"kind":$0.request.kind.rawValue,"price":$0.request.price?.description ?? "","quantity":$0.request.quantity.description,"status":$0.status.rawValue,"reduceOnly":String($0.request.reduceOnly),"positionSide":$0.request.positionSide?.rawValue ?? ""]} ?? [],
             "fills":fills.map{f -> [String:String] in ["id":f.id,"order":f.orderID,"quantity":f.quantity.description,"price":f.price.description,"fee":f.fee.description,"tax":f.tax.description,"multiplier":s?.instruments.first(where:{$0.id==f.instrumentID})?.rules.multiplier.description ?? "1"]},
             "positions":s?.positions.mapValues{$0.quantity.description} ?? [:],
             "fillCash":s?.ledger.filter{$0.account=="cash" && ids.contains($0.eventID)}.map{["event":$0.eventID,"amount":$0.amount.description]} ?? [],

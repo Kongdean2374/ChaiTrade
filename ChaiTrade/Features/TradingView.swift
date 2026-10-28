@@ -287,7 +287,7 @@ struct OrderForm:View{
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){cancelUnsentForm()}.disabled(sending || cancelling)}
     }.sheet(isPresented:$choosingOrderKind){orderKindSelection}
-        .onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"};if let position=initialPosition{reduceOnly=true;side=position.quantity > .zero ? .sell:.buy;contractAction=position.quantity > .zero ? .closeLong:.closeShort;quantity=position.quantity.magnitude.description;leverage=position.leverage;margin=position.marginMode};if initialPosition==nil,workspaceSession==model.tradeSession,model.tradeWorkspace?.product.matches(instrument)==true,let saved=model.tradeWorkspace?.editor{restoreEditor(saved)};baseline=editorSnapshot}
+        .onAppear{guard !initialized else{return};initialized=true;price=initialLimitPrice;side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"};if let position=initialPosition{reduceOnly=true;side=position.quantity > .zero ? .sell:.buy;contractAction=position.quantity > .zero ? .closeLong:.closeShort;quantity=position.quantity.magnitude.description;leverage=position.leverage;margin=position.marginMode};if initialPosition==nil,workspaceSession==model.tradeSession,model.tradeWorkspace?.product.matches(instrument)==true,let saved=model.tradeWorkspace?.editor{restoreEditor(saved)};baseline=editorSnapshot}
         .onDisappear{Task{await model.flushTradeWorkspace()}}
         .onChange(of:editorSnapshot){_,value in guard initialized,baseline != value,!submitted,let session=workspaceSession else{return};model.updateTradeEditor(value,instrument:instrument,context:accountContext,session:session)}
         .onChange(of:reduceOnly){_,closing in if closing,let position=selectedPosition{side=position.quantity > .zero ? .sell:.buy;leverage=position.leverage;margin=position.marginMode}}
@@ -309,6 +309,12 @@ struct OrderForm:View{
         side=e.side;contractAction=ContractAction(rawValue:e.contractAction) ?? .openLong;kind=e.kind;price=e.price;quantity=e.quantity;unit=e.unit;trigger=e.trigger;distance=e.distance;trailingPercent=e.trailingPercent;reference=e.reference;tif=e.tif;expiry=Date(timeIntervalSince1970:TimeInterval(e.expiry));postOnly=e.postOnly;reduceOnly=e.reduceOnly;leverage=e.leverage;margin=e.margin;protection=e.protection;profit=e.profit;stop=e.stop;advanced=e.advanced;requestID=e.requestID;ocoRequestID=e.ocoRequestID
     }
     private var availableKinds:[OrderKind]{if board == .oddLot{return [.limit]};return advanced ? OrderKind.allCases:[.market,.limit]}
+    private var initialLimitPrice:String{
+        guard isCurrent else{return ""}
+        let key=instrument.quoteKey(board:instrument.usesTaiwanBoards ? initialBoard:nil)
+        guard let last=model.state?.quotes[key]?.last,let proposed=try? instrument.rules.roundedPrice(last,.plain),proposed > .zero else{return ""}
+        return proposed.description
+    }
     private var orderKindSelection:some View{NavigationStack{List{
         Section("選擇後只更新表單，不會送出委託"){
             ForEach(availableKinds,id:\.self){choice in
@@ -334,7 +340,7 @@ struct OrderForm:View{
                 if instrument.asset.derivative && reduceOnly{LabeledContent("方向",value:directionLabel).accessibilityElement(children:.ignore).accessibilityLabel("方向").accessibilityValue(directionLabel).accessibilityAddTraits(.isStaticText).accessibilityIdentifier("orderDirection");Text("僅減少既有部位，不反向開倉。").font(.caption).foregroundStyle(.secondary)}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
             }
             Button{editing=nil;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);choosingOrderKind=true}label:{HStack{Text("委託類型").foregroundStyle(.primary);Spacer();Text(kind.label);Image(systemName:"chevron.up.chevron.down").font(.caption)}.frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.plain).accessibilityIdentifier("orderKind").accessibilityValue(kind.label)
-            if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad).focused($editing,equals:.price)}
+            if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad).focused($editing,equals:.price).accessibilityIdentifier("orderPrice")}
             if instrument.usesTaiwanBoards{Picker("數量單位",selection:$unit){Text("股").tag("股");Text("張").tag("張")}.pickerStyle(.segmented);Text("1 張＝\(instrument.identity?.boardLot ?? 1000) 股").font(.caption).foregroundStyle(.secondary)}
             TextField("數量（\(unit)）",text:$quantity).keyboardType(.decimalPad).focused($editing,equals:.quantity).accessibilityIdentifier("orderQuantity")
             HStack{ForEach([25,50,75,100],id:\.self){percent in Button("\(percent)%"){setProportion(percent)}.font(.caption).buttonStyle(.borderless)}}

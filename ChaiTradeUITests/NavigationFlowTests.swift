@@ -75,6 +75,41 @@ import XCTest
         try check((s["positions"] as? [String:String])?["SIM:Coinbase_Exchange:ETH-USD"]=="0.01","Simulation position wrong")
         capture("FLOW single local fill and receipt")
     }
+    func testNewDefaultLimitPricesFollowEachProductTickAndSubmitOnlyTheETHIntent()throws{
+        let app=launchClean();defer{finish()};try onboardUSD(app);let baseline=try state(app);try detail(app,"BTC")
+        app.buttons["openOrder"].tap();let btcPriceField=app.textFields["orderPrice"]
+        try check(btcPriceField.waitForExistence(timeout:5),"New BTC limit price is missing")
+        try waitUntil("Default BTC limit was not initialized to its legal tick",timeout:3){
+            let value=btcPriceField.value as? String ?? ""
+            return self.number(value).compare(.zero) == .orderedDescending && (value.split(separator:".").dropFirst().first?.count ?? 0)<=2
+        }
+        let btcPrice=try XCTUnwrap(btcPriceField.value as? String)
+        try check(number(btcPrice).compare(.zero) == .orderedDescending && (btcPrice.split(separator:".").dropFirst().first?.count ?? 0)<=2,"Default BTC price violates its 0.01 tick")
+        let prepared=try state(app)
+        try check(app.buttons["orderKind"].value as? String=="限價" && (prepared["orders"] as? [String])?.isEmpty==true,"Preparing a limit order submitted automatically")
+        capture("FLOW new BTC limit proposal fits its own tick without an order");app.buttons["完成"].tap()
+        let picker=app.buttons["tradeProductPicker"];try reveal(picker,in:app);picker.tap()
+        let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("ETH")
+        let eth=app.buttons["trade-product-SIM:Coinbase_Exchange:ETH-USD"];try reveal(eth,in:app);eth.tap()
+        try waitUntil("Default-limit product switch failed"){(try? self.state(app)["tradeProduct"] as? String)=="SIM:Coinbase_Exchange:ETH-USD"}
+        app.buttons["openOrder"].tap();let ethPriceField=app.textFields["orderPrice"]
+        try check(ethPriceField.waitForExistence(timeout:5),"New ETH limit price is missing")
+        try waitUntil("Default ETH limit was not initialized to its legal tick",timeout:3){
+            let value=ethPriceField.value as? String ?? ""
+            return self.number(value).compare(.zero) == .orderedDescending && (value.split(separator:".").dropFirst().first?.count ?? 0)<=2
+        }
+        let ethPrice=try XCTUnwrap(ethPriceField.value as? String)
+        try check(number(ethPrice).compare(.zero) == .orderedDescending && (ethPrice.split(separator:".").dropFirst().first?.count ?? 0)<=2 && ethPrice != btcPrice,"ETH inherited an invalid or BTC limit price")
+        let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap();quantity.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:8)+"0.01")
+        try waitUntil("Limit quantity input was not delivered",timeout:3){quantity.value as? String=="0.01"}
+        let before=try state(app);try check((before["orders"] as? [String])?.isEmpty==true && (before["cash"] as? [String:String])==(baseline["cash"] as? [String:String]),"Unsubmitted default limit moved funds or created an order")
+        let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap();app.buttons["確認送出"].tap()
+        try waitUntil("The unchanged legal default ETH limit was rejected",timeout:10){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
+        let after=try state(app),intents=try XCTUnwrap(after["orderIntents"] as? [[String:String]])
+        try check(intents.count==1 && intents[0]["instrument"]=="SIM:Coinbase_Exchange:ETH-USD" && intents[0]["side"]=="buy" && intents[0]["kind"]=="limit" && intents[0]["price"]==ethPrice && intents[0]["quantity"]=="0.01","Limit order did not preserve the exact current product, side, type, price and quantity")
+        try check(((after["fills"] as? [[String:String]])?.count ?? 0)<=1,"One limit intent produced duplicate fills")
+        capture("FLOW exact ETH default limit accepted once; waiting is distinct from a fill")
+    }
 }
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
