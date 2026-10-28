@@ -1,5 +1,10 @@
 # 目前提交的驗證紀錄
 
+## 原生編譯實測補記（同一App 1.2.8／11）
+
+`dcffbcc` 的Apple裝置Release編譯通過，但新增的B時鐘測試在NavigationFlowTests.swift:118有Int64可選值解包錯誤，UI尚未執行，後續UI工作skipped不計通過。已保存原生build log及artifact12798264229（SHA256 `78f5557d5ceeaffb825ffddc6314ee74a3b6d88d46fb67da2b93516b6abe0918`），再修正測試以明確guard解包。此修正不改App／Core或版本，全部72次UI及核心／實連／T45／大型封存仍須同一新提交完整重跑；沒有新IPA。
+
+
 ## 目前：1.2.8（11）補修前景時鐘與行情狀態，72次UI待同提交驗證
 
 逐頁實看A報價發現新缺口：a79f642的06:22:53截圖9964F824把BTC／ETH標為「行情已過期」，但同一乾淨帳戶SQLite保留的BTC時間06:22:46／收到06:22:47、ETH時間06:22:50／收到06:22:51，兩者quality=realtime、valid=true、maximumAge=30、無sourceIssue。這是畫面狀態與有效資料不一致，不能因取得價格的正常流程通過而忽略。圖片、完整封存及資料庫已在修正前保存。

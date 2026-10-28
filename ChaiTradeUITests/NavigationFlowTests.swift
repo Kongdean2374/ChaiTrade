@@ -115,7 +115,10 @@ import XCTest
         XCUIDevice.shared.press(.home);app.activate()
         try check(try state(app)["time"] as? Int64==stopped,"Paused offline time advanced during app reactivation")
         try reveal(play,in:app);play.tap()
-        try waitUntil("Offline automatic time did not resume after reactivation",timeout:12){(try? self.state(app)["time"] as? Int64 ?? 0)>stopped}
+        try waitUntil("Offline automatic time did not resume after reactivation",timeout:12){
+            guard let snapshot=try? self.state(app),let time=snapshot["time"] as? Int64 else{return false}
+            return time>stopped
+        }
         try reveal(pause,in:app);pause.tap()
         let after=try state(app)
         try check(after["mode"] as? String=="offline" && (after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Offline clock changed account or cash")
