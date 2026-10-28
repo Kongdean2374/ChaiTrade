@@ -50,7 +50,7 @@ extension AppModel{
             let worker=Task.detached(priority:.utility){try StreamingArchiveService.export(snapshotRoot:snapshot,mode:context.mode,to:output,password:password.isEmpty ? nil:password,time:time,progress:progress);return output}
             let url=try await withTaskCancellationHandler{try await worker.value}onCancel:{worker.cancel()}
             guard self.context==context else{throw TradeError.wrongAccount}
-            self.fileArchiveURL=url;self.fileArchiveProgress=1;self.fileArchivePhase="封存已完成，可另存至檔案 App。"
+            self.refreshFileShareCache(preferred:url);self.fileArchiveProgress=1;self.fileArchivePhase="封存已完成，可另存至檔案 App。"
         }
     }
     func startLocalRecoveryPoint(){
@@ -99,9 +99,17 @@ extension AppModel{
             await self.refresh();await self.ensureQuoteService();if self.tab==2{await self.loadChart()}
         }
     }
+    func refreshFileShareCache(preferred:URL?=nil){
+        guard let context else{fileArchiveFiles=[];fileArchiveURL=nil;return}
+        do{
+            fileArchiveFiles=try AccountShareCache.completed(root:root,mode:context.mode)
+            if let preferred,fileArchiveFiles.contains(preferred){fileArchiveURL=preferred}
+            else if let selected=fileArchiveURL,fileArchiveFiles.contains(selected){}else{fileArchiveURL=fileArchiveFiles.first}
+        }catch{fileArchiveFiles=[];fileArchiveURL=nil;self.error=error.localizedDescription}
+    }
     func clearFileShareCache(){
-        guard !fileArchiveWorking,!exportingWork else{return}
-        do{let directory=root.appendingPathComponent("share-cache");if FileManager.default.fileExists(atPath:directory.path){try FileManager.default.removeItem(at:directory)};fileArchiveURL=nil;fileArchivePhase="已清除可重建的分享檔，帳戶與恢復點保留。"}catch{self.error=error.localizedDescription}
+        guard !fileArchiveWorking,!exportingWork,let context else{return}
+        do{let count=try AccountShareCache.clear(root:root,mode:context.mode);refreshFileShareCache();fileArchivePhase="已清除目前帳戶的 \(count) 份分享暫存；另一帳戶、帳戶資料與恢復點保留。"}catch{self.error=error.localizedDescription}
     }
     func startFileAccountReset(){
         beginFileOperation{

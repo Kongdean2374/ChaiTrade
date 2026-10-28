@@ -159,6 +159,10 @@ import XCTest
             guard let s=try? self.state(app) else{return false};return s["fileArchiveReady"] as? Bool==true && s["fileArchiveWorking"] as? Bool==false
         }
         let share=app.buttons["shareFileArchive"];try reveal(share,in:app);capture("AFTER complete file archive ready to share")
+        app.terminate();app.launch();try ready(app)
+        app.buttons["設定"].tap();app.buttons["資料備份／還原"].tap()
+        try check(app.buttons["shareFileArchive"].waitForExistence(timeout:5),"Completed archive cannot be shared after restart")
+        try check((try state(app))["fileArchiveReady"] as? Bool==true,"Restart lost the completed archive reference")
         let clear=app.buttons["clearFileShareCache"];try reveal(clear,in:app);clear.tap()
         try waitUntil("Share cache cleanup left a stale file reference"){(try? self.state(app)["fileArchiveReady"] as? Bool)==false}
         let after=try state(app)

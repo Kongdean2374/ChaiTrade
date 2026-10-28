@@ -103,6 +103,7 @@ struct ChartAmendment: Identifiable {
     @Published var fileArchiveProgress=0.0
     @Published var fileArchivePhase=""
     @Published var fileArchiveURL:URL?
+    @Published var fileArchiveFiles:[URL]=[]
     var fileArchiveOperation:Task<Void,Never>?
     var fileArchiveGeneration=UUID()
     @Published var catchupTarget: Int64?

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CSQLite
 @testable import ChaiTradeCore
 
 private struct StreamRig:Sendable{
@@ -76,4 +77,38 @@ func streamingArchiveRoundtripPreservesJournalsCapitalAndExcludesACache(encrypte
     #expect(!FileManager.default.fileExists(atPath:url.path))
     #expect(try FileManager.default.contentsOfDirectory(atPath:r.root.path).allSatisfy{!$0.hasPrefix(".partial-")})
     #expect(try r.original.load()?.cash["TWD"]==Amount(5000));#expect(try r.original.load()?.history?.journalCount==50);#expect(try r.original.fullSnapshot()?.journals.count==50)
+}
+
+@Test func streamingExportRejectsCorruptArchivedJournalOutsideHotWindow()throws{
+    let r=try StreamRig(),url=r.output("must-not-export.chaitradearchive")
+    let database=r.snapshotRoot.appendingPathComponent("accounts/\(Mode.online.accountID)/account.sqlite")
+    var db:OpaquePointer?;#expect(sqlite3_open(database.path,&db)==SQLITE_OK)
+    #expect(sqlite3_exec(db,"UPDATE journal_entries SET payload=json_set(payload,'$.instrumentID','unknown-instrument') WHERE id='journal-0'",nil,nil,nil)==SQLITE_OK);sqlite3_close(db)
+    #expect(throws:TradeError.self){try StreamingArchiveService.export(snapshotRoot:r.snapshotRoot,mode:.online,to:url,password:nil,time:1000)}
+    #expect(!FileManager.default.fileExists(atPath:url.path))
+    #expect(try r.original.fullSnapshot()?.journals.first?.instrumentID==nil)
+}
+
+@Test func streamingExportRejectsSameLengthMutationAfterFullValidation()throws{
+    let r=try StreamRig(),url=r.output("changed.chaitradearchive")
+    let database=r.snapshotRoot.appendingPathComponent("accounts/\(Mode.online.accountID)/account.sqlite")
+    let mutation=StreamMutationProbe()
+    #expect(throws:TradeError.self){
+        try StreamingArchiveService.export(snapshotRoot:r.snapshotRoot,mode:.online,to:url,password:nil,time:1000,progress:{value in
+            // Mutate a byte in the not-yet-read final chunk after the first chunk is written.
+            guard value<0.99,mutation.claim() else{return}
+            let file=try! FileHandle(forUpdating:database);defer{try? file.close()}
+            let end=try! file.seekToEnd();try! file.seek(toOffset:end-1)
+            let old=try! file.read(upToCount:1)!;try! file.seek(toOffset:end-1)
+            try! file.write(contentsOf:Data([old[0]^1]));try! file.synchronize()
+        })
+    }
+    #expect(!FileManager.default.fileExists(atPath:url.path))
+    #expect(try FileManager.default.contentsOfDirectory(atPath:r.root.path).allSatisfy{!$0.hasPrefix(".partial-")})
+    #expect(try r.original.fullSnapshot()?.journals.count==50)
+}
+private final class StreamMutationProbe:@unchecked Sendable{
+    private let lock=NSLock()
+    private var claimed=false
+    func claim()->Bool{lock.lock();defer{lock.unlock()};guard !claimed else{return false};claimed=true;return true}
 }

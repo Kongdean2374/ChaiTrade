@@ -12,7 +12,13 @@ struct DataBackupView:View{
                 Text("適合大型歷史與圖表附件，單獨保存目前帳戶。密碼沿用下方欄位；完成後請另存至檔案 App。請保持 App 在前景直到完成。").font(.caption).foregroundStyle(.secondary)
                 if model.fileArchiveWorking{ProgressView(value:model.fileArchiveProgress);Text(model.fileArchivePhase).font(.caption);Button("取消檔案操作"){model.cancelFileArchive()}.disabled(!model.fileArchiveCanCancel)}
                 else{Button("匯出完整檔案封存"){model.startFileArchiveExport(password:backupPassword)}.accessibilityIdentifier("exportFileArchive");Button("建立本機恢復點"){model.startLocalRecoveryPoint()}.accessibilityIdentifier("createRecoveryPoint")}
-                if let url=model.fileArchiveURL{ShareLink(item:url){Label("分享已完成的封存",systemImage:"square.and.arrow.up")}.accessibilityIdentifier("shareFileArchive");Text("分享暫存可重新產生，不會自動刪除帳戶或恢復點。").font(.caption);Button("清除分享暫存"){model.clearFileShareCache()}.disabled(model.fileArchiveWorking).accessibilityIdentifier("clearFileShareCache")}
+                if let url=model.fileArchiveURL{
+                    ShareLink(item:url){Label("分享已完成的封存",systemImage:"square.and.arrow.up")}.accessibilityIdentifier("shareFileArchive")
+                    if model.fileArchiveFiles.count>1{Picker("選擇分享封存",selection:Binding(get:{model.fileArchiveURL ?? url},set:{model.fileArchiveURL=$0})){ForEach(model.fileArchiveFiles,id:\.self){file in Text(archiveTitle(file)).tag(file)}}}
+                    Text(archiveTitle(url)).font(.caption).foregroundStyle(.secondary)
+                    Text("只列目前帳戶的完成封存，重啟後仍可分享。清除暫存只影響此帳戶，請先另存需要保留的封存。").font(.caption)
+                    Button("清除目前帳戶分享暫存"){model.clearFileShareCache()}.disabled(model.fileArchiveWorking).accessibilityIdentifier("clearFileShareCache")
+                }
                 if !model.fileArchiveWorking,!model.fileArchivePhase.isEmpty{Text(model.fileArchivePhase).font(.caption).foregroundStyle(.secondary)}
                 NavigationLink("本機恢復點"){LocalRecoveryPointsView()}.disabled(model.fileArchiveWorking)
             }
@@ -28,8 +34,15 @@ struct DataBackupView:View{
 
         Section{NavigationLink("匯出紀錄與帳本"){DataToolsView()};NavigationLink("重設目前帳戶"){AccountResetView()}}
     }.navigationTitle("資料備份／還原")
+        .task{model.refreshFileShareCache()}
         .fileImporter(isPresented:$importing,allowedContentTypes:[.data,.json]){result in switch result{case .success(let url):restoreURL=url;confirmRestore=true;case .failure(let error):model.error=error.localizedDescription}}
         .alert("以備份取代目前帳戶？",isPresented:$confirmRestore){Button("確認驗證並還原",role:.destructive){if let url=restoreURL{Task{await model.importBackup(url,password:backupPassword)}}};Button("取消",role:.cancel){restoreURL=nil}}message:{Text("先驗證完整備份，再保存目前帳戶的恢復點並還原。另一帳戶不變。")}
+    }
+    private func archiveTitle(_ url:URL)->String{
+        guard let values=try? url.resourceValues(forKeys:[.creationDateKey,.fileSizeKey]) else{return "已完成封存"}
+        let date=values.creationDate.map{$0.formatted(date:.abbreviated,time:.shortened)} ?? "建立時間未知"
+        let size=values.fileSize.map{ByteCountFormatter.string(fromByteCount:Int64($0),countStyle:.file)} ?? "大小未知"
+        return date+" · "+size+" · "+String(url.deletingPathExtension().lastPathComponent.suffix(8))
     }
 }
 struct LocalRecoveryPointsView:View{

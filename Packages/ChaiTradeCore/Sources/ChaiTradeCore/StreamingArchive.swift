@@ -60,6 +60,8 @@ public enum StreamingArchiveService{
         try repository.prepareArchiveFile()
         let source=URL(fileURLWithPath:repository.path),length=try size(source)
         guard length>0,length<=limits.maximumExpandedBytes,limits.maximumExpandedBytes>0 else{throw TradeError.invalid("帳戶檔案超過大型封存上限；原帳戶保留")}
+        // Hot projections cannot establish the integrity of archived rows and attachments.
+        let verified=try SQLiteArchiveDatabase.verify(source,mode:mode)
         let salt=password==nil || password=="" ? Data():try BackupService.random(16)
         let header=ArchiveFileHeader(mode:mode,expandedBytes:length,algorithm:salt.isEmpty ? "none":"AES-256-GCM/PBKDF2-HMAC-SHA256/chunks-1",iterations:salt.isEmpty ? 0:600_000,salt:salt,createdAt:time)
         let key=salt.isEmpty ? Data():try BackupService.derive(password!,salt:salt,iterations:600_000)
@@ -80,7 +82,9 @@ public enum StreamingArchiveService{
             }
         }
         try Task.checkCancellation();guard bytes==length else{throw TradeError.corrupt("檔案快照長度不符")}
-        _=try writeFrame(ArchiveFrame(index:index,expandedBytes:0,previous:previous,header:headerDigest,isFinal:true,fileDigest:digest.finish()),payload:Data(),key:key,to:output)
+        let fileDigest=try digest.finish()
+        guard fileDigest==verified.digest else{throw TradeError.corrupt("完整查核後的檔案快照發生變更；不產生封存，原帳戶保留")}
+        _=try writeFrame(ArchiveFrame(index:index,expandedBytes:0,previous:previous,header:headerDigest,isFinal:true,fileDigest:fileDigest),payload:Data(),key:key,to:output)
         try output.synchronize();try output.close();try Task.checkCancellation();try FileManager.default.moveItem(at:partial,to:destination);committed=true
     }
     public static func validate(_ source:URL,stagingRoot:URL,expectedMode:Mode,password:String?,limits:ArchiveLimits=ArchiveLimits(),progress:(@Sendable(Double)->Void)?=nil)throws->VerifiedAccountDatabase{
