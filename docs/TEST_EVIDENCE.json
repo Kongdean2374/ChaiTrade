@@ -951,7 +951,9 @@
       "相關新聞"
     ],
     "comparedPages": 25,
-    "softwareIssues": [],
+    "softwareIssues": [
+      "Stock order header at99.1TWD displays base0.01 instead of own price-band0.1."
+    ],
     "beforeFindings": [
       "Old home emphasizes account NAV and diagnostics; old B listing uses simulated placeholder identities.",
       "Old product content is on Trade; initial chart image is not yet rendered, later book image contains actual candles and volume. No inference that the old chart never worked.",
@@ -1821,7 +1823,7 @@
     ]
   },
   "ipa": {
-    "status": "Not yet produced; original main unsigned workflow must still pass its own required gates."
+    "status": "No acceptedIPA; run40710216847 cancelled beforepublication."
   },
   "physicalDeviceAcceptance": "Not executed; original2s coldlaunch/150ms feedback thresholds unchanged.",
   "credentialedSources": "External conditions blocked; no keys or paid entitlements supplied.",
@@ -1831,6 +1833,7 @@
   },
   "unsignedWorkflow": {
     "run": 40710216847,
-    "status": "in progress; no IPA success claimed"
-  }
+    "status": "cancelled; obsolete candidate withdrawn"
+  },
+  "status": "WITHDRAWN: UI74passed but final visualrecheck found incorrect baseprice tick display; candidate1.2.15(18)/75UI pending."
 }
