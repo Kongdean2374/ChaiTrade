@@ -91,7 +91,14 @@ import XCTest
                 bottom=min(bottom,footer.frame.minY)
             }
             let viewport=CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
-            let exists=element.exists,frame=exists ? element.frame:nil
+            // A unique stable identifier in this same native snapshot also gives
+            // the target frame. Avoid two more cross-process AX reads; ambiguous
+            // or unlabeled elements retain the original live lookup. The full
+            // viewport check and the live hit test below are unchanged.
+            let targets=targetID.isEmpty || targetID=="requested control" ? []:nodes.filter{$0.identifier==targetID}
+            let frame:CGRect?
+            if targets.count==1{frame=targets[0].frame}
+            else{frame=element.exists ? element.frame:nil}
             let contained=frame.map{viewport.contains($0)} ?? false
             let reachable=contained && element.isHittable
             if reachable{return}
