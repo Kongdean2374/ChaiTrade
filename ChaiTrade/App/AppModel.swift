@@ -246,8 +246,10 @@ struct ChartAmendment: Identifiable {
     }
     func select(_ instrument:Instrument){selectProduct(instrument)}
     func tick() async {
+        // Presentation freshness must keep moving even while an account task
+        // temporarily prevents another financial/simulation step.
+        if foreground,context?.mode == .online{let clock=Int64(Date().timeIntervalSince1970);if marketClock != clock{marketClock=clock}}
         guard !busy,foreground,let engine,let context,state != nil,progress == nil,clockWarning == nil,catchupTarget == nil else { return }
-        if context.mode == .online{let clock=Int64(Date().timeIntervalSince1970);if marketClock != clock{marketClock=clock}}
         busy=true;defer{busy=false}
         let uptime=ProcessInfo.processInfo.systemUptime, elapsed=max(0,uptime-lastUptime);lastUptime=uptime
         do {

@@ -78,6 +78,50 @@ import XCTest
 }
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
+    func testForegroundQuoteClockAdvancesAcrossTabsAndAppReactivation()throws{
+        let app=launchClean();defer{finish()}
+        let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Clock regression onboarding missing")
+        app.buttons["A 真實行情"].tap();start.tap()
+        try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Online clock account not ready")
+        let before=try state(app),initial=before["marketClock"] as? Int64 ?? 0
+        try waitUntil("Online foreground clock did not advance",timeout:6){
+            guard let s=try? self.state(app),let clock=s["marketClock"] as? Int64 else{return false}
+            return clock>initial+1 && abs(Int64(Date().timeIntervalSince1970)-clock)<=2
+        }
+        app.tabBars.buttons["行情"].tap();app.tabBars.buttons["總覽"].tap()
+        let previous=try state(app)["marketClock"] as? Int64 ?? 0
+        XCUIDevice.shared.press(.home);app.activate()
+        try waitUntil("Online clock did not resume with the foreground scene",timeout:6){
+            guard let s=try? self.state(app),let clock=s["marketClock"] as? Int64 else{return false}
+            return s["foreground"] as? Bool==true && clock>previous+1 && abs(Int64(Date().timeIntervalSince1970)-clock)<=2
+        }
+        let after=try state(app)
+        try check(after["mode"] as? String=="online" && (after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Foreground clock changed account or funds")
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Foreground clock changed "+key)}
+        capture("FLOW actual foreground quote clock after tabs and app reactivation")
+    }
+    func testOfflineAutomaticClockCanPauseAndResumeAfterAppReactivation()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let before=try state(app),initial=before["time"] as? Int64 ?? 0
+        app.buttons["設定"].tap();app.buttons["離線模擬"].tap()
+        let play=app.buttons["繼續模擬"];try reveal(play,in:app);play.tap()
+        try waitUntil("Offline automatic time did not advance after play",timeout:12){
+            guard let s=try? self.state(app) else{return false}
+            return s["simulationPaused"] as? Bool==false && (s["time"] as? Int64 ?? 0)>initial
+        }
+        let pause=app.buttons["暫停模擬"];try reveal(pause,in:app);pause.tap()
+        try waitUntil("Offline pause did not persist"){(try? self.state(app)["simulationPaused"] as? Bool)==true}
+        let stopped=try state(app)["time"] as? Int64 ?? 0
+        XCUIDevice.shared.press(.home);app.activate()
+        try check(try state(app)["time"] as? Int64==stopped,"Paused offline time advanced during app reactivation")
+        try reveal(play,in:app);play.tap()
+        try waitUntil("Offline automatic time did not resume after reactivation",timeout:12){(try? self.state(app)["time"] as? Int64 ?? 0)>stopped}
+        try reveal(pause,in:app);pause.tap()
+        let after=try state(app)
+        try check(after["mode"] as? String=="offline" && (after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Offline clock changed account or cash")
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Offline clock created "+key)}
+        capture("FLOW offline automatic play pause and foreground resume without orders")
+    }
     func testOrderSwipeWithKeyboardAndAcrossNavigationBarKeepsDraftAndAccount()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)
         let before=try state(app)

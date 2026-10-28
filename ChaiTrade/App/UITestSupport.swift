@@ -59,6 +59,9 @@ struct UITestProbe: View {
     private func snapshot(session:String)->String{
         let s=model.state
         let fills=s?.fills ?? [],ids=Set(fills.map(\.id))
+        var inspected=model.visibleQuoteIDs;inspected.insert(model.selectedID)
+        var quoteStates:[String:String]=[:]
+        for instrument in s?.instruments ?? [] where inspected.contains(instrument.id){quoteStates[instrument.id]=model.status(for:instrument).rawValue}
         let payload:[String:Any]=[
             "visualType":String(describing:typeSize),"visualTheme":colorScheme == .dark ? "dark":"light",
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
@@ -70,7 +73,8 @@ struct UITestProbe: View {
             "mode":s?.mode.rawValue ?? "", "market":model.market.rawValue,"search":model.currentBrowsing.search,"category":model.currentBrowsing.category,"sort":model.currentBrowsing.sort.rawValue,
             "leverageEnabled":s?.leverageEnabled ?? false,
             "instruments":s?.instruments.map{["id":$0.id,"symbol":$0.symbol,"name":$0.name,"market":$0.market.rawValue]} ?? [],
-            "quotes":s?.quotes.mapValues{["price":$0.last.description,"time":String($0.time),"valid":String($0.valid)]} ?? [:],
+            "quotes":s?.quotes.mapValues{["price":$0.last.description,"time":String($0.time),"valid":String($0.valid),"receivedAt":String($0.receivedAt),"quality":$0.quality.rawValue,"maximumAge":String($0.maximumAge)]} ?? [:],
+            "quoteStates":quoteStates,"marketClock":model.marketClock,"foreground":model.foreground,"simulationPaused":s?.simulation?.paused ?? true,
             "news":model.filteredNews.map{["id":$0.id,"label":$0.label,"title":$0.title,"origin":$0.origin.rawValue]},
 
             "alerts":s?.alerts.map{["id":$0.id,"instrument":$0.instrumentID,"price":$0.price.description,"baseline":$0.baseline?.description ?? "","percentage":$0.percentage?.description ?? ""]} ?? [],

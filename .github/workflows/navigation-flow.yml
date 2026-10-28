@@ -11,7 +11,7 @@ concurrency:
 jobs:
   navigation-ui:
     runs-on: macos-15
-    # Budget for 16 independent cases plus compile and retained evidence; each case stays 120s.
+    # Budget for 18 independent cases plus compile and retained evidence; each case stays 120s.
     timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer

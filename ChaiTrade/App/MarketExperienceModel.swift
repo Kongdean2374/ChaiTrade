@@ -103,8 +103,9 @@ extension AppModel {
         if let issue=quoteIssues[key],![MarketIssueKind.ready,.loading,.stale].contains(issue),!quote.valid{return issue}
         if let issue=quote.sourceIssue{return issue}
         if quote.quality == .delayed{return .delayed}
-        if !instrument.boardIsOpen(board,at:marketClock){return .closed}
-        if !quote.valid || quote.quality != .realtime || marketClock-quote.time>quote.maximumAge || marketClock-quote.receivedAt>quote.maximumAge || marketClock<quote.time-5{return quoteIssues[key].flatMap{[MarketIssueKind.ready,.loading].contains($0) ? nil:$0} ?? .stale}
+        let clock=now
+        if !instrument.boardIsOpen(board,at:clock){return .closed}
+        if !quote.valid || quote.quality != .realtime || clock-quote.time>quote.maximumAge || clock-quote.receivedAt>quote.maximumAge || clock<quote.time-5{return quoteIssues[key].flatMap{[MarketIssueKind.ready,.loading].contains($0) ? nil:$0} ?? .stale}
         if quote.grade == .E3{return .referenceOnly}
         if quote.bids.isEmpty || quote.asks.isEmpty{return .referenceOnly}
         if instrument.requiresRuleConfirmation==true{return .rulesUnverified}

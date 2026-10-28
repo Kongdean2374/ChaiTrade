@@ -12,10 +12,12 @@ struct ChaiTradeApp: App {
                 .preferredColorScheme(model.settings.theme == "system" ? nil : model.settings.theme == "light" ? .light : .dark)
                 .tint(.orange)
                 .task { await model.boot() }
-                .task {
+                .task(id:scenePhase) {
+                    guard scenePhase == .active else{return}
                     while !Task.isCancelled {
-                        try? await Task.sleep(for:.seconds(1))
-                        if scenePhase == .active { await model.tick() }
+                        do{try await Task.sleep(for:.seconds(1))}catch{return}
+                        guard !Task.isCancelled else{return}
+                        await model.tick()
                     }
                 }
                 .onChange(of:scenePhase) { _, phase in

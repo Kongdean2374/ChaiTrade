@@ -128,6 +128,14 @@ import XCTest
             return quotes["coinbase:BTC-USD"]?["valid"]=="true" && quotes["coinbase:ETH-USD"]?["valid"]=="true"
         }
         capture("AFTER A visible BTC ETH quotes actual HTTP")
+        let current=try state(app),clock=Int64(Date().timeIntervalSince1970)
+        try check(abs(clock-(current["marketClock"] as? Int64 ?? 0))<=2,"Foreground quote-status clock stopped while actual prices updated")
+        let quotes=try XCTUnwrap(current["quotes"] as? [String:[String:String]])
+        let statuses=try XCTUnwrap(current["quoteStates"] as? [String:String])
+        for id in ["coinbase:BTC-USD","coinbase:ETH-USD"]{
+            guard let q=quotes[id],q["quality"]=="realtime",let time=Int64(q["time"] ?? ""),let received=Int64(q["receivedAt"] ?? ""),let age=Int64(q["maximumAge"] ?? "") else{continue}
+            if clock>=time-5,clock-time<=age,clock-received<=age{try check(statuses[id] != "stale","A fresh real quote is incorrectly presented as expired: "+id)}
+        }
         app.buttons["marketStocks"].tap();stock.tap()
         try check(!app.buttons["openOrder"].exists,"Unconfigured A stock exposed an operational buy panel")
         app.tabBars.buttons["委託"].tap();try check(app.navigationBars["委託與成交"].exists,"Unavailable quote hid local order records")
