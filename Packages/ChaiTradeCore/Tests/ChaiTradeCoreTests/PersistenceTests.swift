@@ -9,6 +9,47 @@ private func sql(_ path:String,_ command:String)throws{
     defer{sqlite3_close(db)}
     guard sqlite3_exec(db,command,nil,nil,nil)==SQLITE_OK else{throw TradeError.corrupt("test SQL")}
 }
+@Test(arguments:["ledger","equity"])
+func indexedExactCountsStillRejectArchivedHistoryHoles(_ table:String)throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let repo=try AccountRepository(root:root,mode:.online)
+    var state=try TradingEngine.initial(mode:.online,capital:Amount("100000"),time:1000)
+    for n in 1...1200{
+        let id="count-hole-\(n)",time=Int64(1000+n)
+        state.post(event:id,currency:"TWD",debit:"synthetic-count",credit:"synthetic-offset",amount:.one,time:time)
+        state.audit("fixture","exact count preservation",time:time,id:id)
+        state.equity.append(EquityPoint(time:time,value:state.cash["TWD"],flow:.zero))
+    }
+    var hot=try repo.save(state)
+    let payload=try repo.scalar("SELECT payload FROM account_state")
+    let countText=try #require(try repo.scalar("SELECT count(*) FROM \(table)"))
+    let count=try #require(Int(countText))
+    try sql(repo.path,"DELETE FROM \(table) WHERE ordinal=1")
+    let instrument=try #require(hot.instruments.first);hot.watchlist.insert(instrument.id)
+    #expect(throws:TradeError.self){try repo.save(hot)}
+    #expect(try repo.scalar("SELECT payload FROM account_state")==payload)
+    #expect(try repo.scalar("SELECT count(*) FROM \(table)")==String(count-1))
+    #expect(try repo.scalar("PRAGMA synchronous")=="2")
+}
+@Test func priorArchiveWithoutCountIndexesRestoresAndStillRejectsCustomSQL()throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let repo=try AccountRepository(root:root,mode:.online)
+    var state=try TradingEngine.initial(mode:.online,capital:Amount("123456"),time:1000)
+    for n in 1...1100{state.equity.append(EquityPoint(time:Int64(1000+n),value:state.cash["TWD"],flow:.zero))}
+    _=try repo.save(state)
+    let original=try #require(try repo.fullSnapshot()),file=root.appendingPathComponent("prior-schema9.sqlite")
+    try repo.createArchiveSnapshot(at:file)
+    try sql(file.path,"DROP INDEX ledger_account_count; DROP INDEX equity_account_count")
+    let before=try ArchiveDigest.file(file),verified=try SQLiteArchiveDatabase.verify(file,mode:.online)
+    #expect(try ArchiveDigest.file(file)==before,"Verification must not migrate the imported file")
+    let targetRoot=root.appendingPathComponent("restored"),target=try AccountRepository(root:targetRoot,mode:.online)
+    _=try target.installArchiveSnapshot(verified)
+    let reopened=try AccountRepository(root:targetRoot,mode:.online),full=try #require(try reopened.fullSnapshot())
+    #expect(full.cash==original.cash);#expect(try AccountRepository.encode(full.ledger)==AccountRepository.encode(original.ledger));#expect(full.equity==original.equity)
+    #expect(try reopened.scalar("SELECT count(*) FROM sqlite_schema WHERE type='index' AND name IN ('ledger_account_count','equity_account_count')")=="2")
+    try sql(file.path,"CREATE TRIGGER unexpected_archive_sql AFTER INSERT ON ledger BEGIN SELECT 1; END")
+    #expect(throws:TradeError.self){try SQLiteArchiveDatabase.verify(file,mode:.online)}
+}
 @Test func schemaOneMigrationRollbackAndRetryPreservesOriginal()throws{
     let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let dir=root.appendingPathComponent("accounts/account-online")

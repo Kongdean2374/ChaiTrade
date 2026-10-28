@@ -99,7 +99,13 @@ enum SQLiteArchiveDatabase{
             // No imported views, triggers, virtual tables or custom SQL are accepted or evaluated.
             let version=try strings(db,"PRAGMA user_version")
             let permitted=expected.filter{row in let table=row.components(separatedBy:"\u{1f}")[2];return !(version==["6"] && table.hasPrefix("journal_")) && !(["6","7"].contains(version.first ?? "") && table=="applied_event_ids") && !(["6","7","8"].contains(version.first ?? "") && table=="lifecycle_history")}
-            guard ["6","7","8","9"].contains(version.first ?? ""),expectedVersion.map({version==[String($0)]}) ?? true,try schema(db)==permitted else{throw TradeError.corrupt("歸檔資料庫版本或結構不符；不執行自訂SQL")}
+            // Performance indexes were added without changing canonical rows. Keep
+            // exactly the prior compiled schema readable; never accept arbitrary
+            // missing/modified indexes or run schema creation on the imported file.
+            let countIndexes:Set<String>=["ledger_account_count","equity_account_count"]
+            let prior=permitted.filter{row in let parts=row.components(separatedBy:"\u{1f}");return !(parts[0]=="index" && countIndexes.contains(parts[1]))}
+            let stored=try schema(db)
+            guard ["6","7","8","9"].contains(version.first ?? ""),expectedVersion.map({version==[String($0)]}) ?? true,stored==permitted || stored==prior else{throw TradeError.corrupt("歸檔資料庫版本或結構不符；不執行自訂SQL")}
             guard try strings(db,"PRAGMA quick_check")==["ok"],try strings(db,"SELECT count(*) FROM account_state")==["1"] else{throw TradeError.corrupt("歸檔資料庫完整性不符")}
         }
         guard let hot=try reader.load(),hot.mode==mode,hot.accountID==mode.accountID else{throw TradeError.wrongAccount}

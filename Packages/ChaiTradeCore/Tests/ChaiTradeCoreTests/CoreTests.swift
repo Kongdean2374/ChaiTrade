@@ -40,6 +40,22 @@ private struct Rig {
     #expect(throws:TradeError.self) { try a("1") / .zero }
     #expect(try a("0.03").isMultiple(of:a("0.01")))
 }
+
+@Test func unchangedOrderProjectionDoesNotRewriteOrdersButCancellationPersists()async throws{
+    let r=try Rig();try await r.engine.ingest(r.quote(),now:1000,context:r.context)
+    let id=try await r.engine.submit(r.buy(quantity:"1",price:"90",id:"write-amplification"),time:1000,context:r.context)
+    let initial=await r.engine.snapshot()
+    try r.repo.exec("CREATE TABLE synthetic_order_updates(value INTEGER NOT NULL); CREATE TRIGGER synthetic_order_update_probe AFTER UPDATE ON orders BEGIN INSERT INTO synthetic_order_updates VALUES(1); END")
+    _=try r.repo.save(initial)
+    #expect(try r.repo.scalar("SELECT count(*) FROM synthetic_order_updates")=="0")
+    try await r.engine.cancel(id:id,time:1001,context:r.context)
+    #expect(try r.repo.scalar("SELECT count(*) FROM synthetic_order_updates")=="1")
+    let reopened=try AccountRepository(root:r.root,mode:.online),restored=try #require(try reopened.load())
+    #expect(restored.orders[id]?.status == .cancelled)
+    #expect(restored.orders[id]?.reserved == .zero)
+    #expect(restored.cash==initial.cash)
+    #expect(try reopened.scalar("PRAGMA synchronous")=="2")
+}
 @Test func vectorAAndIsolation() async throws {
     let r = try Rig()
     try await r.engine.ingest(r.quote(),now:1000,context:r.context)
