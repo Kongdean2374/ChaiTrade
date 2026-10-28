@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   navigation-ui:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     # Budget for 20 independent cases plus compile and retained evidence; each case stays 120s.
     timeout-minutes: 45
     env:
@@ -34,7 +34,7 @@ jobs:
             build/NavigationFlowTests.xcresult
           retention-days: 7
   core:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 20
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
