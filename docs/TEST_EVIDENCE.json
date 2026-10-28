@@ -1,7 +1,7 @@
 {
-  "version": "1.2.21",
-  "build": 24,
-  "branch": "navigation-flow-20261028-v39",
+  "version": "1.2.22",
+  "build": 25,
+  "branch": "navigation-flow-20261028-v40",
   "state": "pending full same-source verification; no accepted IPA",
   "requiredCoreFunctions": 185,
   "requiredUI": 77,
@@ -14,11 +14,11 @@
     "visualPro": 6
   },
   "passed": false,
-  "previousSource": "fb19f937eb791303d30a6081feefd95ee308096e",
+  "previousSource": "968282488926fd3f64d8fc43085dddbaf57c4a75",
   "retainedFailures": [
-    "actual T45 174.810185ms > original150ms",
-    "diagnostic T45 167.095696ms > original150ms",
-    "Pro large-type orderQuantity reachability5pass1fail"
+    "App21 manual review:stock search hint incorrectly suggestsBTC/ETH",
+    "App21 secondCore upload CreateArtifact failed after all software steps passed; logs retained",
+    "App20 original UI timeouts and real T45 failures remain retained"
   ],
   "physicalDeviceAcceptance": "not executed; original thresholds retained"
 }

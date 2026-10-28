@@ -358,9 +358,12 @@ import XCTest
         let update=app.buttons["搜尋官方目錄"];try reveal(update,in:app,identifier:"搜尋官方目錄");update.tap()
         let item=app.buttons["discover-alpaca:SPY"];try check(item.waitForExistence(timeout:30),"Actual official US directory did not return SPY ETF")
         capture("AFTER actual official US identity and original venue",includeHierarchy:false);try reveal(item,in:app,identifier:"discover-alpaca:SPY");item.tap()
-        try waitUntil("US selection did not return to product",timeout:10){(try? self.state(app)["selected"] as? String)=="alpaca:SPY" && !app.textFields["usDirectorySearch"].exists}
+        // The removed source-search field's negative AX lookup stalled30s in
+        // retained source38. Require positive, actionable foreground completion.
+        try waitUntil("US selection did not return to a reachable product detail",timeout:10){(try? self.state(app)["selected"] as? String)=="alpaca:SPY" && app.navigationBars["商品詳情"].isHittable}
         try check(!app.buttons["openOrder"].exists,"Official metadata incorrectly granted quote/trading permission")
         let after=try state(app)
+        try check(after["tab"] as? Int==1 && after["market"] as? String=="stocks" && app.tabBars.buttons["行情"].isSelected,"US directory selection lost the stock market navigation")
         try check((after["instruments"] as? [[String:String]])?.count==(before["instruments"] as? [[String:String]])?.count,"Existing SPY identity duplicated")
         try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"US directory selection changed cash")
         try check((after["orders"] as? [String])?.isEmpty==true && (after["fills"] as? [[String:String]])?.isEmpty==true,"US metadata discovery created a local order or fill")

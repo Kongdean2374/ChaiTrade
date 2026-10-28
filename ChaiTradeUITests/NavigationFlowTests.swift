@@ -9,7 +9,10 @@ import XCTest
         try check(initial["session"] as? String==session,"Navigation test reused another case")
         for key in ["orders","fills","journals","watchlist"]{try check((initial[key] as? [Any])?.isEmpty==true,"Navigation case inherited "+key)}
         app.tabBars.buttons["行情"].tap();if crypto{app.buttons["marketCrypto"].tap()}
-        let search=app.textFields["marketSearch"];search.tap();search.typeText(query)
+        let search=app.textFields["marketSearch"]
+        let hint=search.placeholderValue ?? ""
+        try check(crypto ? hint.contains("BTC") && hint.contains("ETH") && !hint.contains("2330"):hint.contains("2330") && hint.contains("0050") && !hint.contains("BTC") && !hint.contains("ETH"),"Search guidance belongs to another market")
+        search.tap();search.typeText(query)
         let product=app.buttons["market-"+id];try check(product.waitForExistence(timeout:5),"Exact product is missing: "+id);product.tap()
         let viewed=try state(app)
         try check(viewed["tab"] as? Int==1,"Browsing "+query+" silently switched from markets to trade")

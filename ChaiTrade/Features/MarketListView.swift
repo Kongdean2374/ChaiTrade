@@ -13,6 +13,19 @@ struct MarketsView:View {
     @State private var custom=false
     private var preferences:MarketBrowsingState{model.browsing[domain] ?? MarketBrowsingState()}
     private var categories:[String]{domain == .stocks ? ["全部","台股","美股","ETF"]:domain == .crypto ? ["現貨","合約"]:["全部","外匯","期貨"]}
+    private var searchPrompt:String{
+        switch domain{
+        case .stocks:
+            switch preferences.category{
+            case "台股":return "台股代碼或名稱，例如 2330、2317"
+            case "美股":return "美股代碼或名稱，例如 AAPL、MSFT"
+            case "ETF":return "ETF 代碼或名稱，例如 0050、SPY"
+            default:return "代碼或名稱，例如 2330、0050、AAPL"
+            }
+        case .crypto:return preferences.category == "合約" ? "合約代碼或名稱，例如 BTCUSDT":"幣種或交易對，例如 BTC、ETH"
+        case .other:return preferences.category == "外匯" ? "外匯交易對或名稱，例如 EUR/USD":preferences.category == "期貨" ? "期貨商品代碼或名稱":"商品代碼、名稱或交易所"
+        }
+    }
     private var products:[Instrument]{
         var pool=(model.state?.instruments ?? []).filter{domain.contains($0) && $0.asset != .index && $0.identity?.legacy != true}
         let category=preferences.category
@@ -49,7 +62,7 @@ struct MarketsView:View {
             LazyVStack(alignment:.leading,spacing:14){
                 VStack(alignment:.leading,spacing:12){
                     if !searching{HStack{Text(domain.label).font(.largeTitle.bold());Spacer();Button{model.catalogVisible=true}label:{Label("商品目錄",systemImage:"books.vertical")}.accessibilityIdentifier("openCatalog")}}
-                    HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);StableSearchField(text:search,editing:$searching,prompt:"代碼或名稱，例如 BTC、ETH、2330",identifier:"marketSearch",doneTitle:"完成搜尋");if !search.wrappedValue.isEmpty{Button{searching=false;search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
+                    HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);StableSearchField(text:search,editing:$searching,prompt:searchPrompt,identifier:"marketSearch",doneTitle:"完成搜尋");if !search.wrappedValue.isEmpty{Button{searching=false;search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
                         .padding(12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12))
                     ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(categories,id:\.self){category in Button(category){searching=false;model.editBrowsing(domain){$0.category=category;$0.scrollID=nil};pageSize=40}.buttonStyle(.bordered).tint(preferences.category==category || (domain == .crypto && preferences.category == "全部" && category == "現貨") ? .orange:.gray)}}}
                     if searching{HStack{Text("目前目錄：\(products.count)個符合項目").font(.caption).foregroundStyle(.secondary);Spacer();Button("取消搜尋鍵盤"){searching=false}.font(.caption)}}
