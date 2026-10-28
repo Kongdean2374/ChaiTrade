@@ -1,0 +1,53 @@
+name: Market detail and trading flow validation
+on:
+  push:
+    branches: [navigation-flow-20261028]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: navigation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  navigation-ui:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
+      - run: bash scripts/preflight.sh
+      - name: Actual independent market navigation cases
+        run: bash scripts/test_navigation_ui.sh
+      - name: Retain failed and successful screenshots and isolated accounts
+        if: always()
+        run: python3 scripts/collect_diagnostics.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: market-navigation-evidence
+          path: |
+            build/logs
+            build/NavigationFlowTests.xcresult
+          retention-days: 7
+  core:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
+      - run: bash scripts/preflight.sh
+      - run: bash scripts/test.sh
+      - run: bash scripts/test_stress.sh
+      - run: bash scripts/test_archive_scale.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: navigation-core-evidence
+          path: build/logs
+          retention-days: 7

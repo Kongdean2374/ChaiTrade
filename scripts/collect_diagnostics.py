@@ -15,6 +15,14 @@ try:
  tail='\n'.join(result.stdout.splitlines()[-200:]);(out/'app-system.log').write_text(tail);print(tail)
 except (OSError,subprocess.TimeoutExpired) as e:print('DIAGNOSTIC_COLLECTION',type(e).__name__)
 
+# Preserve startup phases for the earliest failed case in a full 45–60 minute job.
+# These DEBUG messages contain milliseconds only, without account contents or credentials.
+try:
+ result=subprocess.run(['xcrun','simctl','spawn','booted','log','show','--last','60m','--style','compact','--predicate','process == "ChaiTrade" AND eventMessage CONTAINS "CHAI_LAUNCH_PHASE"'],capture_output=True,text=True,timeout=40)
+ (out/'launch-phases.log').write_text(result.stdout)
+ print('LAUNCH_PHASE_DIAGNOSTICS_SAVED',len(result.stdout.splitlines()))
+except (OSError,subprocess.TimeoutExpired) as e:print('LAUNCH_PHASE_COLLECTION',type(e).__name__)
+
 # Only DEBUG XCTest namespaces; never collect the production account directory.
 try:
  container=subprocess.check_output(['xcrun','simctl','get_app_container','booted','org.chaitrade.app','data'],text=True).strip()
@@ -25,7 +33,7 @@ try:
 except (OSError,subprocess.CalledProcessError) as e:print('UI_TEST_SESSION_COLLECTION',type(e).__name__)
 
 # Make attachments readable without Xcode and retain an independent SQLite summary.
-for result,directory in [(pathlib.Path('build/UITests.xcresult'),'ui-attachments'),(pathlib.Path('build/UIOrderFocused.xcresult'),'ui-focused-attachments'),(pathlib.Path('build/ProductUITests.xcresult'),'product-ui-attachments'),(pathlib.Path('build/ProductVisualTests.xcresult'),'product-visual-attachments'),(pathlib.Path('build/ProductEvidenceTests.xcresult'),'product-page-attachments'),(pathlib.Path('build/ProductFocused.xcresult'),'product-focused-attachments')]:
+for result,directory in [(pathlib.Path('build/UITests.xcresult'),'ui-attachments'),(pathlib.Path('build/UIOrderFocused.xcresult'),'ui-focused-attachments'),(pathlib.Path('build/ProductUITests.xcresult'),'product-ui-attachments'),(pathlib.Path('build/ProductVisualTests.xcresult'),'product-visual-attachments'),(pathlib.Path('build/ProductEvidenceTests.xcresult'),'product-page-attachments'),(pathlib.Path('build/ProductFocused.xcresult'),'product-focused-attachments'),(pathlib.Path('build/NavigationFlowTests.xcresult'),'navigation-flow-attachments')]:
  if result.exists():
   try:
    subprocess.run(['xcrun','xcresulttool','export','attachments','--path',str(result),'--output-path',str(out/directory)],check=True,timeout=90)

@@ -54,13 +54,17 @@ import XCTest
             if hasFooter{bottom=min(bottom,footer.frame.minY)}
             return CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
         }
-        func visible()->Bool{element.exists && usableViewport().contains(element.frame) && element.isHittable}
-        for _ in 0..<7{
-            if visible(){return}
+        for attempt in 0...7{
+            // Sample each AX property once per iteration. Keep the same complete
+            // visibility/hit-test rules and at most seven gestures.
+            let viewport=usableViewport(),exists=element.exists
+            let frame=exists ? element.frame:nil
+            if let frame,viewport.contains(frame),element.isHittable{return}
+            guard attempt<7 else{break}
             // Large titles collapse while scrolling; both ends must remain inside
             // the current content area. A screen-relative downward swipe can start
             // in the SE navigation bar and never move the scroll view at all.
-            let viewport=usableViewport(),distance=element.exists ? element.frame.midY-viewport.midY:viewport.height*2
+            let distance=frame.map{$0.midY-viewport.midY} ?? viewport.height*2
             let up=distance>0,far=abs(distance)>viewport.height*1.5
             let travel=far ? viewport.height*0.75:min(viewport.height*0.65,max(35,abs(distance)))
             let startY=up ? viewport.maxY-viewport.height*0.1:viewport.minY+viewport.height*0.1
@@ -69,7 +73,7 @@ import XCTest
             let end=base.withOffset(CGVector(dx:viewport.width*0.85,dy:startY-screen.minY+(up ? -travel:travel)))
             start.press(forDuration:0.1,thenDragTo:end,withVelocity:far ? .fast:.slow,thenHoldForDuration:0.1)
         }
-        try check(visible(),"Control is not completely visible and reachable: "+targetID)
+        try check(false,"Control is not completely visible and reachable: "+targetID)
     }
     func journal(_ app:XCUIApplication)throws{
         app.tabBars.buttons["資產"].tap();let button=app.buttons["本機交易日誌"];try reveal(button,in:app);button.tap()
