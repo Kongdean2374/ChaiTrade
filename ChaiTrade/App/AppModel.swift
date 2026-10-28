@@ -100,7 +100,7 @@ struct ChartAmendment: Identifiable {
     @Published var notice: String?
     @Published var loading=false
     @Published var progress: Double?
-    @Published var selectedID=""
+    @Published var selectedID=""{didSet{if selectedID != oldValue{invalidateChartCapture()}}}
     @Published var selectedBoard=TradingBoard.regular
     var boardQuoteTask:Task<Void,Never>?
     @Published var tab=0
@@ -111,9 +111,11 @@ struct ChartAmendment: Identifiable {
     @Published var catalogVisible=false
     @Published var catalogNavigationRevision=UUID()
     @Published var journalScreenshot: Data?
-    weak var chartWebView:WKWebView?
+    var chartWebViews:[String:ChartWebReference]=[:]
+    @Published var chartCapturing=false
+    private var chartCaptureToken=UUID()
     @Published var chartRenderings:[String:ChartRenderEvidence]=[:]
-    @Published var interval: Int64=60{didSet{if interval != oldValue{chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartLimitation=nil;chartRenderings=[:]}}}
+    @Published var interval: Int64=60{didSet{if interval != oldValue{invalidateChartCapture();chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartLimitation=nil;chartRenderings=[:]}}}
     @Published var chartCount=160
     @Published var chartBefore:Int64?
     @Published var chartLoading=false
@@ -386,19 +388,23 @@ struct ChartAmendment: Identifiable {
         await run{try await engine.saveChartPreferences(instrumentID:self.selectedID,preferences:ChartPreferences(interval:self.interval,indicator:indicator,period:period,line:line),context:context)}
     }
     func captureChart()async{
-        guard let web=chartWebView,let context else{error="圖表尚未準備完成";return}
-        guard !chartLoading,chartRenderings.values.contains(where:{$0.context==context && $0.instrumentID==selectedID && $0.interval==interval && $0.count>0}) else{error="圖表仍在繪製，完成後再截圖。";return}
-        let id=selectedID,time=now
+        guard !chartCapturing else{return}
+        guard let web=chartWebViews["inline"]?.view,web.window != nil,!web.isHidden,let context else{error="圖表尚未準備完成，請返回圖表後重試。";return}
+        guard !chartLoading,let rendered=chartRenderings["inline"],rendered.context==context,rendered.instrumentID==selectedID,rendered.interval==interval,rendered.count>0 else{error="圖表仍在繪製，完成後再截圖。";return}
+        let id=selectedID,time=now,capturedInterval=interval,token=UUID()
+        chartCaptureToken=token;chartCapturing=true
+        defer{if chartCaptureToken==token{chartCapturing=false}}
         do{
-            let image:UIImage=try await withCheckedThrowingContinuation{continuation in web.takeSnapshot(with:nil){image,error in if let image{continuation.resume(returning:image)}else{continuation.resume(throwing:error ?? TradeError.unavailable("本機圖表截圖失敗"))}}}
-            guard self.context==context,self.selectedID==id else{return}
+            let image=try await ChartSnapshotter.capture(web)
+            guard chartCaptureToken==token,self.context==context,self.selectedID==id,self.interval==capturedInterval,chartWebViews["inline"]?.view===web else{return}
             let format=UIGraphicsImageRendererFormat();format.scale=1
             let renderer=UIGraphicsImageRenderer(size:CGSize(width:image.size.width,height:image.size.height+48),format:format)
             let marked=renderer.image{ctx in UIColor.systemBackground.setFill();ctx.fill(CGRect(x:0,y:0,width:image.size.width,height:image.size.height+48));image.draw(at:CGPoint(x:0,y:48));let title="ChaiTrade · 模擬交易 · \(context.accountID)\n\(id) · \(time)";title.draw(in:CGRect(x:8,y:4,width:image.size.width-16,height:42),withAttributes:[.font:UIFont.monospacedSystemFont(ofSize:10,weight:.medium),.foregroundColor:UIColor.label])}
             guard let png=marked.pngData(),png.count<=2_000_000 else{throw TradeError.invalid("截圖超過 2 MB，請縮小圖表後重試")}
             journalScreenshot=png;notice="已保存本機圖表草稿，可於資產 → 交易日誌附加；尚未匯出至外部"
-        }catch{self.error=error.localizedDescription}
+        }catch{if chartCaptureToken==token,self.context==context,self.selectedID==id,self.interval==capturedInterval{self.error=error.localizedDescription}}
     }
+    private func invalidateChartCapture(){chartCaptureToken=UUID();chartCapturing=false}
     func loadEarlierChart()async{
         if chartCount<1000{chartCount=min(1000,chartCount+160)}else if let first=candles.first{chartBefore=first.time-1;chartCount=160}
         await loadChart()

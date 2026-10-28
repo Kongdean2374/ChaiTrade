@@ -116,8 +116,12 @@ import XCTest
         try waitUntil("Chart screenshot requested before actual canvas rendering",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         try reveal(capture,in:app,identifier:"captureChart")
         XCTAssertTrue(capture.isHittable);capture.tap()
-        let captured=app.buttons.containing(NSPredicate(format:"label BEGINSWITH %@","已保存本機圖表草稿")).firstMatch
-        XCTAssertTrue(captured.waitForExistence(timeout:10));captured.tap()
+        let captured=app.buttons["dismissNotice"]
+        try check(captured.waitForExistence(timeout:10),"Actual chart capture did not show its completion notice")
+        try check(captured.label.hasPrefix("已保存本機圖表草稿"),"Chart capture returned an unrelated notice")
+        let capturedState=try state(app)
+        try check(capturedState["chartCapturing"] as? Bool==false && (capturedState["journalScreenshotBytes"] as? Int ?? 0)>0,"Notice did not correspond to a completed PNG capture")
+        captured.tap()
         app.tabBars.buttons["資產"].tap()
         let journal=app.buttons["本機交易日誌"]
         for _ in 0..<5 where !journal.isHittable{app.swipeUp()}
@@ -139,6 +143,27 @@ import XCTest
         XCTAssertTrue(app.images["savedJournalChart"].exists)
         XCTAssertEqual((try state(app)["journals"] as? [[String:String]])?.first?["text"],"CT_CHART_JOURNAL_2374")
         app.buttons["完成"].tap()
+        completed=true
+    }
+
+    func testChartScreenshotTimeoutLeavesAccountAndJournalUnchanged()throws{
+        let app=launchClean(flags:["--uitest-snapshot-timeout"]);var completed=false;defer{finish(includeHierarchy:!completed)}
+        try startFreshOffline(app);app.tabBars.buttons["交易"].tap()
+        try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app,identifier:"inlineChartWeb")
+        try waitUntil("Timeout scenario requires an actually rendered canvas",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
+        let capture=app.buttons["captureChart"];try reveal(capture,in:app,identifier:"captureChart")
+        let before=try state(app);capture.tap()
+        let failure=app.alerts["操作未完成"]
+        try check(failure.waitForExistence(timeout:10),"Missing WebKit callback left the capture spinning indefinitely")
+        try check(failure.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","圖表截圖逾時")).firstMatch.exists,"Timeout did not explain the next step")
+        self.capture("Screenshot callback timeout preserves account and offers retry",includeHierarchy:false)
+        failure.buttons["知道了"].tap()
+        let after=try state(app)
+        try check(after["chartCapturing"] as? Bool==false && after["journalScreenshotBytes"] as? Int==0,"Failed capture created a draft or remained busy")
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Failed capture changed cash")
+        try check((after["orders"] as? [String])==(before["orders"] as? [String]),"Failed capture created orders")
+        try check((after["journals"] as? [[String:String]])==(before["journals"] as? [[String:String]]),"Failed capture saved a journal")
+        try check(capture.isEnabled,"Timeout did not release the retry control")
         completed=true
     }
 

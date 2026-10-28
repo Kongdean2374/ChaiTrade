@@ -90,6 +90,7 @@ struct UITestProbe: View {
             "instruments":s?.instruments.map{["id":$0.id,"symbol":$0.symbol,"name":$0.name,"market":$0.market.rawValue]} ?? [],
             "quotes":s?.quotes.mapValues{["price":$0.last.description,"time":String($0.time),"valid":String($0.valid),"receivedAt":String($0.receivedAt),"quality":$0.quality.rawValue,"maximumAge":String($0.maximumAge),"source":$0.source]} ?? [:],
             "quoteStates":quoteStates,"marketClock":model.marketClock,"foreground":model.foreground,"simulationPaused":s?.simulation?.paused ?? true,
+            "chartCapturing":model.chartCapturing,"journalScreenshotBytes":model.journalScreenshot?.count ?? 0,
             "news":model.filteredNews.map{["id":$0.id,"label":$0.label,"title":$0.title,"origin":$0.origin.rawValue]},
 
             "alerts":s?.alerts.map{["id":$0.id,"instrument":$0.instrumentID,"price":$0.price.description,"baseline":$0.baseline?.description ?? "","percentage":$0.percentage?.description ?? ""]} ?? [],

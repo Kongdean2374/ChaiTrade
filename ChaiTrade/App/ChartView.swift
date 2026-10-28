@@ -2,6 +2,49 @@ import SwiftUI
 import WebKit
 import ChaiTradeCore
 
+@MainActor final class ChartWebReference{
+    weak var view:WKWebView?
+    init(_ view:WKWebView){self.view=view}
+}
+
+// WebKit can defer an after-screen-update snapshot while its scroll parent
+// clips the canvas. Capture the already verified rendered frame instead.
+// A bounded, single-resume completion also handles a missing or late callback.
+@MainActor enum ChartSnapshotter{
+    @MainActor private final class Completion{
+        var continuation:CheckedContinuation<UIImage,Error>?
+        var timeout:Task<Void,Never>?
+        init(_ continuation:CheckedContinuation<UIImage,Error>){self.continuation=continuation}
+        func finish(_ result:Result<UIImage,Error>){
+            guard let continuation else{return}
+            self.continuation=nil;timeout?.cancel();timeout=nil
+            continuation.resume(with:result)
+        }
+    }
+    static func capture(_ web:WKWebView)async throws->UIImage{
+        let config=WKSnapshotConfiguration();config.rect=web.bounds;config.afterScreenUpdates=false
+        #if DEBUG
+        let withholdCallback=UITestSupport.session != nil && ProcessInfo.processInfo.arguments.contains("--uitest-snapshot-timeout")
+        #else
+        let withholdCallback=false
+        #endif
+        return try await withCheckedThrowingContinuation{continuation in
+            let completion=Completion(continuation)
+            completion.timeout=Task{@MainActor in
+                do{try await Task.sleep(for:.seconds(8))}catch{return}
+                completion.finish(.failure(TradeError.unavailable("圖表截圖逾時；原有日誌與截圖保留，請回到圖表重試。")))
+            }
+            web.takeSnapshot(with:config){image,error in
+                guard !withholdCallback else{return}
+                Task{@MainActor in
+                    if let image{completion.finish(.success(image))}
+                    else{completion.finish(.failure(error ?? TradeError.unavailable("本機圖表截圖失敗，請重試。")))}
+                }
+            }
+        }
+    }
+}
+
 @MainActor private final class LayoutAwareChartWebView:WKWebView{
     var geometryChanged:((WKWebView)->Void)?
     private var previousSize=CGSize.zero
@@ -39,7 +82,7 @@ struct ChartView: UIViewRepresentable {
         view.addSubview(overlay);NSLayoutConstraint.activate([overlay.centerXAnchor.constraint(equalTo:view.centerXAnchor),overlay.centerYAnchor.constraint(equalTo:view.centerYAnchor)])
         context.coordinator.loadingOverlay=overlay
         view.navigationDelegate=context.coordinator
-        model.chartWebView=view
+        model.chartWebViews[role]=ChartWebReference(view)
         if let url=Bundle.main.url(forResource:"index",withExtension:"html",subdirectory:"ChartWeb") {
             view.loadFileURL(url,allowingReadAccessTo:url.deletingLastPathComponent())
         }
@@ -48,11 +91,11 @@ struct ChartView: UIViewRepresentable {
     static func dismantleUIView(_ web:WKWebView,coordinator:Coordinator){
         coordinator.cancel();(web as? LayoutAwareChartWebView)?.geometryChanged=nil
         web.configuration.userContentController.removeScriptMessageHandler(forName:"intent");web.navigationDelegate=nil;web.stopLoading()
-        if coordinator.model.chartWebView===web{coordinator.model.chartWebView=nil}
+        if coordinator.model.chartWebViews[coordinator.role]?.view===web{coordinator.model.chartWebViews[coordinator.role]=nil}
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         web.accessibilityElementsHidden = !interactionEnabled;web.isUserInteractionEnabled=interactionEnabled
-        model.chartWebView=web
+        model.chartWebViews[role]=ChartWebReference(web)
         let candles=model.candles
         let values=candles.map(\.close)
         var overlays: [[String:Any]]=[]

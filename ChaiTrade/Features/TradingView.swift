@@ -191,7 +191,7 @@ struct TradingView:View{
     }}
     private var alertAction:some View{Button("到價提醒"){alert=true}.font(.caption).padding(.vertical,8).accessibilityIdentifier("openPriceAlert")}
     private var historyNavigation:some View{HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}}}.font(.caption)}
-    private var drawingActions:some View{HStack{Button("繪圖"){drawing=true};Button("截圖"){Task{await model.captureChart()}}.accessibilityIdentifier("captureChart")}.font(.caption)}
+    private var drawingActions:some View{HStack{Button("繪圖"){drawing=true};Button(model.chartCapturing ? "截圖中…":"截圖"){Task{await model.captureChart()}}.disabled(model.chartCapturing || model.chartLoading).accessibilityIdentifier("captureChart")}.font(.caption)}
     private var historyActions:some View{HStack{historyNavigation;Spacer();drawingActions}}
     private var indicatorPicker:some View{HStack{Picker("指標",selection:$indicator){ForEach(["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"],id:\.self){Text($0)}}.labelsHidden();Stepper("\(period)",value:$period,in:2...100).font(.caption).frame(maxWidth:150)}}
     private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption).padding(.vertical,8)}
