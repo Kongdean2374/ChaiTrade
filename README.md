@@ -7,9 +7,11 @@
 - A／B 使用不同 SQLite 資料庫，模式切換於下次完整程序啟動生效。
 - 所有資金、委託、成交與資產均為模擬。沒有真實下單、轉帳或錢包功能。
 
-目前開發與驗證狀態見 [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md) 及 [未完成與無法實測項目](docs/REMAINING_WORK.md)。**建置成功不代表計劃書全部功能或實機驗收已完成。**
+目前App **1.2.14（17）**。行情 → 商品詳情仍留在行情，明確按買賣才進交易；交易可獨立選商品，草稿、搜尋與各市場瀏覽狀態分開保存。更新不重設原帳戶。
 
-最新交付（2026-10-27）：[未簽名 IPA](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202/artifacts/12742124659) · [完整測試報告](docs/TEST_REPORT.md) · [Actions 40517887202](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40517887202)。71 項核心測試跨必要關卡執行，九項 UI 各兩次及額外下單專測兩次全數通過，20 個獨立資料目錄；實機、舊 iOS18.x 完整互動及計劃書剩餘缺口仍未完成。
+[使用說明](docs/PRODUCT_USER_GUIDE.md) · [產品對照](docs/PRODUCT_FEATURE_CROSSWALK.md) · [實際驗證](docs/VALIDATION_CURRENT.md) · [未完成與外部條件](docs/REMAINING_WORK.md)。**軟體通過不代表完整計劃或實機驗收已完成。**
+
+當前來源`173d68397512d66aa5fdf22a2e7fe7b1e5f61156`已完成74次原生UI及9階段／25組原圖產品審視，暫未產本版IPA。兩組178核心、實際公開HTTP、原T45與大型封存及Apple編譯均已通過；最新結果以[驗證紀錄](docs/VALIDATION_CURRENT.md)為準。歷史IPA不作本版成果。
 
 ## 不需要 Mac 的建置方式
 
@@ -38,6 +40,6 @@ bash scripts/build_unsigned_ipa.sh
 
 ## 使用界線
 
-A 的行情來源只讀取資料，金鑰保存在裝置 Keychain；B 不讀取金鑰或建立 Provider。A 的費率、交易日曆與契約規格尚需核對現行市場制度，畫面明示為自訂模擬規則。行情供應商方案與地區限制依實際權限。
+A 的行情來源只讀取資料，金鑰保存在裝置 Keychain；B 不讀取金鑰或建立 Provider。已核驗規則包、盤別及日曆有對應測試；更廣年份／特殊契約與來源映射仍按實際可得資料限制，不宣稱全市場皆已實連核驗。行情供應商方案與地區限制依實際權限。
 
 切換簽署 Team／Bundle ID 或重裝前，請先匯出帳戶備份；資料容器及 Keychain 不保證隨任意重簽保留。詳見 [建置與安裝](docs/BUILD_AND_INSTALL.md)、[已知限制](docs/KNOWN_LIMITATIONS.md)。

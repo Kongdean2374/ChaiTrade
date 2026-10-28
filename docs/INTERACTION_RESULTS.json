@@ -1,163 +1,857 @@
 {
-  "commit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
-  "ipaSHA256": "90d701b977efba1750c40c903b1a296d11cd72a2606a708f64882c73a2c9826c",
-  "unsignedArm64iPhoneOS": true,
-  "releaseTestControlsAbsent": true,
-  "uniqueUICases": 9,
-  "executions": 18,
-  "uniqueTestDirectories": 20,
-  "focusedOrderExecutions": 2,
-  "uiPassCounts": {
-    "InteractionTests testBackNavigationSheetCancelSwipeAndKeyboard": 2,
-    "InteractionTests testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": 2,
-    "InteractionTests testRapidJournalSavePersistsExactlyOneEntry": 2,
-    "InteractionTests testRapidOrderConfirmationAndCancelDebitExactlyOnce": 2,
-    "InteractionTests testRapidTabsReselectAndFavoritesPersist": 2,
-    "SmokeTests testChartScreenshotCanBeAttachedToLocalJournal": 2,
-    "SmokeTests testOfflineMarketOrderUsesLocalEngine": 2,
-    "SmokeTests testOfflineOnboardingAndNavigation": 2,
-    "SmokeTests testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": 2
-  },
-  "T45": {
-    "analytics100000Seconds": 0.050596167,
-    "bulkImportSeconds": 16.588195,
-    "csv100000Seconds": 1.151704334,
-    "equityPoints": 100001,
-    "fills": 100000,
-    "fullIntegrityLoadSeconds": 16.527838708,
-    "hotEquityPoints": 1000,
-    "hotFills": 100,
-    "hotLoadSeconds": 0.159517917,
-    "hotOrders": 100,
-    "note": "Synthetic Release storage/report benchmark; simulator UI and signed iPhone acceptance remain separate",
-    "orderWriteP95Seconds": 0.069291125,
-    "page100P95Seconds": 0.007560166,
-    "passed": true,
-    "platform": "Version 15.7.9 (Build 24G830)",
-    "samplesPerP95": 30,
-    "sourceCommit": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba",
-    "workflowRunID": 40517887202
-  },
-  "focusedOrderSeconds": [
-    98.841,
-    86.364
-  ],
-  "databaseAudit": {
-    "passed": true,
-    "sessionDirectories": 20,
-    "accountDatabases": 40,
-    "report": "INTERACTION_DATABASE_AUDIT.json"
-  },
-  "runID": 40517887202,
-  "environment": "Xcode 26.2 / iPhone 17 Pro / iOS 26.2 simulator",
-  "conclusion": "success",
-  "caseSeconds": {
-    "InteractionTests.testBackNavigationSheetCancelSwipeAndKeyboard": [
-      96.478,
-      89.247
-    ],
-    "InteractionTests.testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume": [
-      74.194,
-      75.968
-    ],
-    "InteractionTests.testRapidJournalSavePersistsExactlyOneEntry": [
-      102.541,
-      116.192
-    ],
-    "InteractionTests.testRapidOrderConfirmationAndCancelDebitExactlyOnce": [
-      71.494,
-      69.328
-    ],
-    "InteractionTests.testRapidTabsReselectAndFavoritesPersist": [
-      52.547,
-      54.543
-    ],
-    "SmokeTests.testChartScreenshotCanBeAttachedToLocalJournal": [
-      71.224,
-      77.385
-    ],
-    "SmokeTests.testOfflineMarketOrderUsesLocalEngine": [
-      66.202,
-      58.139
-    ],
-    "SmokeTests.testOfflineOnboardingAndNavigation": [
-      41.307,
-      39.951
-    ],
-    "SmokeTests.testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition": [
-      84.68,
-      92.097
-    ]
-  },
-  "sessions": [
-    "CA98DD45-5DB6-4AE2-B47A-BCAA62356FC1",
-    "310AD14D-CE19-4020-B33D-AE7CD53A92B9",
-    "C3DCE94A-9C87-49DD-81AD-33A9165CC0C0",
-    "81B0E23B-B716-47F0-B51A-3C0A96880427",
-    "8E04563A-2932-457D-B4A9-CB8987D08904",
-    "91F60E41-DC2A-47A6-8459-1228B409FD47",
-    "BF3F0EA9-E0F0-40D1-9E35-67BE657E51E5",
-    "F744E336-306E-477C-BB47-ED4E90DF507C",
-    "97665E2C-BA63-43F7-86E0-2901C193E996",
-    "6691389B-BBA0-4569-AFC7-301819FBEBC2",
-    "390ACD9B-4293-4712-95B6-3A6A035F401A",
-    "C93BEA01-567E-4C23-8A72-0DA9F246E95A",
-    "DC62417A-9A7E-406F-B5C9-ADC051C5D884",
-    "9111EA0A-6C1D-43DB-B2AD-0853F258DC81",
-    "7EC07C6C-58C3-429D-BECF-EC4FFB096D5F",
-    "18B9D9CD-3B3F-4306-B769-09E6FDC5B8DD",
-    "8A5926A3-2CA7-4CFC-8582-3FF66B5D0FDA",
-    "4BC8BA9A-B9C0-4077-A12C-E58746479498",
-    "E51C8A63-6093-4A5F-8E93-EFD2C01EAA8F",
-    "8DAB100C-96FD-444C-A223-1B215150E191"
-  ],
-  "artifacts": {
-    "runID": 40517887202,
-    "ipa": {
-      "id": 12742124659,
-      "name": "ChaiTrade-unsigned-ipa",
-      "size_in_bytes": 1667770,
-      "url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12742124659",
-      "archive_download_url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12742124659/zip",
-      "expired": false,
-      "created_at": "2026-10-27T14:45:20Z",
-      "expires_at": "2026-11-03T14:45:18Z",
-      "updated_at": "2026-10-27T14:45:20Z",
-      "digest": "sha256:e136390826c066744c3628b2c08bc6a0339a3f26c7be30432858851956f9aeba",
-      "workflow_run": {
-        "id": 40517887202,
-        "repository_id": 1435185508,
-        "head_repository_id": 1435185508,
-        "head_branch": "main",
-        "head_sha": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba"
-      }
+  "appSourceCommit": "173d68397512d66aa5fdf22a2e7fe7b1e5f61156",
+  "version": "1.2.14",
+  "build": 17,
+  "executions": 74,
+  "allPassed": true,
+  "original120SecondCaseGateUnchanged": true,
+  "independentSessions": 74,
+  "integrityCheckedDatabases": 150,
+  "groups": [
+    {
+      "sourceCommit": "173d68397512d66aa5fdf22a2e7fe7b1e5f61156",
+      "ciConclusion": "success",
+      "run": 40700941053,
+      "job": 122860249418,
+      "artifact": 12821824919,
+      "sha256": "f75d1d939692a4787745d80341d5114c865c631b014ac0cee7489ab269dd67ea",
+      "counts": {
+        "passed": 20
+      },
+      "executions": 20,
+      "sessionIsolation": true,
+      "name": "navigation",
+      "databases": 40,
+      "maxSeconds": 98.035,
+      "isolation": true
     },
-    "evidence": {
-      "id": 12743565956,
-      "name": "ChaiTrade-test-evidence",
-      "size_in_bytes": 31536914,
-      "url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12743565956",
-      "archive_download_url": "https://api.github.com/repos/Kongdean2374/ChaiTrade/actions/artifacts/12743565956/zip",
-      "expired": false,
-      "created_at": "2026-10-27T14:46:33Z",
-      "expires_at": "2026-11-03T14:46:29Z",
-      "updated_at": "2026-10-27T14:46:33Z",
-      "digest": "sha256:671be8de49681e05bf3cdc7eff9888512f5d40846856e3c9a37046b0a3075c00",
-      "workflow_run": {
-        "id": 40517887202,
-        "repository_id": 1435185508,
-        "head_repository_id": 1435185508,
-        "head_branch": "main",
-        "head_sha": "998a2274f16bde9f6d76056d1e19e7b9c98c74ba"
-      }
+    {
+      "sourceCommit": "173d68397512d66aa5fdf22a2e7fe7b1e5f61156",
+      "ciConclusion": "success",
+      "run": 40700941103,
+      "job": 122862925984,
+      "artifact": 12824813783,
+      "sha256": "af1c0606bd5c576b0c6311c37fed5e0a01413e1dbc747649965a59d16d0bd487",
+      "counts": {
+        "passed": 20
+      },
+      "executions": 20,
+      "sessionIsolation": true,
+      "name": "original",
+      "databases": 40,
+      "maxSeconds": 109.089,
+      "isolation": true
+    },
+    {
+      "sourceCommit": "173d68397512d66aa5fdf22a2e7fe7b1e5f61156",
+      "ciConclusion": "success",
+      "run": 40700941103,
+      "job": 122862925905,
+      "artifact": 12824985074,
+      "sha256": "38b837c7d4f3fe7b173da21273032f797539ebdd40217e93c098ba467d08495b",
+      "counts": {
+        "passed": 17
+      },
+      "executions": 17,
+      "sessionIsolation": true,
+      "name": "product",
+      "databases": 36,
+      "maxSeconds": 99.75,
+      "isolation": true
+    },
+    {
+      "sourceCommit": "173d68397512d66aa5fdf22a2e7fe7b1e5f61156",
+      "ciConclusion": "success",
+      "run": 40700941103,
+      "job": 122862925842,
+      "artifact": 12823586097,
+      "sha256": "78f58ec59b40a5ea2278426a7d1efb47df2a78c6a577e04b22c55dad737d3df1",
+      "counts": {
+        "passed": 5
+      },
+      "executions": 5,
+      "sessionIsolation": true,
+      "name": "pages",
+      "databases": 10,
+      "maxSeconds": 114.086,
+      "isolation": true
+    },
+    {
+      "sourceCommit": "173d68397512d66aa5fdf22a2e7fe7b1e5f61156",
+      "ciConclusion": "success",
+      "run": 40700941103,
+      "job": 122862926086,
+      "artifact": 12824330700,
+      "sha256": "aee6de4eb6f41afa8db3435d1119431e79debd061b273653ed497d41b17bf3f8",
+      "counts": {
+        "passed": 6
+      },
+      "executions": 6,
+      "sessionIsolation": true,
+      "name": "visualSE",
+      "databases": 12,
+      "maxSeconds": 59.846,
+      "isolation": true
+    },
+    {
+      "sourceCommit": "173d68397512d66aa5fdf22a2e7fe7b1e5f61156",
+      "ciConclusion": "success",
+      "run": 40700941103,
+      "job": 122862925962,
+      "artifact": 12824756502,
+      "sha256": "3b6f6e2a3c1dc2858901e468e584f4c5ac07a691183ada1bab93a226c6f1e163",
+      "counts": {
+        "passed": 6
+      },
+      "executions": 6,
+      "sessionIsolation": true,
+      "name": "visualPro",
+      "databases": 12,
+      "maxSeconds": 98.034,
+      "isolation": true
     }
-  },
-  "gates": {
-    "xcodeTestAllowanceSeconds": 120,
-    "catchupCompletionSeconds": 35,
-    "animationsEnabled": true,
-    "T45": "unchanged"
-  },
-  "physicalDevice": "not executed",
-  "olderIOS18Runtime": "full two-round interaction acceptance not passed"
+  ],
+  "cases": [
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.NavigationFlowTests test2330DetailRemainsInMarketsWithoutPreparingAnOrder]",
+      "status": "passed",
+      "seconds": 54.844,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.NavigationFlowTests testBTCDetailRemainsInMarketsWithoutPreparingAnOrder]",
+      "status": "passed",
+      "seconds": 38.952,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.NavigationFlowTests testETHDetailRemainsInMarketsWithoutPreparingAnOrder]",
+      "status": "passed",
+      "seconds": 32.469,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testBrowsingAndCancelledHandoffKeepDirtyDraft]",
+      "status": "passed",
+      "seconds": 73.363,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testCryptoTradeNewsDoNotUseTheStockBrowserMarket]",
+      "status": "passed",
+      "seconds": 47.655,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testDirectTradePickerCategoriesEmptyAndClearPreserveAccount]",
+      "status": "passed",
+      "seconds": 41.614,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testForegroundQuoteClockAdvancesAcrossTabsAndAppReactivation]",
+      "status": "passed",
+      "seconds": 30.242,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testKeyboardOpenCanScrollAndSelectASecondSearchResultWithoutChangingFavorites]",
+      "status": "passed",
+      "seconds": 45.897,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testMarketEmptySearchClearResetsVisibleQueryAndResultsWithoutChangingTrade]",
+      "status": "passed",
+      "seconds": 31.136,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testOfflineAutomaticClockCanPauseAndResumeAfterAppReactivation]",
+      "status": "passed",
+      "seconds": 32.685,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testOrderKindWholeRowOpensRepeatedlyWhileChartLoadsBehindModal]",
+      "status": "passed",
+      "seconds": 52.76,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testOrderSwipeWithKeyboardAndAcrossNavigationBarKeepsDraftAndAccount]",
+      "status": "passed",
+      "seconds": 60.818,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testOrderTypeChooserCancelAndSlideKeepTheExactUnsentDraft]",
+      "status": "passed",
+      "seconds": 60.545,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testPickerDismissesBeforeDirtyDraftConfirmationAndKeepCancelsSwitch]",
+      "status": "passed",
+      "seconds": 43.69,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testRapidOfflineRefreshLeavesWorldAndFormUnchanged]",
+      "status": "passed",
+      "seconds": 21.869,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testUnsentTradeDraftAndIdentitySurviveColdRelaunch]",
+      "status": "passed",
+      "seconds": 44.688,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradeWorkspaceInteractionTests testVerticalDragInsideRenderedInlineChartScrollsTheProductPage]",
+      "status": "passed",
+      "seconds": 32.048,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradingHandoffTests testExplicitSellHandsExactETHIdentityToTradeWithoutSubmitting]",
+      "status": "passed",
+      "seconds": 45.212,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradingHandoffTests testMarketDetailTradePickerThenOneSimulatedOrder]",
+      "status": "passed",
+      "seconds": 98.035,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/navigation-tests.log",
+      "case": "-[ChaiTradeUITests.TradingHandoffTests testNewDefaultLimitPricesFollowEachProductTickAndSubmitOnlyTheETHIntent]",
+      "status": "passed",
+      "seconds": 88.098,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "navigation"
+    },
+    {
+      "log": "logs/ui-focused-order.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidOrderConfirmationAndCancelDebitExactlyOnce]",
+      "status": "passed",
+      "seconds": 103.457,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-focused-order.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidOrderConfirmationAndCancelDebitExactlyOnce]",
+      "status": "passed",
+      "seconds": 66.758,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testBackNavigationSheetCancelSwipeAndKeyboard]",
+      "status": "passed",
+      "seconds": 71.215,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testBackNavigationSheetCancelSwipeAndKeyboard]",
+      "status": "passed",
+      "seconds": 68.088,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume]",
+      "status": "passed",
+      "seconds": 74.249,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testCatchupBlocksAlreadyPresentedOrderAndCanPauseResume]",
+      "status": "passed",
+      "seconds": 68.994,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidJournalSavePersistsExactlyOneEntry]",
+      "status": "passed",
+      "seconds": 62.604,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidJournalSavePersistsExactlyOneEntry]",
+      "status": "passed",
+      "seconds": 58.519,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidOrderConfirmationAndCancelDebitExactlyOnce]",
+      "status": "passed",
+      "seconds": 76.433,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidOrderConfirmationAndCancelDebitExactlyOnce]",
+      "status": "passed",
+      "seconds": 55.273,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidTabsReselectAndFavoritesPersist]",
+      "status": "passed",
+      "seconds": 50.27,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.InteractionTests testRapidTabsReselectAndFavoritesPersist]",
+      "status": "passed",
+      "seconds": 50.996,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testChartScreenshotCanBeAttachedToLocalJournal]",
+      "status": "passed",
+      "seconds": 62.036,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testChartScreenshotCanBeAttachedToLocalJournal]",
+      "status": "passed",
+      "seconds": 65.373,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testOfflineMarketOrderUsesLocalEngine]",
+      "status": "passed",
+      "seconds": 55.033,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testOfflineMarketOrderUsesLocalEngine]",
+      "status": "passed",
+      "seconds": 52.456,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testOfflineOnboardingAndNavigation]",
+      "status": "passed",
+      "seconds": 39.337,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testOfflineOnboardingAndNavigation]",
+      "status": "passed",
+      "seconds": 36.904,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition]",
+      "status": "passed",
+      "seconds": 109.089,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/ui-tests.log",
+      "case": "-[ChaiTradeUITests.SmokeTests testPendingSwitchRequiresColdLaunchAndPreservesOfflinePosition]",
+      "status": "passed",
+      "seconds": 95.425,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "original"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testActualOfficialUSDirectoryReturnsToETFWithoutGrantingQuotePermission]",
+      "status": "passed",
+      "seconds": 64.263,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testActualPublicSourceDirectoryAddsOnlySelectedIdentityAndRoutesToProduct]",
+      "status": "passed",
+      "seconds": 47.997,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testChartLandscapeAndReturnKeepsSelectedProduct]",
+      "status": "passed",
+      "seconds": 39.233,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testCompleteJSONFileExportRemainsShareableAfterRestartWithoutChangingAccount]",
+      "status": "passed",
+      "seconds": 44.915,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testContractPositionHasAnExplicitReduceOnlyCloseJourney]",
+      "status": "passed",
+      "seconds": 99.75,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testCryptoSpotBuySellJourneyHasExactLocalAccounting]",
+      "status": "passed",
+      "seconds": 64.498,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testFinancialHistoryEmptyCategoriesKeepAccountAndPageBoundaries]",
+      "status": "passed",
+      "seconds": 43.745,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testFreshAHasSpecificKeyStateAndLoadsMultiplePublicQuotes]",
+      "status": "passed",
+      "seconds": 45.459,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testFullFileArchiveExportAndCacheCleanupPreserveAccount]",
+      "status": "passed",
+      "seconds": 35.391,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testLocalRecoveryCancelThenVerifiedRestorePreservesOriginalPoint]",
+      "status": "passed",
+      "seconds": 45.823,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testMissingFugleKeyExplainsDirectoryFailureWithoutChangingAccount]",
+      "status": "passed",
+      "seconds": 29.111,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testOfflineCatalogSearchSelectsRealETFWithoutChangingAccount]",
+      "status": "passed",
+      "seconds": 38.004,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testOfflineCryptoDiscoveryNewsAndContractSeparation]",
+      "status": "passed",
+      "seconds": 57.904,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testOfflineThreeActionDiscoveryAndFullStockJourney]",
+      "status": "passed",
+      "seconds": 94.199,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testPercentageAlertRapidCreateRemoveAndNotificationCenterIsolation]",
+      "status": "passed",
+      "seconds": 60.707,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testRapidMarketSwitchKeepsQueriesFavoritesAndMoneyAcrossRestart]",
+      "status": "passed",
+      "seconds": 68.805,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-ui-tests.log",
+      "case": "-[ChaiTradeUITests.ProductExperienceTests testSettingsSectionsCancelAndSafeAreaReachability]",
+      "status": "passed",
+      "seconds": 49.65,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "product"
+    },
+    {
+      "log": "logs/product-evidence-tests.log",
+      "case": "-[ChaiTradeUITests.ProductEvidenceTests testCatalogGroupsCashPerformanceAndDataToolsEvidence]",
+      "status": "passed",
+      "seconds": 62.767,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "pages"
+    },
+    {
+      "log": "logs/product-evidence-tests.log",
+      "case": "-[ChaiTradeUITests.ProductEvidenceTests testOnlineConnectionWizardAndLegalScopePageEvidence]",
+      "status": "passed",
+      "seconds": 45.091,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "pages"
+    },
+    {
+      "log": "logs/product-evidence-tests.log",
+      "case": "-[ChaiTradeUITests.ProductEvidenceTests testSettingsAccountTradeAndOfflinePageEvidence]",
+      "status": "passed",
+      "seconds": 48.421,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "pages"
+    },
+    {
+      "log": "logs/product-evidence-tests.log",
+      "case": "-[ChaiTradeUITests.ProductEvidenceTests testSettingsNotificationBackupAndDiagnosticsPageEvidence]",
+      "status": "passed",
+      "seconds": 47.581,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "pages"
+    },
+    {
+      "log": "logs/product-evidence-tests.log",
+      "case": "-[ChaiTradeUITests.ProductEvidenceTests testVisibleChartDepthAdvancedOrderAndProductRulesEvidence]",
+      "status": "passed",
+      "seconds": 114.086,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "pages"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testDarkLargeTextAssetsAndSettingsScrollToBottom]",
+      "status": "passed",
+      "seconds": 59.085,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualSE"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testDarkLargeTextOrderKeyboardCancelHasNoSideEffects]",
+      "status": "passed",
+      "seconds": 59.846,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualSE"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testDarkLargeTradePickerChineseKeyboardAndFilters]",
+      "status": "passed",
+      "seconds": 41.68,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualSE"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testLightHomeAndChineseSearchRemainReachable]",
+      "status": "passed",
+      "seconds": 56.247,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualSE"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testLightTradePickerChineseKeyboardAndFilters]",
+      "status": "passed",
+      "seconds": 34.178,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualSE"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testLongChineseJournalAtLargeTextPreservesContentOnce]",
+      "status": "passed",
+      "seconds": 39.231,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualSE"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testDarkLargeTextAssetsAndSettingsScrollToBottom]",
+      "status": "passed",
+      "seconds": 73.467,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualPro"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testDarkLargeTextOrderKeyboardCancelHasNoSideEffects]",
+      "status": "passed",
+      "seconds": 98.034,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualPro"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testDarkLargeTradePickerChineseKeyboardAndFilters]",
+      "status": "passed",
+      "seconds": 42.187,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualPro"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testLightHomeAndChineseSearchRemainReachable]",
+      "status": "passed",
+      "seconds": 58.547,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualPro"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testLightTradePickerChineseKeyboardAndFilters]",
+      "status": "passed",
+      "seconds": 47.894,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualPro"
+    },
+    {
+      "log": "logs/product-visual-tests.log",
+      "case": "-[ChaiTradeUITests.ProductVisualTests testLongChineseJournalAtLargeTextPreservesContentOnce]",
+      "status": "passed",
+      "seconds": 42.139,
+      "within120Seconds": true,
+      "timedOut": false,
+      "nativeResult": "passed",
+      "group": "visualPro"
+    }
+  ],
+  "deviceAcceptance": "Not executed; see REMAINING_WORK.md"
 }
