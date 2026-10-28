@@ -81,10 +81,10 @@ import XCTest
         try check(btcPriceField.waitForExistence(timeout:5),"New BTC limit price is missing")
         try waitUntil("Default BTC limit was not initialized to its legal tick",timeout:3){
             let value=btcPriceField.value as? String ?? ""
-            return self.number(value).compare(.zero) == .orderedDescending && (value.split(separator:".").dropFirst().first?.count ?? 0)<=2
+            return self.number(value).compare(NSDecimalNumber.zero) == .orderedDescending && (value.split(separator:".").dropFirst().first?.count ?? 0)<=2
         }
         let btcPrice=try XCTUnwrap(btcPriceField.value as? String)
-        try check(number(btcPrice).compare(.zero) == .orderedDescending && (btcPrice.split(separator:".").dropFirst().first?.count ?? 0)<=2,"Default BTC price violates its 0.01 tick")
+        try check(number(btcPrice).compare(NSDecimalNumber.zero) == .orderedDescending && (btcPrice.split(separator:".").dropFirst().first?.count ?? 0)<=2,"Default BTC price violates its 0.01 tick")
         let prepared=try state(app)
         try check(app.buttons["orderKind"].value as? String=="限價" && (prepared["orders"] as? [String])?.isEmpty==true,"Preparing a limit order submitted automatically")
         capture("FLOW new BTC limit proposal fits its own tick without an order");app.buttons["完成"].tap()
@@ -96,10 +96,10 @@ import XCTest
         try check(ethPriceField.waitForExistence(timeout:5),"New ETH limit price is missing")
         try waitUntil("Default ETH limit was not initialized to its legal tick",timeout:3){
             let value=ethPriceField.value as? String ?? ""
-            return self.number(value).compare(.zero) == .orderedDescending && (value.split(separator:".").dropFirst().first?.count ?? 0)<=2
+            return self.number(value).compare(NSDecimalNumber.zero) == .orderedDescending && (value.split(separator:".").dropFirst().first?.count ?? 0)<=2
         }
         let ethPrice=try XCTUnwrap(ethPriceField.value as? String)
-        try check(number(ethPrice).compare(.zero) == .orderedDescending && (ethPrice.split(separator:".").dropFirst().first?.count ?? 0)<=2 && ethPrice != btcPrice,"ETH inherited an invalid or BTC limit price")
+        try check(number(ethPrice).compare(NSDecimalNumber.zero) == .orderedDescending && (ethPrice.split(separator:".").dropFirst().first?.count ?? 0)<=2 && ethPrice != btcPrice,"ETH inherited an invalid or BTC limit price")
         let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap();quantity.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:8)+"0.01")
         try waitUntil("Limit quantity input was not delivered",timeout:3){quantity.value as? String=="0.01"}
         let before=try state(app);try check((before["orders"] as? [String])?.isEmpty==true && (before["cash"] as? [String:String])==(baseline["cash"] as? [String:String]),"Unsubmitted default limit moved funds or created an order")
