@@ -7,7 +7,8 @@ struct MarketsView:View {
     @State private var pageSize=40
     @State private var searchText=""
     @State private var searchInitialized=false
-    @FocusState private var searching:Bool
+    @State private var searchOwner:AccountContext?
+    @State private var searching=false
     @State private var groups=false
     @State private var custom=false
     private var preferences:MarketBrowsingState{model.browsing[domain] ?? MarketBrowsingState()}
@@ -48,7 +49,7 @@ struct MarketsView:View {
             LazyVStack(alignment:.leading,spacing:14){
                 VStack(alignment:.leading,spacing:12){
                     if !searching{HStack{Text(domain.label).font(.largeTitle.bold());Spacer();Button{model.catalogVisible=true}label:{Label("商品目錄",systemImage:"books.vertical")}.accessibilityIdentifier("openCatalog")}}
-                    HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField("代碼或名稱，例如 BTC、ETH、2330",text:search).textInputAutocapitalization(.never).autocorrectionDisabled().focused($searching).submitLabel(.search).onSubmit{searching=false}.accessibilityIdentifier("marketSearch");if !search.wrappedValue.isEmpty{Button{searching=false;search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
+                    HStack{Image(systemName:"magnifyingglass").foregroundStyle(.secondary);StableSearchField(text:search,editing:$searching,prompt:"代碼或名稱，例如 BTC、ETH、2330",identifier:"marketSearch",doneTitle:"完成搜尋");if !search.wrappedValue.isEmpty{Button{searching=false;search.wrappedValue=""}label:{Image(systemName:"xmark.circle.fill")}.accessibilityLabel("清除搜尋")}}
                         .padding(12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12))
                     ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(categories,id:\.self){category in Button(category){searching=false;model.editBrowsing(domain){$0.category=category;$0.scrollID=nil};pageSize=40}.buttonStyle(.bordered).tint(preferences.category==category || (domain == .crypto && preferences.category == "全部" && category == "現貨") ? .orange:.gray)}}}
                     if searching{HStack{Text("目前目錄：\(products.count)個符合項目").font(.caption).foregroundStyle(.secondary);Spacer();Button("取消搜尋鍵盤"){searching=false}.font(.caption)}}
@@ -64,7 +65,7 @@ struct MarketsView:View {
                 }.id("marketTop")
                 if !searching{MarketRefreshStatus()}
                 if !searching && preferences.search.isEmpty && !preferences.favoritesOnly && preferences.sort == .familiar{recentProducts}
-                if products.isEmpty{ContentUnavailableView("沒有符合的商品",systemImage:"magnifyingglass",description:Text("調整搜尋或分類，也可從商品目錄查看來源支援範圍。"));Button("清除篩選"){model.editBrowsing(domain){$0.search="";$0.favoritesOnly=false;$0.groupID=nil;$0.sort = .familiar;$0.category=domain == .crypto ? "現貨":"全部"}}}
+                if products.isEmpty{ContentUnavailableView("沒有符合的商品",systemImage:"magnifyingglass",description:Text("調整搜尋或分類，也可從商品目錄查看來源支援範圍。"));Button("清除篩選"){searching=false;searchText="";pageSize=40;model.editBrowsing(domain){$0.search="";$0.favoritesOnly=false;$0.groupID=nil;$0.sort = .familiar;$0.category=domain == .crypto ? "現貨":"全部"}}}
                 ForEach(Array(products.prefix(pageSize))){instrument in
                     MarketProductRow(instrument:instrument,owner:"markets-"+domain.rawValue).padding(.horizontal,12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12)).id(instrument.id)
                 }
@@ -73,11 +74,10 @@ struct MarketsView:View {
                 Text("已到目前列表底部").font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity).accessibilityIdentifier("marketBottom")
             }.scrollTargetLayout().padding(16).padding(.bottom,20)
         }.refreshable{await model.fetchQuotes()}.scrollPosition(id:scroll,anchor:.top).scrollDismissesKeyboard(.immediately).background(Color(.systemGroupedBackground)).navigationTitle("行情").navigationBarTitleDisplayMode(.inline)
-            .toolbar{ToolbarItemGroup(placement:.keyboard){Spacer();Button("完成搜尋"){searching=false}}}
             .sheet(isPresented:$model.catalogVisible){NavigationStack{ProductCatalogView()}}
             .sheet(isPresented:$groups){NavigationStack{WatchGroupsView()}}
-            .onAppear{if !searchInitialized{searchText=preferences.search;searchInitialized=true}}
-            .onChange(of:searchText){_,text in model.editBrowsing(domain){$0.search=text;$0.scrollID=nil}}
+            .onAppear{if !searchInitialized{searchOwner=model.context;searchText=preferences.search;searchInitialized=true}}
+            .onChange(of:searchText){_,text in guard model.context==searchOwner else{return};model.editBrowsing(domain){$0.search=text;$0.scrollID=nil}}
             .task(id:domain){if let id=preferences.scrollID,let index=products.firstIndex(where:{$0.id==id}){pageSize=max(40,(index/40+1)*40)};await model.ensureQuoteService()}
             .onChange(of:model.tab){_,tab in if tab != 1{searching=false}}
             .onDisappear{searching=false;model.removeVisibleOwner("markets-"+domain.rawValue)}

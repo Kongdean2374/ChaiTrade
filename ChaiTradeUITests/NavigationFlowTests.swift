@@ -123,6 +123,9 @@ import XCTest
         app.buttons["tradePickerClear"].tap();try check(search.value as? String=="搜尋名稱、代碼或交易所" || search.value as? String=="","Clear did not clear query")
         search.tap();search.typeText("BTC")
         let btc=app.buttons["trade-product-SIM:Coinbase_Exchange:BTC-USD"];try reveal(btc,in:app);btc.tap()
+        try waitUntil("Picker dismissal did not commit the exact BTC identity"){
+            !app.textFields["tradePickerSearch"].exists && (try? self.state(app)["tradeProduct"] as? String)=="SIM:Coinbase_Exchange:BTC-USD"
+        }
         let selected=try state(app);try check(selected["tradeProduct"] as? String=="SIM:Coinbase_Exchange:BTC-USD","Picker selected another venue")
         try check(selected["market"] as? String==original["market"] as? String,"Trade picker polluted market browsing classification")
         try check((selected["cash"] as? [String:String])==(original["cash"] as? [String:String]),"Picker changed funds")

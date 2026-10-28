@@ -13,9 +13,18 @@ import XCTest
         guard let app=testedApp else{return}
         XCTContext.runActivity(named:stage+" · "+session){activity in
             let shot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());shot.name=stage;shot.lifetime = .keepAlways;activity.add(shot)
-            let tree=XCTAttachment(string:app.debugDescription);tree.name="Accessibility hierarchy";tree.lifetime = .keepAlways;activity.add(tree)
-            let probe=app.staticTexts["uiTestState"].firstMatch
-            let state=XCTAttachment(string:probe.exists ? probe.label:"Probe unavailable; hierarchy and database retained");state.name="Synthetic account state";state.lifetime = .keepAlways;activity.add(state)
+            let hierarchy=app.debugDescription
+            let tree=XCTAttachment(string:hierarchy);tree.name="Accessibility hierarchy";tree.lifetime = .keepAlways;activity.add(tree)
+            // The hierarchy already contains the exact read-only probe. Reusing
+            // that snapshot avoids two additional AX traversals behind a modal;
+            // the retained 791fd10 conflict capture spent 27s on that duplicate read.
+            let marker="identifier: 'uiTestState', label: '"
+            var snapshot="Probe unavailable in captured hierarchy; hierarchy and database retained"
+            if let line=hierarchy.split(whereSeparator:{$0.isNewline}).first(where:{$0.contains(marker)}),let start=line.range(of:marker),let end=line.lastIndex(of:"'"){
+                let candidate=String(line[start.upperBound..<end])
+                if let data=candidate.data(using:.utf8),let decoded=try? JSONSerialization.jsonObject(with:data),decoded is [String:Any]{snapshot=candidate}
+            }
+            let state=XCTAttachment(string:snapshot);state.name="Synthetic account state";state.lifetime = .keepAlways;activity.add(state)
         }
     }
     func check(_ condition:@autoclosure () throws ->Bool,_ message:String,file:StaticString=#filePath,line:UInt=#line)throws{
