@@ -4,8 +4,9 @@ import Foundation
 public enum AccountShareCache{
     private static func directory(_ root:URL)throws->URL{
         guard root.isFileURL else{throw TradeError.invalid("分享暫存目錄無效")}
-        let directory=root.resolvingSymlinksInPath().standardizedFileURL.appendingPathComponent("share-cache",isDirectory:true)
-        guard directory.resolvingSymlinksInPath().standardizedFileURL==directory.standardizedFileURL else{throw TradeError.invalid("分享暫存不可指向其他目錄")}
+        let directory=root.standardizedFileURL.appendingPathComponent("share-cache",isDirectory:true)
+        let expected=root.resolvingSymlinksInPath().standardizedFileURL.appendingPathComponent("share-cache",isDirectory:true)
+        guard directory.resolvingSymlinksInPath().standardizedFileURL==expected.standardizedFileURL else{throw TradeError.invalid("分享暫存不可指向其他目錄")}
         return directory
     }
     public static func completed(root:URL,mode:Mode)throws->[URL]{

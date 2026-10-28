@@ -13,11 +13,11 @@ import Testing
     for url in [a,b,unowned,partial,recovery]{try Data("synthetic-owned-file".utf8).write(to:url)}
     let symlink=archive(.online);try FileManager.default.createSymbolicLink(at:symlink,withDestinationURL:recovery)
     let directory=archive(.online);try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
-    #expect(try AccountShareCache.completed(root:root,mode:.online)==[a])
-    #expect(try AccountShareCache.completed(root:root,mode:.offline)==[b])
+    #expect(try AccountShareCache.completed(root:root,mode:.online).map{$0.resolvingSymlinksInPath()}==[a.resolvingSymlinksInPath()])
+    #expect(try AccountShareCache.completed(root:root,mode:.offline).map{$0.resolvingSymlinksInPath()}==[b.resolvingSymlinksInPath()])
     #expect(try AccountShareCache.clear(root:root,mode:.online)==1)
     #expect(try AccountShareCache.completed(root:root,mode:.online).isEmpty)
-    #expect(try AccountShareCache.completed(root:root,mode:.offline)==[b])
+    #expect(try AccountShareCache.completed(root:root,mode:.offline).map{$0.resolvingSymlinksInPath()}==[b.resolvingSymlinksInPath()])
     for url in [b,unowned,partial,recovery,symlink,directory]{#expect(FileManager.default.fileExists(atPath:url.path))}
     #expect(try Data(contentsOf:recovery)==Data("synthetic-owned-file".utf8))
 }

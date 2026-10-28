@@ -63,8 +63,8 @@ struct MarketProductRow:View {
                         QuoteStatusLabel(status:model.status(for:instrument))
                     }.frame(maxWidth:155,alignment:.trailing)
                 }.contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityIdentifier("market-"+instrument.id)
-            Button{Task{await model.toggleWatch(instrument.id)}}label:{Image(systemName:model.state?.watchlist.contains(instrument.id)==true ? "star.fill":"star").frame(minWidth:30,minHeight:44)}.accessibilityLabel("自選 "+instrument.name).accessibilityIdentifier("watch-"+instrument.id).disabled(model.interactionBlocked)
+            }.buttonStyle(.plain).accessibilityIdentifier((owner=="catalog" ? "catalog-product-":"market-")+instrument.id)
+            Button{Task{await model.toggleWatch(instrument.id)}}label:{Image(systemName:model.state?.watchlist.contains(instrument.id)==true ? "star.fill":"star").frame(minWidth:30,minHeight:44)}.accessibilityLabel("自選 "+instrument.name).accessibilityIdentifier((owner=="catalog" ? "catalog-watch-":"watch-")+instrument.id).disabled(model.interactionBlocked)
         }.padding(.vertical,8).onAppear{model.visible(instrument.id,owner:owner,present:true)}.onDisappear{model.visible(instrument.id,owner:owner,present:false)}
     }
 }

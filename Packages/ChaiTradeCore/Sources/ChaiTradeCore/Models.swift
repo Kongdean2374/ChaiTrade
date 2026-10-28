@@ -347,6 +347,7 @@ public struct HistoryWindow: Codable, Sendable {
     public var financialFlowOffset:Int?
     public var journalCount:Int?
     public var appliedEventCount:Int?
+    public var lifecycleCounts:[String:Int]?
     public init() {}
 }
 public struct FillTotals: Codable, Sendable {

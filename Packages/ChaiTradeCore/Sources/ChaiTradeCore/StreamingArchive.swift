@@ -8,7 +8,7 @@ public struct ArchiveLimits:Sendable{
 struct ArchiveFileHeader:Codable{
     var version=1
     var mode:Mode
-    var databaseSchema=8
+    var databaseSchema=9
     var expandedBytes:Int64
     var chunkBytes=1_048_576
     var algorithm:String
@@ -94,7 +94,7 @@ public enum StreamingArchiveService{
         guard try read(input,count:magic.count)==magic else{throw TradeError.corrupt("不是ChaiTrade大型封存")}
         let headerLength=try integer(read(input,count:4));guard (1...16384).contains(headerLength) else{throw TradeError.corrupt("封存標頭長度無效")}
         let rawHeader=try read(input,count:headerLength),header=try JSONDecoder().decode(ArchiveFileHeader.self,from:rawHeader),headerDigest=BackupService.digest(rawHeader)
-        guard header.version==1,(6...8).contains(header.databaseSchema),header.mode==expectedMode,header.chunkBytes==1_048_576,header.expandedBytes>0,header.expandedBytes<=limits.maximumExpandedBytes,header.createdAt>=0 else{throw TradeError.corrupt("封存版本、帳戶或展開大小不符")}
+        guard header.version==1,(6...9).contains(header.databaseSchema),header.mode==expectedMode,header.chunkBytes==1_048_576,header.expandedBytes>0,header.expandedBytes<=limits.maximumExpandedBytes,header.createdAt>=0 else{throw TradeError.corrupt("封存版本、帳戶或展開大小不符")}
         let key:Data
         if header.algorithm=="none"{guard header.iterations==0,header.salt.isEmpty else{throw TradeError.corrupt("封存加密參數不合法")};key=Data()}
         else{guard header.algorithm=="AES-256-GCM/PBKDF2-HMAC-SHA256/chunks-1",let password else{throw TradeError.corrupt("需要此大型封存的密碼")};key=try BackupService.derive(password,salt:header.salt,iterations:header.iterations)}

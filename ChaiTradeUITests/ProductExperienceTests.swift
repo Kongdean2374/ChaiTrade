@@ -197,7 +197,7 @@ import XCTest
         app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
         let search=app.textFields["catalogSearch"];try check(search.waitForExistence(timeout:5),"Catalog is an information dead end without direct search")
         search.tap();search.typeText("0050")
-        let item=app.buttons["market-SIM:TWSE:0050"];try check(item.waitForExistence(timeout:5),"Real offline ETF cannot be found in catalog");try reveal(item,in:app)
+        let item=app.buttons["catalog-product-SIM:TWSE:0050"];try check(item.waitForExistence(timeout:5),"Real offline ETF cannot be found in catalog");try reveal(item,in:app)
         capture("AFTER searchable real offline catalog and quote");item.tap()
         try waitUntil("Catalog selection did not open the ETF product"){(try? self.state(app)["selected"] as? String)=="SIM:TWSE:0050" && !app.textFields["catalogSearch"].exists}
         let after=try state(app)
@@ -289,7 +289,10 @@ import XCTest
         app.switches["acknowledgeContractRisk"].tap();app.buttons["取消"].tap()
         try check(try state(app)["leverageEnabled"] as? Bool==false,"Canceled consent enabled contracts")
         try check((try state(app)["cash"] as? [String:String])==originalCash,"Canceled consent changed money")
-        enable.tap();app.switches["acknowledgeContractRisk"].tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app);accept.tap()
+        enable.tap();let acknowledgment=app.switches["acknowledgeContractRisk"]
+        try check(acknowledgment.value as? String=="0","Reopened consent retained a canceled acknowledgement")
+        acknowledgment.tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app)
+        try check(acknowledgment.value as? String=="1" && accept.isEnabled,"Explicit acknowledgment does not enable the confirmation control");accept.tap()
         try waitUntil("Explicit risk acceptance did not enable this account"){(try? self.state(app)["leverageEnabled"] as? Bool)==true && app.buttons["openOrder"].exists}
         app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         let size=app.textFields["orderQuantity"];try reveal(size,in:app);size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"0.001")
@@ -306,6 +309,24 @@ import XCTest
         try check(intents.count==2 && intents.filter{$0["reduceOnly"]=="true" && $0["side"]=="sell"}.count==1,"Close was not exactly one reduce-only sell")
         try check((snapshot["positions"] as? [String:String])?[instrument]=="0","Explicit contract close reversed or retained the position")
         app.tabBars.buttons["資產"].tap();capture("AFTER contract local roundtrip assets")
+    }
+    func testFinancialHistoryEmptyCategoriesKeepAccountAndPageBoundaries()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let before=try state(app)
+        app.buttons["設定"].tap();app.buttons["進階診斷"].tap();app.buttons["帳務、交割與市場事件"].tap()
+        let history=app.buttons["openLifecycleHistory"];try reveal(history,in:app);history.tap()
+        try check(app.navigationBars["完整帳務歷史"].waitForExistence(timeout:5),"Complete accounting history is unreachable")
+        for label in ["持有費","股務事件","交割"]{
+            app.buttons["lifecycleKind"].tap();app.buttons[label].tap()
+            try check(app.staticTexts["尚無"+label+"紀錄"].waitForExistence(timeout:5),"Empty accounting category is unclear: "+label)
+            try check(!app.buttons["lifecyclePrevious"].isEnabled && !app.buttons["lifecycleNext"].isEnabled,"Empty accounting history permits invalid paging")
+        }
+        capture("AFTER complete accounting history empty categories")
+        app.navigationBars.buttons.element(boundBy:0).tap();app.buttons["完成"].tap()
+        let after=try state(app)
+        for key in ["cash","positions"]{try check((before[key] as? [String:String])==(after[key] as? [String:String]),"History browsing changed "+key)}
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"History browsing created "+key)}
+        app.tabBars.buttons["委託"].tap();try check(app.navigationBars["委託與成交"].exists,"Returning from history blocked navigation")
     }
 
 }

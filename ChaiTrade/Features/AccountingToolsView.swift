@@ -14,16 +14,78 @@ struct AccountingToolsView: View {
             }
             Section("應收應付與交割"){
                 Text("只有設定交割營業日的商品使用延後交割；未核驗規則預設明示為自訂模擬即時交割。未結算應付限制可用現金，估值不重複加計。").font(.caption).foregroundStyle(.secondary)
-                ForEach(Array((model.state?.lifecycle?.settlements ?? []).reversed())){e in
+                NavigationLink("完整交割、持有費與股務歷史"){LifecycleHistoryView()}.accessibilityIdentifier("openLifecycleHistory")
+                Text("下方顯示最近20筆；完整紀錄依類別每頁20筆查詢，舊紀錄不會被刪除。").font(.caption).foregroundStyle(.secondary)
+                ForEach(Array((model.state?.lifecycle?.settlements ?? []).suffix(20).reversed())){e in
                     VStack(alignment:.leading,spacing:5){Text("\(e.currency) 應收 \(e.receivable)／應付 \(e.payable)").font(.caption.monospaced());Text("\(Date(timeIntervalSince1970:TimeInterval(e.due)).formatted()) · \(e.completedAt == nil ? "待交割":"已交割")").font(.caption2).foregroundStyle(.secondary)}
                 }
             }
             Section("費用與股務紀錄"){
-                ForEach(Array((model.state?.lifecycle?.carry ?? []).reversed())){e in Text("\(e.kind) · \(e.instrumentID)\n\(e.rate) × \(e.mark)；費用 \(e.amount)\n\(e.source)").font(.caption)}
-                ForEach(Array((model.state?.lifecycle?.actions ?? []).reversed())){e in Text("\(e.kind.rawValue) · \(e.instrumentID) · \(e.source)").font(.caption)}
+                ForEach(Array((model.state?.lifecycle?.carry ?? []).suffix(20).reversed())){e in LifecycleHistoryCard(record:.carry(e))}
+                ForEach(Array((model.state?.lifecycle?.actions ?? []).suffix(20).reversed())){e in LifecycleHistoryCard(record:.action(e))}
             }
         }.navigationTitle("帳務與市場事件")
     }
+}
+struct LifecycleHistoryView:View{
+    @EnvironmentObject var model:AppModel
+    @State private var kind=LifecycleHistoryKind.settlements
+    @State private var rows:[LifecycleHistoryRow]=[]
+    @State private var cursors:[Int64?]=[nil]
+    @State private var working=false
+    @State private var more=false
+    @State private var issue:String?
+    @State private var generation=UUID()
+    var body:some View{List{
+        Section{
+            Picker("紀錄類型",selection:$kind){ForEach(LifecycleHistoryKind.allCases,id:\.self){Text($0.label).tag($0)}}.accessibilityIdentifier("lifecycleKind")
+            Text("完整本機紀錄，按保存順序由新到舊；每頁20筆，不一次載入全部歷史。不同A／B帳戶分開查詢。").font(.caption).foregroundStyle(.secondary)
+        }
+        if working{ProgressView("讀取紀錄…")}
+        if let issue{Section{Text(issue);Button("重試"){Task{await load()}}}}
+        if rows.isEmpty && !working && issue==nil{ContentUnavailableView("尚無"+kind.label+"紀錄",systemImage:"clock",description:Text("完成對應的本機模擬交易或市場事件後會在這裡出現。"))}
+        ForEach(rows){row in LifecycleHistoryCard(record:row.record).accessibilityIdentifier("lifecycle-"+row.id)}
+        Section{
+            HStack{Button("上一頁"){cursors.removeLast();Task{await load()}}.disabled(working || cursors.count==1).accessibilityIdentifier("lifecyclePrevious");Spacer();Text("第 \(cursors.count) 頁").font(.caption).accessibilityIdentifier("lifecyclePageNumber");Spacer();Button("下一頁"){cursors.append(rows.last?.cursor);Task{await load()}}.disabled(working || !more).accessibilityIdentifier("lifecycleNext")}
+        }
+    }.navigationTitle("完整帳務歷史").task(id:kind){cursors=[nil];rows=[];await load()}.onDisappear{generation=UUID()}}
+    private func load()async{
+        guard let engine=model.engine,let context=model.context else{return}
+        generation=UUID();let token=generation,category=kind,before=cursors.last ?? nil
+        working=true;issue=nil
+        do{
+            let page=try await engine.lifecyclePage(kind:category,limit:20,before:before,context:context)
+            guard model.context==context,generation==token,kind==category else{return}
+            rows=page;more=page.count==20;working=false
+        }catch{guard model.context==context,generation==token else{return};rows=[];issue=error.localizedDescription;more=false;working=false}
+    }
+}
+struct LifecycleHistoryCard:View{
+    @EnvironmentObject var model:AppModel
+    let record:LifecycleRecord
+    private func name(_ id:String)->String{model.state?.instruments.first{$0.id==id}.map{$0.name+" · "+$0.symbol} ?? id}
+    var body:some View{VStack(alignment:.leading,spacing:6){
+        switch record{
+        case .settlement(let e):
+            Text(e.completedAt==nil ? "待交割":"已交割").font(.headline)
+            Text(e.currency+" 應收 "+MarketText.number(e.receivable)+"／應付 "+MarketText.number(e.payable))
+            Text("交割時間 "+Date(timeIntervalSince1970:TimeInterval(e.due)).formatted()).font(.caption)
+            if let done=e.completedAt{Text("完成時間 "+Date(timeIntervalSince1970:TimeInterval(done)).formatted()).font(.caption)}
+        case .carry(let e):
+            Text((e.kind=="funding" ? "資金費":e.kind=="interest" ? "利息／隔夜費":"持有費")+" · "+name(e.instrumentID)).font(.headline)
+            Text("費用 "+MarketText.number(e.amount)+"；負數為返還")
+            Text("費率 "+e.rate.description+"；標記價 "+MarketText.number(e.mark)).font(.caption)
+            Text(Date(timeIntervalSince1970:TimeInterval(e.time)).formatted()+" · "+e.source).font(.caption)
+        case .action(let e):
+            let label=switch e.kind{case .split:"分割／併股";case .dividend:"股息／配息";case .rename:"代碼變更";case .halt:"暫停交易";case .resume:"恢復交易";case .cashLiquidation:"現金清算"}
+            Text(label+" · "+name(e.instrumentID)).font(.headline)
+            if let ratio=e.ratio{Text("數量比例 "+ratio.description).font(.caption)}
+            if let cash=e.cashPerUnit{Text("每單位金額 "+MarketText.number(cash)).font(.caption)}
+            Text(Date(timeIntervalSince1970:TimeInterval(e.time)).formatted()+" · "+e.source).font(.caption)
+        }
+        if model.context?.mode == .offline{Text("模擬情境，非真實公告").font(.caption).foregroundStyle(.orange)}
+        Text("事件ID："+record.id).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+    }}
 }
 struct FXEditor: View {
     @EnvironmentObject var model: AppModel

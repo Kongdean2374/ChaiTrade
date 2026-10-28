@@ -91,6 +91,7 @@ public actor TradingEngine {
     public func exportCSV(kind:String,time:Int64,context:AccountContext)throws->Data{try check(context);return try repository.csv(kind:kind,time:time)}
     public func performance(from:Int64=0,until:Int64=Int64.max,context:AccountContext)throws->PerformanceReport{try check(context);return try repository.performance(from:from,until:until)}
     public func orderPage(limit:Int=100,before:Int64?=nil,beforeID:String?=nil,search:String="",context:AccountContext)throws->[Order]{try check(context);return try repository.orderPage(limit:limit,before:before,beforeID:beforeID,search:search)}
+    public func lifecyclePage(kind:LifecycleHistoryKind,limit:Int=20,before:Int64?=nil,context:AccountContext)throws->[LifecycleHistoryRow]{try check(context);return try repository.lifecyclePage(kind:kind,limit:limit,before:before)}
     private func check(_ context: AccountContext) throws {
         guard context == self.context,!retired else { throw TradeError.wrongAccount }
         guard maintenance==nil else{throw TradeError.unavailable("帳戶正在建立恢復點或還原，暫停新的帳務操作")}

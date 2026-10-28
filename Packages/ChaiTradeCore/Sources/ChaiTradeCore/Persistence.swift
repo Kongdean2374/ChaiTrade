@@ -24,15 +24,16 @@ public final class AccountRepository: @unchecked Sendable {
         do {
             try exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;")
             let version = try scalar("PRAGMA user_version") ?? "0"
-            guard Int(version) ?? 99 <= 8 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
+            guard Int(version) ?? 99 <= 9 else { throw TradeError.corrupt("資料庫版本較新，請更新 App；不可降版覆寫") }
             try exec("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS account_state (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, sequence INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fills (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, account_id TEXT NOT NULL, time INTEGER NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS fills_time ON fills(time); CREATE INDEX IF NOT EXISTS fills_order ON fills(order_id); CREATE INDEX IF NOT EXISTS fills_instrument_time ON fills(account_id,time); CREATE TABLE IF NOT EXISTS equity (ordinal INTEGER PRIMARY KEY,account_id TEXT NOT NULL,metrics TEXT NOT NULL,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS financial_flows (id TEXT PRIMARY KEY,account_id TEXT NOT NULL,time INTEGER NOT NULL,sequence INTEGER NOT NULL,payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS financial_flows_time ON financial_flows(time,sequence); CREATE TABLE IF NOT EXISTS report_state (id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS report_checkpoints (time INTEGER PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS fill_report (id TEXT PRIMARY KEY REFERENCES fills(id), cells TEXT NOT NULL); CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, time INTEGER NOT NULL, instrument TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS orders_time ON orders(time); CREATE INDEX IF NOT EXISTS orders_time_id ON orders(time DESC,id DESC); CREATE INDEX IF NOT EXISTS fills_instrument ON fills(json_extract(payload,'$.instrumentID')); CREATE INDEX IF NOT EXISTS fills_simulation_history ON fills(json_extract(payload,'$.instrumentID'),time); CREATE TABLE IF NOT EXISTS ledger (ordinal INTEGER PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL); COMMIT;")
-            try createJournalSchema();try createAppliedEventSchema()
+            try createJournalSchema();try createAppliedEventSchema();try createLifecycleSchema()
             if Int(version) ?? 0 < 5 {
                 if let json=try scalar("SELECT payload FROM account_state LIMIT 1"){
                     var old=try JSONDecoder().decode(AccountState.self,from:Data(json.utf8)),full=old
                     if (old.history?.fills ?? 0)>0{full.orders=Dictionary(uniqueKeysWithValues:try readRows(Order.self,sql:"SELECT payload FROM orders").map{($0.id,$0)});full.fills=try readRows(Fill.self,sql:"SELECT payload FROM fills ORDER BY rowid")}
                     if (old.history?.events ?? 0)>0{full.events=try readRows(AuditEvent.self,sql:"SELECT payload FROM events ORDER BY sequence")}
                     if (old.history?.ledger ?? 0)>0{full.ledger=try readRows(LedgerEntry.self,sql:"SELECT payload FROM ledger ORDER BY ordinal")}
+                    if old.history?.lifecycleCounts != nil{full.lifecycle=try lifecycleProjectionUnlocked(old.lifecycle,full:true)}
                     old.financialFlows=try FinancialFlowMigration.reconstruct(full)
                     if old.history != nil{old.history!.financialFlowOffset=0}
                     _=try save(old,replacing:(Int(version) ?? 0)<2)
@@ -46,6 +47,9 @@ public final class AccountRepository: @unchecked Sendable {
             }
             if (Int(version) ?? 0)<8{
                 if let json=try scalar("SELECT payload FROM account_state LIMIT 1"){_=try save(JSONDecoder().decode(AccountState.self,from:Data(json.utf8)))}else{try exec("PRAGMA user_version=8")}
+            }
+            if (Int(version) ?? 0)<9{
+                if let json=try scalar("SELECT payload FROM account_state LIMIT 1"){_=try save(JSONDecoder().decode(AccountState.self,from:Data(json.utf8)))}else{try exec("PRAGMA user_version=9")}
             }
             try exec("CREATE INDEX IF NOT EXISTS fills_with_simulation_impact ON fills(json_extract(payload,'$.instrumentID'),time) WHERE json_extract(payload,'$.simulationImpact') IS NOT NULL")
         } catch { sqlite3_close(db); db = nil; throw error }
@@ -138,6 +142,7 @@ public final class AccountRepository: @unchecked Sendable {
         }
         if let count=state.history?.journalCount{guard try journalCountUnlocked()==count else{throw TradeError.corrupt("日誌歷史檢查點不符，原資料保留")}}
         if let count=state.history?.appliedEventCount{guard try appliedEventCountUnlocked()==count else{throw TradeError.corrupt("冪等事件歷史檢查點不符，原資料保留")}}
+        if let counts=state.history?.lifecycleCounts{guard try lifecycleCountsUnlocked()==counts else{throw TradeError.corrupt("帳務歷史檢查點不符，原資料保留")}}
         try Self.validate(state, mode: mode)
         cachedEquity=state.equity;cachedEquityOffset=state.history?.equityOffset ?? 0
         return state
@@ -233,6 +238,7 @@ public final class AccountRepository: @unchecked Sendable {
         guard state.inbox?.allSatisfy({$0.accountID==state.accountID && $0.id=="\(state.accountID).\($0.event.id)"}) ?? true else{throw TradeError.wrongAccount}
         guard Set(state.journals.map(\.id)).count==state.journals.count else{throw TradeError.corrupt("日誌識別重複")}
         for j in state.journals{try Self.validateJournal(j,instrumentIDs:instrumentIDs,allowProjection:state.history?.journalCount != nil)}
+        try Self.validateLifecycle(state.lifecycle,instrumentIDs:instrumentIDs)
         guard state.positions.allSatisfy({key,p in key==p.id && instrumentIDs.contains(p.instrumentKey) && p.average >= .zero && p.margin >= .zero}),
               state.fills.allSatisfy({$0.quantity > .zero && $0.price > .zero && $0.fee >= .zero && $0.tax >= .zero && state.orders[$0.orderID] != nil && instrumentIDs.contains($0.instrumentID)}) else{throw TradeError.corrupt("部位或成交結構不合法")}
         let groups = Dictionary(grouping: state.ledger, by: { "\($0.eventID)|\($0.currency)" })
@@ -329,14 +335,15 @@ public final class AccountRepository: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         var state=proposed
         if state.capitalBasis==nil{state.capitalBasis=try reconstructCapitalBasis(state)}
-        if replacing && (state.history.map{$0.fills>0 || $0.ledger>0 || $0.events>0 || ($0.equityOffset ?? 0)>0 || ($0.financialFlowOffset ?? 0)>0 || ($0.journalCount ?? proposed.journals.count)>proposed.journals.count || ($0.appliedEventCount ?? proposed.appliedEvents.count)>proposed.appliedEvents.count} ?? false){throw TradeError.corrupt("完整還原不可使用分頁投影")}
+        let incompleteLifecycle=LifecycleHistoryKind.allCases.contains{kind in (state.history?.lifecycleCounts?[kind.rawValue] ?? 0)>Self.lifecycleRecords(state.lifecycle,kind:kind).count}
+        if replacing && (incompleteLifecycle || (state.history.map{$0.fills>0 || $0.ledger>0 || $0.events>0 || ($0.equityOffset ?? 0)>0 || ($0.financialFlowOffset ?? 0)>0 || ($0.journalCount ?? proposed.journals.count)>proposed.journals.count || ($0.appliedEventCount ?? proposed.appliedEvents.count)>proposed.appliedEvents.count} ?? false)){throw TradeError.corrupt("完整還原不可使用分頁投影")}
         try Self.validate(state, mode: mode)
         var compact=try Self.compact(state)
         let rebuildFillReport=(Int(try scalar("PRAGMA user_version") ?? "0") ?? 0)<5
         func json<T:Encodable>(_ x:T)throws->String{String(decoding:try Self.encode(x),as:UTF8.self)}
         try exec("BEGIN IMMEDIATE")
         do {
-            if replacing { try exec("DELETE FROM applied_event_ids; DELETE FROM journal_images; DELETE FROM journal_entries; DELETE FROM financial_flows; DELETE FROM equity; DELETE FROM report_state; DELETE FROM report_checkpoints; DELETE FROM fill_report; DELETE FROM events; DELETE FROM fills; DELETE FROM orders; DELETE FROM ledger;") }
+            if replacing { try exec("DELETE FROM lifecycle_history; DELETE FROM applied_event_ids; DELETE FROM journal_images; DELETE FROM journal_entries; DELETE FROM financial_flows; DELETE FROM equity; DELETE FROM report_state; DELETE FROM report_checkpoints; DELETE FROM fill_report; DELETE FROM events; DELETE FROM fills; DELETE FROM orders; DELETE FROM ledger;") }
             try batch("INSERT OR IGNORE INTO events(id,account_id,sequence,payload) VALUES(?,?,?,?)",rows:try state.events.map{[$0.id,state.accountID,String($0.sequence),try json($0)]},immutableTable:"events")
             try batch("INSERT OR IGNORE INTO fills(id,order_id,account_id,time,payload) VALUES(?,?,?,?,?)",rows:try state.fills.map{[$0.id,$0.orderID,state.accountID,String($0.time),try json($0)]},immutableTable:"fills")
             try batch("INSERT OR IGNORE INTO financial_flows(id,account_id,time,sequence,payload) VALUES(?,?,?,?,?)",rows:try (state.financialFlows ?? []).map{[$0.id,state.accountID,String($0.time),String($0.sequence),try json($0)]},immutableTable:"financial_flows")
@@ -376,9 +383,12 @@ public final class AccountRepository: @unchecked Sendable {
             try saveJournalsUnlocked(state,replacing:replacing)
             compact.journals=try journalProjectionUnlocked(limit:20)
             compact.history!.journalCount=try journalCountUnlocked()
+            try saveLifecycleUnlocked(state,replacing:replacing)
+            compact.lifecycle=try lifecycleProjectionUnlocked(state.lifecycle)
+            compact.history!.lifecycleCounts=try lifecycleCountsUnlocked()
             try updatePerformance(state,replacing:replacing)
             try insert("INSERT INTO account_state(account_id,payload) VALUES(?,?) ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload", [state.accountID,try json(compact)])
-            try exec("PRAGMA user_version=8; COMMIT")
+            try exec("PRAGMA user_version=9; COMMIT")
             cachedEquity=compact.equity;cachedEquityOffset=compact.history?.equityOffset ?? 0
             return compact
         } catch { try? exec("ROLLBACK"); throw error }
@@ -422,6 +432,7 @@ public final class AccountRepository: @unchecked Sendable {
         if s.simulation != nil{let impacts=try SimulationParticipants.grouped(s.fills.compactMap(\.simulationImpact));if !impacts.isEmpty || s.simulation!.impactGroups != nil{s.simulation!.impactGroups=impacts};s.simulation!.impactArchiveCutoff=nil}
         s.appliedEvents=try appliedIDsUnlocked()
         s.journals=try fullJournalsUnlocked()
+        s.lifecycle=try lifecycleProjectionUnlocked(s.lifecycle,full:true)
         s.history=nil;try Self.validate(s,mode:mode);try exec("COMMIT");committed=true;return s
     }
     public func simulationImpacts(instrumentID:String,from:Int64,through:Int64)throws->[SimulationImpact]{
