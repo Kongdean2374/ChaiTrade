@@ -169,7 +169,7 @@ extension AppModel {
                 case .value(let lease,let instrument,let quote):
                     guard await quoteScheduler.complete(lease,now:now) else{continue}
                     do{try await engine.ingest(quote,now:now,context:context);quoteIssues[lease.instrumentID] = quote.quality == .realtime ? .ready:quote.quality == .delayed ? .delayed:.stale;updated.insert(instrument.id)}catch{quoteIssues[lease.instrumentID] = .connectionFailed}
-                case .failure(let lease,let instrument,let failure):
+                case .failure(let lease,_,let failure):
                     guard await quoteScheduler.complete(lease,now:now,failure:failure) else{continue}
                     quoteIssues[lease.instrumentID]=failure.kind;quoteRetryAt[lease.instrumentID]=now+(failure.retryAfter ?? 15)
                     try? await engine.markMonitoringGap(instrumentID:lease.instrumentID,time:now,context:context)

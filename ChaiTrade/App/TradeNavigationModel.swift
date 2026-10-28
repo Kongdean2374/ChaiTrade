@@ -12,11 +12,18 @@ struct TradeHandoff:Identifiable {
 }
 extension AppModel {
     var tradeConflictDescription:String{
-        let old=tradeInstrument.map{$0.name+"（"+$0.symbol+"）"} ?? "目前商品"
-        let target=pendingTrade.flatMap{intent in state?.instruments.first{intent.product.matches($0)}}
-        let next=target.map{$0.name+"（"+$0.symbol+" · "+($0.identity?.exchange ?? "自訂")+" · "+$0.currency+"）"} ?? "新商品"
-        let direction=target.map{pendingTrade?.side == .sell ? $0.sellLabel:$0.buyLabel} ?? ""
-        return "目前草稿："+old+"。\n將切換為："+next+" "+direction+"。\n新商品重新載入價格、數量、單位與風險規則。保留原草稿會取消本次切換；不會自動送單。"
+        var oldName="目前商品"
+        if let current=tradeInstrument{oldName="\(current.name)（\(current.symbol)）"}
+        var nextName="新商品",direction=""
+        if let intent=pendingTrade,let target=state?.instruments.first(where:{intent.product.matches($0)}){
+            let venue:String=target.identity?.exchange ?? "自訂"
+            nextName="\(target.name)（\(target.symbol) · \(venue) · \(target.currency)）"
+            direction=intent.side == .sell ? target.sellLabel:target.buyLabel
+        }
+        let currentLine="目前草稿：\(oldName)。"
+        let nextLine="將切換為：\(nextName) \(direction)。"
+        let explanation="新商品重新載入價格、數量、單位與風險規則。保留原草稿會取消本次切換；不會自動送單。"
+        return [currentLine,nextLine,explanation].joined(separator:"\n")
     }
     var tradeInstrument:Instrument?{guard let product=tradeWorkspace?.product else{return nil};return state?.instruments.first{product.matches($0)}}
     func restoreTradeWorkspace(){
