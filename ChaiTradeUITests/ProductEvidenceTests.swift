@@ -57,6 +57,10 @@ import XCTest
         app.tabBars.buttons["交易"].tap()
         let board=app.buttons["整股（張）"];try reveal(board,in:app);board.tap()
         try waitUntil("Evidence did not actually select whole lots",timeout:5){board.isSelected}
+        // Inspect the specifications while the product header is already here.
+        // Keep every original check/capture and the later Tab roundtrip, without
+        // walking to the product bottom and then back to this same header.
+        try specifications(app)
         let chart=app.webViews["inlineChartWeb"];try check(chart.waitForExistence(timeout:10),"Inline chart missing");try reveal(chart,in:app)
         try waitUntil("Evidence chart has no rendered candles",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         pageCapture("AFTER complete inline stock chart volume and indicators")
@@ -69,6 +73,10 @@ import XCTest
         let advanced=app.buttons["進階委託與保護"];try reveal(advanced,in:app);advanced.tap();pageCapture("AFTER stock advanced order options")
         app.swipeUp();pageCapture("AFTER stock advanced order summary");app.buttons["完成"].firstMatch.tap()
         app.tabBars.buttons["行情"].tap();app.tabBars.buttons["交易"].tap()
+        try check(board.isSelected,"Read-only page and Tab roundtrip changed the selected whole-lot board")
+        try unchanged(app)
+    }
+    private func specifications(_ app:XCUIApplication)throws{
         let specification=app.buttons["商品規格"];try reveal(specification,in:app);specification.tap()
         let unit=app.staticTexts["specQuantityUnit"].firstMatch
         try waitUntil("Product specification content has not finished presenting",timeout:5){unit.exists && unit.isHittable}
@@ -82,7 +90,11 @@ import XCTest
         let minimum=(app.staticTexts["specQuantityStep"].value as? String)?.replacingOccurrences(of:",",with:"")
         try check(minimum=="1 張（1000 股）","Whole-lot minimum quantity is incorrect")
         pageCapture("AFTER stock price precision and minimum quantities")
-        app.swipeUp();try reveal(app.staticTexts["規則版本"],in:app);pageCapture("AFTER stock rules and execution limits")
-        app.buttons["完成"].firstMatch.tap();try unchanged(app)
+        app.swipeUp()
+        let rules=app.cells.containing(.staticText,identifier:"規則版本").firstMatch
+        try reveal(rules,in:app)
+        try check(app.staticTexts["規則版本"].exists,"Visible rule-version row lost its actual label")
+        pageCapture("AFTER stock rules and execution limits")
+        app.buttons["完成"].firstMatch.tap()
     }
 }

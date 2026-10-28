@@ -92,7 +92,13 @@ import XCTest
             }
             let viewport=CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
             let exists=element.exists,frame=exists ? element.frame:nil
-            if let frame,viewport.contains(frame),element.isHittable{return}
+            let contained=frame.map{viewport.contains($0)} ?? false
+            let reachable=contained && element.isHittable
+            if reachable{return}
+            // Retain geometry in the console before another gesture. A timed-out
+            // XCTest can lose its final attachment/movie; coordinates alone do
+            // not expose editor contents or credentials.
+            print("UI_REVEAL_GEOMETRY",name,targetID,"attempt",attempt,"target",String(describing:frame),"viewport",String(describing:viewport),"contained",contained,"hittable",reachable)
             guard attempt<7 else{break}
             let distance=frame.map{$0.midY-viewport.midY} ?? viewport.height*2
             let up=distance>0,far=abs(distance)>viewport.height*1.5
