@@ -78,6 +78,24 @@ import XCTest
 }
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
+    func testMarketEmptySearchClearResetsVisibleQueryAndResultsWithoutChangingTrade()throws{
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
+        let baseline=try state(app);app.tabBars.buttons["行情"].tap()
+        let search=app.textFields["marketSearch"];search.tap();search.typeText("ZZZ_NOT_A_PRODUCT_2374")
+        let finishSearch=app.buttons["完成搜尋"];try check(finishSearch.waitForExistence(timeout:5),"Market search keyboard toolbar missing");finishSearch.tap()
+        try check(app.staticTexts["沒有符合的商品"].waitForExistence(timeout:5),"Impossible query did not show its specific empty state")
+        capture("FLOW empty market results before clearing filters")
+        let clear=app.buttons["清除篩選"];try reveal(clear,in:app);clear.tap()
+        try waitUntil("Clear filters left the visible search or product results stale"){
+            let value=search.value as? String ?? ""
+            return (value.isEmpty || value==search.placeholderValue) && app.buttons["market-SIM:TWSE:2330"].exists
+        }
+        let after=try state(app)
+        try check(after["search"] as? String=="","Clear filters did not persist an empty market query")
+        try check(after["tradeProduct"] as? String==baseline["tradeProduct"] as? String && after["tradeSide"] as? String==baseline["tradeSide"] as? String,"Clearing browsing filters modified the trade workspace")
+        try check((after["cash"] as? [String:String])==(baseline["cash"] as? [String:String]) && (after["orders"] as? [String])?.isEmpty==true && (after["watchlist"] as? [String])?.isEmpty==true,"Clearing filters mutated account data")
+        capture("FLOW clear filters restores visible search and real stock results")
+    }
     func testBrowsingAndCancelledHandoffKeepDirtyDraft()throws{
         let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
         app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()

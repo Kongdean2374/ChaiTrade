@@ -1,0 +1,38 @@
+name: Focused market filter regression evidence
+on:
+  push:
+    branches: [navigation-filter-red-20261028]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  market-filter-regression:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
+      - run: bash scripts/preflight.sh
+      - name: Independent clean market empty search and clear filters
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/logs
+          simulator_id="$(python3 scripts/prepare_simulator.py)"
+          common=(-project ChaiTrade.xcodeproj -scheme ChaiTrade -destination "platform=iOS Simulator,id=$simulator_id,arch=$(uname -m)" -derivedDataPath build/UISimulator CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='' ONLY_ACTIVE_ARCH=YES ARCHS="$(uname -m)")
+          xcodebuild build-for-testing "${common[@]}" 2>&1 | tee build/logs/navigation-filter-build.log
+          xcodebuild test-without-building "${common[@]}" -resultBundlePath build/NavigationFlowTests.xcresult -only-testing:ChaiTradeUITests/TradeWorkspaceInteractionTests/testMarketEmptySearchClearResetsVisibleQueryAndResultsWithoutChangingTrade -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 2>&1 | tee build/logs/navigation-filter-tests.log
+      - name: Preserve evidence before making any product correction
+        if: always()
+        run: python3 scripts/collect_diagnostics.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: market-filter-regression-evidence
+          path: |
+            build/logs
+            build/NavigationFlowTests.xcresult
+          retention-days: 7
