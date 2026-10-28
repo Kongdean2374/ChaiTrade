@@ -63,6 +63,7 @@ struct UITestProbe: View {
             "visualType":String(describing:typeSize),"visualTheme":colorScheme == .dark ? "dark":"light",
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
             "fileArchiveWorking":model.fileArchiveWorking,"fileArchiveReady":model.fileArchiveURL != nil,"fileArchiveProgress":model.fileArchiveProgress,
+            "dataShareReady":model.dataShareURL != nil,"dataShareFormat":model.dataShareURL?.pathExtension ?? "",
             "mode":s?.mode.rawValue ?? "", "market":model.market.rawValue,"search":model.currentBrowsing.search,"category":model.currentBrowsing.category,"sort":model.currentBrowsing.sort.rawValue,
             "leverageEnabled":s?.leverageEnabled ?? false,
             "instruments":s?.instruments.map{["id":$0.id,"symbol":$0.symbol,"name":$0.name,"market":$0.market.rawValue]} ?? [],

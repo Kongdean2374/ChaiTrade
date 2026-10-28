@@ -53,6 +53,35 @@ extension AppModel{
             self.refreshFileShareCache(preferred:url);self.fileArchiveProgress=1;self.fileArchivePhase="封存已完成，可另存至檔案 App。"
         }
     }
+    func startDataFileExport(_ format:AccountDataFormat){
+        beginFileOperation{
+            guard let engine=self.engine,let context=self.context else{throw TradeError.wrongAccount}
+            await self.flushBrowsing();try Task.checkCancellation()
+            let work=self.root.appendingPathComponent("file-work/"+UUID().uuidString),snapshot=work.appendingPathComponent("source")
+            defer{try? FileManager.default.removeItem(at:work)}
+            self.maintainingAccount=true;self.fileArchivePhase="建立目前帳戶的一致性資料快照…"
+            let token=try await engine.beginFileMaintenance(snapshotAt:snapshot.appendingPathComponent("accounts/\(context.accountID)/account.sqlite"),context:context)
+            try await engine.endMaintenance(token:token,context:context);self.maintainingAccount=false
+            let output=self.root.appendingPathComponent("share-cache/ChaiTrade-模擬交易-\(context.accountID)-\(UUID().uuidString)."+format.fileExtension),progress=self.fileProgress(self.fileArchiveGeneration),time=self.now
+            self.fileArchivePhase="查核完整紀錄並逐筆匯出"+format.label+"…"
+            let worker=Task.detached(priority:.utility){try AccountDataFileService.export(snapshotRoot:snapshot,mode:context.mode,format:format,to:output,time:time,progress:progress);return output}
+            let url=try await withTaskCancellationHandler{try await worker.value}onCancel:{worker.cancel()}
+            guard self.context==context else{throw TradeError.wrongAccount}
+            self.refreshDataShareCache(preferred:url);self.fileArchiveProgress=1;self.fileArchivePhase=format.label+"已完成，可從下方分享另存。"
+        }
+    }
+    func refreshDataShareCache(preferred:URL?=nil){
+        guard let context else{dataShareFiles=[];dataShareURL=nil;return}
+        do{
+            dataShareFiles=try AccountShareCache.completed(root:root,mode:context.mode,category:.dataFiles)
+            if let preferred,dataShareFiles.contains(preferred){dataShareURL=preferred}
+            else if let selected=dataShareURL,dataShareFiles.contains(selected){}else{dataShareURL=dataShareFiles.first}
+        }catch{dataShareFiles=[];dataShareURL=nil;self.error=error.localizedDescription}
+    }
+    func clearDataShareCache(){
+        guard !fileArchiveWorking,!exportingWork,let context else{return}
+        do{let count=try AccountShareCache.clear(root:root,mode:context.mode,category:.dataFiles);refreshDataShareCache();fileArchivePhase="已清除目前帳戶的 \(count) 份資料分享暫存；封存、另一帳戶與恢復點保留。"}catch{self.error=error.localizedDescription}
+    }
     func startLocalRecoveryPoint(){
         beginFileOperation{
             guard let engine=self.engine,let context=self.context else{throw TradeError.wrongAccount}

@@ -334,5 +334,21 @@ import XCTest
         for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"History browsing created "+key)}
         app.tabBars.buttons["委託"].tap();try check(app.navigationBars["委託與成交"].exists,"Returning from history blocked navigation")
     }
+    func testCompleteJSONFileExportRemainsShareableAfterRestartWithoutChangingAccount()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let original=try state(app)
+        func openTools()throws{app.tabBars.buttons["資產"].tap();let tools=app.buttons["資料工具：匯出與帳本"];try reveal(tools,in:app);tools.tap()}
+        try openTools();let export=app.buttons["exportDataJSON"];try reveal(export,in:app);rapid(export)
+        try waitUntil("Complete JSON export did not finish",timeout:30){guard let s=try? self.state(app) else{return false};return s["dataShareReady"] as? Bool==true && s["dataShareFormat"] as? String=="json" && s["fileArchiveWorking"] as? Bool==false}
+        let share=app.buttons["shareDataFile"];try reveal(share,in:app);capture("AFTER complete JSON file ready to share")
+        app.terminate();app.launch();try ready(app);try openTools()
+        try check(app.buttons["shareDataFile"].waitForExistence(timeout:5),"Completed JSON file is lost after restart")
+        let clear=app.buttons["clearDataShareCache"];try reveal(clear,in:app);clear.tap()
+        try waitUntil("Cleared JSON cache left a stale share reference"){(try? self.state(app)["dataShareReady"] as? Bool)==false}
+        let after=try state(app)
+        for key in ["cash","positions"]{try check((original[key] as? [String:String])==(after[key] as? [String:String]),"JSON export changed "+key)}
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"JSON export created "+key)}
+        capture("AFTER JSON cache cleared and account intact")
+    }
 
 }

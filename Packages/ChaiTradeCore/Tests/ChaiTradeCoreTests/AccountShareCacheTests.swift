@@ -31,3 +31,18 @@ import Testing
     #expect(throws:TradeError.self){try AccountShareCache.clear(root:root,mode:.online)}
     #expect(try Data(contentsOf:file)==Data([1,2,3]))
 }
+
+@Test func dataShareCleanupSeparatesAccountsAndPreservesRestorableArchives()throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),folder=root.appendingPathComponent("share-cache")
+    defer{try? FileManager.default.removeItem(at:root)}
+    try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+    func file(_ mode:Mode,_ type:String)->URL{folder.appendingPathComponent("ChaiTrade-模擬交易-\(mode.accountID)-\(UUID().uuidString)."+type)}
+    let a=file(.online,"json"),b=file(.offline,"csv"),archive=file(.online,"chaitradearchive"),unowned=folder.appendingPathComponent("user.json")
+    for url in [a,b,archive,unowned]{try Data([1,2,3]).write(to:url)}
+    #expect(try AccountShareCache.completed(root:root,mode:.online,category:.dataFiles).map{$0.lastPathComponent}==[a.lastPathComponent])
+    #expect(try AccountShareCache.clear(root:root,mode:.online,category:.dataFiles)==1)
+    #expect(!FileManager.default.fileExists(atPath:a.path))
+    for url in [b,archive,unowned]{#expect(try Data(contentsOf:url)==Data([1,2,3]))}
+    #expect(try AccountShareCache.clear(root:root,mode:.online)==1)
+    #expect(try AccountShareCache.completed(root:root,mode:.offline,category:.dataFiles).map{$0.lastPathComponent}==[b.lastPathComponent])
+}

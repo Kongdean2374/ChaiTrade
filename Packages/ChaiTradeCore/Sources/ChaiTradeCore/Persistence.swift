@@ -451,26 +451,29 @@ public final class AccountRepository: @unchecked Sendable {
     }
     public func csv(kind:String,time:Int64)throws->Data{
         lock.lock();defer{lock.unlock()}
+        var output=Data();try writeCSVUnlocked(kind:kind,time:time){output.append($0)};return output
+    }
+    func writeCSVUnlocked(kind:String,time:Int64,consume:(Data)throws->Void)throws{
         guard let json=try scalar("SELECT payload FROM account_state LIMIT 1") else{throw TradeError.corrupt("帳戶不存在")}
         let s=try JSONDecoder().decode(AccountState.self,from:Data(json.utf8))
-        var output=Data()
-        func write(_ row:[String]){if !output.isEmpty{output.append(contentsOf:[13,10])};output.append(contentsOf:row.map(Analytics.csvCell).joined(separator:",").utf8)}
+        var first=true
+        func emit(_ data:Data)throws{if !first{try consume(Data([13,10]))};first=false;try consume(data)}
+        func write(_ row:[String])throws{try emit(Data(row.map(Analytics.csvCell).joined(separator:",").utf8))}
         let decoder=JSONDecoder()
         switch kind{
         case "fills":
-            write(Analytics.fillHeader)
+            try write(Analytics.fillHeader)
             let prefix=["模擬交易",s.accountID,s.mode.rawValue,String(s.schema),String(time)].map(Analytics.csvCell).joined(separator:",")+","
             guard try scalar("SELECT count(*) FROM fill_report")==scalar("SELECT count(*) FROM fills") else{throw TradeError.corrupt("成交報表索引不完整，匯出中止")}
-            try visit("SELECT r.cells FROM fills f JOIN fill_report r ON r.id=f.id ORDER BY f.rowid"){output.append(contentsOf:[13,10]);output.append(contentsOf:prefix.utf8);output.append(contentsOf:$0.utf8)}
+            try visit("SELECT r.cells FROM fills f JOIN fill_report r ON r.id=f.id ORDER BY f.rowid"){try emit(Data((prefix+$0).utf8))}
         case "ledger":
-            write(["模擬交易","accountID","exportedAt","eventID","time","currency","account","amount"])
-            try visit("SELECT payload FROM ledger ORDER BY ordinal"){let e=try decoder.decode(LedgerEntry.self,from:Data($0.utf8));write(["模擬交易",s.accountID,String(time),e.eventID,String(e.time),e.currency,e.account,e.amount.description])}
+            try write(["模擬交易","accountID","exportedAt","eventID","time","currency","account","amount"])
+            try visit("SELECT payload FROM ledger ORDER BY ordinal"){let e=try decoder.decode(LedgerEntry.self,from:Data($0.utf8));try write(["模擬交易",s.accountID,String(time),e.eventID,String(e.time),e.currency,e.account,e.amount.description])}
         case "orders":
-            write(Analytics.orderHeader)
-            try visit("SELECT payload FROM orders ORDER BY time,id"){let o=try decoder.decode(Order.self,from:Data($0.utf8));write(Analytics.orderRow(o,account:s,time:time))}
+            try write(Analytics.orderHeader)
+            try visit("SELECT payload FROM orders ORDER BY time,id"){let o=try decoder.decode(Order.self,from:Data($0.utf8));try write(Analytics.orderRow(o,account:s,time:time))}
         default:throw TradeError.invalid("未知匯出類型")
         }
-        return output
     }
     private func visitPerformance(from:Int64,until:Int64,body:(PerformanceInput)throws->Void)throws{
         let sql="""

@@ -72,7 +72,7 @@ struct TradingView:View{
     @ViewBuilder private var bookSection:some View{
         if let i=model.selected,model.canTrade(i),let q=model.quote,q.valid,[ExecutionGrade.E1,.E2].contains(q.grade),!q.bids.isEmpty,!q.asks.isEmpty{
             let subtitle=model.state?.mode == .offline ? "本機模擬對手盤；數量依商品單位":"來源提供的買賣盤；本機成交會消耗可用流動性"
-            MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:subtitle);HStack(alignment:.top,spacing:18){BookSide(title:"買盤",levels:(try? SimulationParticipants.displayLevels(q.bids,usage:model.state?.participantUsage)) ?? [],color:.green);BookSide(title:"賣盤",levels:(try? SimulationParticipants.displayLevels(q.asks,usage:model.state?.participantUsage)) ?? [],color:.red)}}
+            MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:subtitle).accessibilityIdentifier("productBookTitle");HStack(alignment:.top,spacing:18){BookSide(title:"買盤",levels:(try? SimulationParticipants.displayLevels(q.bids,usage:model.state?.participantUsage)) ?? [],color:.green);BookSide(title:"賣盤",levels:(try? SimulationParticipants.displayLevels(q.asks,usage:model.state?.participantUsage)) ?? [],color:.red)}}
         }else if model.state?.mode == .online{Text("目前沒有可供撮合的可靠買賣盤。可查看既有部位、委託與歷史，也可撤銷本機委託。").font(.footnote).foregroundStyle(.secondary)}
     }
     @ViewBuilder private func holdingSection(_ i:Instrument)->some View{
@@ -126,7 +126,7 @@ struct TradingView:View{
         ViewThatFits(in:.horizontal){HStack{chartActions;Spacer();alertAction};VStack(alignment:.leading,spacing:12){chartActions;alertAction}}
         if model.chartLoading{ProgressView("讀取K線…").font(.caption)}
         if let limitation=model.chartLimitation{Label(limitation,systemImage:"info.circle").font(.caption).foregroundStyle(.orange).accessibilityIdentifier("chartSourceLimitation")}
-        if let error=model.chartError{ContentUnavailableView("此範圍暫無K線",systemImage:"chart.xyaxis.line",description:Text(error)).frame(minHeight:200)}else{ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:10))}
+        if let error=model.chartError{ContentUnavailableView("此範圍暫無K線",systemImage:"chart.xyaxis.line",description:Text(error)).frame(minHeight:200)}else{ChartView(indicator:indicator,period:period,line:line).frame(height:330).clipShape(RoundedRectangle(cornerRadius:10)).accessibilityIdentifier("inlineChartWeb")}
         indicatorPicker
         ViewThatFits(in:.horizontal){historyActions;VStack(alignment:.leading,spacing:12){historyNavigation;drawingActions}}
     }}

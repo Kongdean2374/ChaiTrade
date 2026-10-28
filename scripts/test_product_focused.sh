@@ -12,6 +12,7 @@ xcodebuild test-without-building -project ChaiTrade.xcodeproj -scheme ChaiTrade 
   -only-testing:ChaiTradeUITests/ProductExperienceTests/testContractPositionHasAnExplicitReduceOnlyCloseJourney \
   -only-testing:ChaiTradeUITests/ProductExperienceTests/testOfflineCatalogSearchSelectsRealETFWithoutChangingAccount \
   -only-testing:ChaiTradeUITests/ProductExperienceTests/testFinancialHistoryEmptyCategoriesKeepAccountAndPageBoundaries \
+  -only-testing:ChaiTradeUITests/ProductExperienceTests/testCompleteJSONFileExportRemainsShareableAfterRestartWithoutChangingAccount \
   -only-testing:ChaiTradeUITests/ProductExperienceTests/testChartLandscapeAndReturnKeepsSelectedProduct \
   -only-testing:ChaiTradeUITests/ProductExperienceTests/testOfflineThreeActionDiscoveryAndFullStockJourney \
   -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \

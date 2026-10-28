@@ -118,6 +118,8 @@ struct ChartAmendment: Identifiable {
     @Published var fileArchiveURL:URL?
     @Published var fileArchiveFiles:[URL]=[]
     @Published var latestOrderReceipt:LocalOrderReceipt?
+    @Published var dataShareURL:URL?
+    @Published var dataShareFiles:[URL]=[]
     var fileArchiveOperation:Task<Void,Never>?
     var fileArchiveGeneration=UUID()
     @Published var catchupTarget: Int64?
@@ -477,23 +479,19 @@ struct ChartAmendment: Identifiable {
     }
 
     func export(kind: String, password: String = "") async {
+        let format:AccountDataFormat?=switch kind{case "CSV":.fills;case "orders":.orders;case "ledger":.ledger;case "JSON":.json;default:nil}
+        if let format{startDataFileExport(format);return}
         guard let s=state,let engine,let context,!exportingWork else{return}
         exportingWork=true;defer{exportingWork=false}
         await run {
             let data: Data
             switch kind {
-            case "CSV": data=try await engine.exportCSV(kind:"fills",time:self.now,context:context)
-            case "ledger": data=try await engine.exportCSV(kind:"ledger",time:self.now,context:context)
-            case "orders": data=try await engine.exportCSV(kind:"orders",time:self.now,context:context)
             case "both":
                 let otherMode: Mode=s.mode == .online ? .offline:.online
                 let root=self.root
                 let other=try await Task.detached{let repository=try AccountRepository(root:root,mode:otherMode);guard let full=try repository.fullSnapshot(maximumExpandedBytes:BackupService.legacyExpandedLimit) else{throw TradeError.corrupt("另一帳戶不存在，完整備份中止")};return full}.value
                 let full=try await engine.fullSnapshot(maximumExpandedBytes:BackupService.legacyExpandedLimit,context:context),time=self.now
                 data=try await Task.detached{try BackupService.exportBoth([full,other],password:password.isEmpty ? nil:password,time:time)}.value
-            case "JSON":
-                var clean=try await engine.fullSnapshot(context:context);if s.mode == .online{clean.quotes=[:];clean.consumed=[:]};let full=clean
-                data=try await Task.detached{try AccountRepository.encode(full)}.value
             default:
                 let full=try await engine.fullSnapshot(maximumExpandedBytes:BackupService.legacyExpandedLimit,context:context),time=self.now
                 data=try await Task.detached{try BackupService.export(full,password:password.isEmpty ? nil:password,time:time)}.value

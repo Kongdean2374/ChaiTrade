@@ -26,8 +26,25 @@ private func scalePNG()->Data{
     return Data(base.dropLast(12))+word(UInt32(payload.count))+chunk+word(UInt32(checksum))+Data(base.suffix(12))
 }
 
-@Test func archiveOver512MBPreservesEveryAttachmentWithBoundedWorkingMemory()async throws{
-    guard ProcessInfo.processInfo.environment["CHAI_ARCHIVE_SCALE"]=="1" else{return}
+private func verifyJSONImagesOneRecordAtATime(_ url:URL,expectedHash:String)throws->Int{
+    let input=try FileHandle(forReadingFrom:url);defer{try? input.close()}
+    var buffer=Data(),seen=Set<String>()
+    func inspect(_ bytes:Data)throws{
+        var line=bytes;if line.last==44{line.removeLast()}
+        guard line.first==123,let entry=try? JSONDecoder().decode(JournalEntry.self,from:line),entry.id.hasPrefix("scale-") else{return}
+        try #require(seen.insert(entry.id).inserted);try #require(entry.screenshot.map(BackupService.digest)==expectedHash)
+    }
+    while let chunk=try ArchiveMemory.read(input,upToCount:1_048_576),!chunk.isEmpty{
+        buffer.append(chunk)
+        while let end=buffer.firstIndex(of:10){try ArchiveMemory.scoped{try inspect(Data(buffer[..<end]))};buffer.removeSubrange(...end)}
+        try #require(buffer.count<4_000_000)
+    }
+    if !buffer.isEmpty{try ArchiveMemory.scoped{try inspect(buffer)}}
+    try #require(seen==Set((0..<320).map{"scale-\($0)"}));return seen.count
+}
+
+@Test(.enabled(if:ProcessInfo.processInfo.environment["CHAI_ARCHIVE_SCALE"]=="1"))
+func archiveOver512MBPreservesEveryAttachmentWithBoundedWorkingMemory()async throws{
     let root=FileManager.default.temporaryDirectory.appendingPathComponent("archive-scale-"+UUID().uuidString);defer{try? FileManager.default.removeItem(at:root)}
     let repository=try AccountRepository(root:root.appendingPathComponent("live"),mode:.online),context=AccountContext(mode:.online)
     let initial=try TradingEngine.initial(mode:.online,capital:Amount(2500),time:1000),engine=try TradingEngine(context:context,repository:repository,initial:initial)
@@ -55,14 +72,20 @@ private func scalePNG()->Data{
         for row in page{let original=try #require(try restored.journal(id:row.id));try #require(original.screenshot.map(BackupService.digest)==imageHash);count+=1}
         cursor=page.last?.cursor
     }while true
-    try #require(count==320);let peak=residentPeakBytes();let memoryPass=baseline>0 && peak>0 && peak-baseline<128*1024*1024
+    try #require(count==320)
+    let jsonFile=root.appendingPathComponent("complete.json")
+    try AccountDataFileService.export(snapshotRoot:snapshot,mode:.online,format:.json,to:jsonFile,time:1500)
+    let jsonBytes=try #require(try FileManager.default.attributesOfItem(atPath:jsonFile.path)[.size] as? NSNumber).int64Value
+    try #require(jsonBytes>512_000_000)
+    let jsonImages=try verifyJSONImagesOneRecordAtATime(jsonFile,expectedHash:imageHash)
+    let peak=residentPeakBytes();let memoryPass=baseline>0 && peak>0 && peak-baseline<128*1024*1024
     let cancelled=root.appendingPathComponent("cancelled.chaitradearchive")
     let work=Task.detached{try StreamingArchiveService.export(snapshotRoot:snapshot,mode:.online,to:cancelled,password:nil,time:1500,progress:{_ in withUnsafeCurrentTask{$0?.cancel()}})}
     var cancelledCorrectly=false
     do{try await work.value}catch is CancellationError{cancelledCorrectly=true}
     try #require(cancelledCorrectly)
     try #require(!FileManager.default.fileExists(atPath:cancelled.path));try #require(try repository.journal(id:"scale-0")?.screenshot==image && repository.load()?.cash==initial.cash)
-    let report:[String:Any]=["databaseBytes":size,"archiveBytes":try FileManager.default.attributesOfItem(atPath:archive.path)[.size] as Any,"journals":count,"hotJournals":hot.journals.count,"baselinePeakBytes":baseline,"peakBytes":peak,"additionalPeakBytes":peak-baseline,"elapsedSeconds":Double(started.duration(to:clock.now).components.seconds),"passed":memoryPass,"note":"Synthetic encrypted streaming SQLite/PNG archive; not iPhone memory, launch or UI performance acceptance"]
+    let report:[String:Any]=["databaseBytes":size,"archiveBytes":try FileManager.default.attributesOfItem(atPath:archive.path)[.size] as Any,"journals":count,"jsonBytes":jsonBytes,"jsonImagesVerified":jsonImages,"hotJournals":hot.journals.count,"baselinePeakBytes":baseline,"peakBytes":peak,"additionalPeakBytes":peak-baseline,"elapsedSeconds":Double(started.duration(to:clock.now).components.seconds),"passed":memoryPass,"note":"Synthetic encrypted SQLite/PNG archive plus complete streamed JSON; not iPhone memory, launch or UI performance acceptance"]
     let json=try JSONSerialization.data(withJSONObject:report,options:[.sortedKeys,.prettyPrinted]);print("ARCHIVE_SCALE_METRICS",String(decoding:json,as:UTF8.self))
     if let directory=ProcessInfo.processInfo.environment["CHAI_REPORT_DIR"]{try FileManager.default.createDirectory(atPath:directory,withIntermediateDirectories:true);try json.write(to:URL(fileURLWithPath:directory).appendingPathComponent("archive-scale-metrics.json"),options:.atomic)}
     try #require(memoryPass)

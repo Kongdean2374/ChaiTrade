@@ -49,4 +49,24 @@ import XCTest
         let tools=app.buttons["資料工具：匯出與帳本"];try reveal(tools,in:app);tools.tap();try check(app.navigationBars["資料工具"].waitForExistence(timeout:5),"Data tools missing");capture("AFTER data exports and ledger")
         try unchanged(app)
     }
+    func testVisibleChartDepthAdvancedOrderAndProductRulesEvidence()throws{
+        let app=launchClean();defer{finish()};try start(app)
+        app.tabBars.buttons["交易"].tap()
+        let board=app.buttons["整股（張）"];try reveal(board,in:app);board.tap()
+        let chart=app.webViews["inlineChartWeb"];try check(chart.waitForExistence(timeout:10),"Inline chart missing");try reveal(chart,in:app)
+        try waitUntil("Evidence chart has no rendered candles",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
+        capture("AFTER complete inline stock chart volume and indicators")
+        let book=app.otherElements["productBookTitle"].firstMatch
+        let bookText=app.staticTexts["買賣盤"].firstMatch
+        if book.exists{try reveal(book,in:app)}else{try reveal(bookText,in:app)}
+        capture("AFTER stock available depth")
+        let bottom=app.staticTexts["productBottom"];try reveal(bottom,in:app);capture("AFTER stock related news and product bottom")
+        let order=app.buttons["openOrder"];try reveal(order,in:app);order.tap()
+        let advanced=app.buttons["進階委託與保護"];try reveal(advanced,in:app);advanced.tap();capture("AFTER stock advanced order options")
+        app.swipeUp();capture("AFTER stock advanced order summary");app.buttons["完成"].firstMatch.tap()
+        app.tabBars.buttons["行情"].tap();app.tabBars.buttons["交易"].tap()
+        let specification=app.buttons["商品規格"];try reveal(specification,in:app);specification.tap()
+        capture("AFTER stock identity and explicit trading units");app.swipeUp();capture("AFTER stock rules and execution limits")
+        app.buttons["完成"].firstMatch.tap();try unchanged(app)
+    }
 }

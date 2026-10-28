@@ -35,7 +35,7 @@ extension AccountRepository{
         let size=Int(sqlite3_column_bytes(statement,0));guard (24...2_000_000).contains(size),let bytes=sqlite3_column_blob(statement,0) else{throw TradeError.corrupt("日誌附件大小不合法")}
         return Data(bytes:bytes,count:size)
     }
-    private func fullJournalUnlocked(_ metadata:JournalEntry)throws->JournalEntry{
+    func fullJournalUnlocked(_ metadata:JournalEntry)throws->JournalEntry{
         var entry=metadata
         if let expected=entry.screenshotBytes,let hash=entry.screenshotSHA256{
             guard let image=try imageUnlocked(id:entry.id),image.count==expected,BackupService.digest(image)==hash else{throw TradeError.corrupt("日誌附件遺失或校驗碼不符，原資料保留")};entry.screenshot=image
