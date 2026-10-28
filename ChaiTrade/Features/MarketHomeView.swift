@@ -53,6 +53,7 @@ struct MarketProductRow:View {
     @EnvironmentObject var model:AppModel
     let instrument:Instrument
     var owner:String="markets"
+    var rank:Int?=nil
     var onSelection:(()->Void)?=nil
     var body:some View{
         HStack(spacing:12){
@@ -70,7 +71,7 @@ struct MarketProductRow:View {
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier((owner=="catalog" ? "catalog-product-":owner=="tradePicker" ? "trade-product-":"market-")+instrument.id)
             Button{Task{await model.toggleWatch(instrument.id)}}label:{Image(systemName:model.state?.watchlist.contains(instrument.id)==true ? "star.fill":"star").frame(minWidth:30,minHeight:44)}.accessibilityLabel("自選 "+instrument.name).accessibilityIdentifier((owner=="catalog" ? "catalog-watch-":"watch-")+instrument.id).disabled(model.interactionBlocked)
-        }.padding(.vertical,8).onAppear{model.visible(instrument.id,owner:owner,present:true)}.onDisappear{model.visible(instrument.id,owner:owner,present:false)}
+        }.padding(.vertical,8).onAppear{model.visible(instrument.id,owner:owner,present:true,rank:rank)}.onChange(of:rank){_,value in model.visible(instrument.id,owner:owner,present:true,rank:value)}.onDisappear{model.visible(instrument.id,owner:owner,present:false)}
     }
 }
 struct DashboardView:View {

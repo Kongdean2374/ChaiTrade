@@ -45,3 +45,28 @@ import Testing
     await scheduler.demand(context:context,visible:["VISIBLE"],selected:"CURRENT:ODD",protected:background)
     #expect(await scheduler.next(context:context,now:1000,limit:2).map(\.instrumentID)==["CURRENT:ODD","VISIBLE"],"A large portfolio starved the active market screen")
 }
+
+@Test func firstVisibleBatchFollowsScreenOrderWithoutStarvingOtherRowsOrBypassingCooldown()async throws{
+    let scheduler=VisibleQuoteScheduler(),context=AccountContext(mode:.online)
+    let visible:Set<String>=["AAVE","ADA","ALGO","ATOM","AVAX","BTC","ETH","SOL"]
+    await scheduler.demand(context:context,visible:visible,selected:nil,protected:["HELD"],priority:["BTC","ETH","SOL","BTC","NOT-VISIBLE"])
+    let first=await scheduler.next(context:context,now:1000,limit:3)
+    #expect(first.map(\.instrumentID)==["BTC","ETH","SOL"])
+    for lease in first{#expect(await scheduler.complete(lease,now:1000))}
+    // Even when the first rows become due again, rows never attempted must win.
+    let second=await scheduler.next(context:context,now:1011,limit:3)
+    #expect(second.map(\.instrumentID)==["AAVE","ADA","ALGO"])
+    for lease in second{#expect(await scheduler.complete(lease,now:1011))}
+    let third=await scheduler.next(context:context,now:1012,limit:3)
+    #expect(third.map(\.instrumentID)==["ATOM","AVAX","BTC"])
+    for lease in third{#expect(await scheduler.complete(lease,now:1012,failure:lease.instrumentID=="BTC" ? MarketDataFailure(.rateLimited,retryAfter:60):nil))}
+    // Changing screen order and manual refresh cannot erase a source retry floor.
+    await scheduler.demand(context:context,visible:visible,selected:nil,protected:[],priority:["BTC","ETH"])
+    _=await scheduler.manualRefresh(visible,context:context,now:1013)
+    let retry=await scheduler.next(context:context,now:1013,limit:8)
+    #expect(!retry.contains{$0.instrumentID=="BTC"})
+    await scheduler.cancel(context:context)
+    #expect(await scheduler.next(context:context,now:1072).isEmpty)
+    await scheduler.demand(context:AccountContext(mode:.offline),visible:["SIM:BTC"],selected:nil,protected:[],priority:["BTC"])
+    #expect(await scheduler.next(context:context,now:1072).isEmpty)
+}

@@ -2,10 +2,10 @@ import XCTest
 
 @MainActor final class InteractionTests:IsolatedUITestCase {
     func testRapidJournalSavePersistsExactlyOneEntry()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-contention","--uitest-slow-save"]);defer{finish()};try ready(app);try journal(app)
+        let app=launchClean(fixture:true,flags:["--uitest-contention","--uitest-slow-save"]);var completed=false;defer{finish(includeHierarchy:!completed)};try ready(app);try journal(app)
         let note="CT_JOURNAL_CASE_2374_NOTE"
         let text=app.textViews["journalText"];try enterVerified(note,into:text)
-        let save=app.buttons["saveJournal"];try reveal(save,in:app);rapid(save,count:5)
+        let save=app.buttons["saveJournal"];try reveal(save,in:app,identifier:"saveJournal");rapid(save,count:5)
         try waitUntil("Journal did not enter an in-flight save"){
             let snapshot:[String:Any]=(try? self.state(app)) ?? [:]
             return (snapshot["operations"] as? Int ?? 0)>0
@@ -21,17 +21,18 @@ import XCTest
         try check(app.tabBars.buttons["資產"].waitForExistence(timeout:30),"Relaunch failed")
         try check((try state(app)["journals"] as? [[String:String]])==entries,"Journal not persisted exactly once")
         try journal(app);let next=app.textViews["journalText"];try enterVerified(note,into:next)
-        let second=app.buttons["saveJournal"];try reveal(second,in:app);second.tap()
+        let second=app.buttons["saveJournal"];try reveal(second,in:app,identifier:"saveJournal");second.tap()
         try waitUntil("A genuinely new journal draft was incorrectly deduplicated",timeout:12){(try? self.state(app)["journals"] as? [[String:String]])?.count==2}
         let repeated=try state(app)["journals"] as? [[String:String]] ?? []
         try check(repeated.count==2 && repeated.allSatisfy{$0["text"]==note},"A new draft lost visible text")
         try check(Set(repeated.compactMap{$0["id"]}).count==2,"New drafts shared an id")
         try check(!app.alerts["操作未完成"].exists,"Journal produced an unexpected error")
+        completed=true
     }
     func testRapidOrderConfirmationAndCancelDebitExactlyOnce()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-slow-submit"]);defer{finish()};try ready(app)
+        let app=launchClean(fixture:true,flags:["--uitest-slow-submit"]);var completed=false;defer{finish(includeHierarchy:!completed)};try ready(app)
         let initial=try XCTUnwrap((try state(app)["cash"] as? [String:String])?["TWD"])
-        try marketOrder(app);let submit=app.buttons["submitOrder"];try reveal(submit,in:app);rapid(submit)
+        try marketOrder(app);let submit=app.buttons["submitOrder"];try reveal(submit,in:app,identifier:"submitOrder");rapid(submit)
         try check(app.buttons["確認送出"].waitForExistence(timeout:5),"Confirmation missing");app.buttons["取消"].tap()
         try check((try state(app)["fills"] as? [[String:String]])?.isEmpty==true,"Cancelled confirmation created fill")
         try check((try state(app)["cash"] as? [String:String])?["TWD"]==initial,"Cancelled order changed cash")
@@ -63,20 +64,25 @@ import XCTest
         let debit=cash.reduce(NSDecimalNumber.zero){$0.adding(number($1["amount"]!))}
         try check(debit==cost.multiplying(by:NSDecimalNumber(value:-1)),"Fill ledger cash does not reconcile")
         app.terminate();app.launch();try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Relaunch failed")
-        try check((try state(app)["fills"] as? [[String:String]])==fills,"Relaunch changed fills")
-        try check(number((try state(app)["cash"] as? [String:String])?["TWD"] ?? "NaN")==expected,"Relaunch changed cash")
+        let restored=try state(app)
+        try check((restored["fills"] as? [[String:String]])==fills,"Relaunch changed fills")
+        try check(number((restored["cash"] as? [String:String])?["TWD"] ?? "NaN")==expected,"Relaunch changed cash")
+        completed=true
     }
     func testRapidTabsReselectAndFavoritesPersist()throws{
-        let app=launchClean(fixture:true,flags:["--uitest-contention"]);defer{finish()};try ready(app)
+        let app=launchClean(fixture:true,flags:["--uitest-favorite-barrier"]);var completed=false;defer{finish(includeHierarchy:!completed)};try ready(app)
         app.tabBars.buttons["交易"].tap();let watch=app.buttons["toggleWatch"];try check(watch.waitForExistence(timeout:5),"Favorite control missing")
         let before=(try state(app)["mutationStarts"] as? Int) ?? 0
-        let point=watch.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
+        let frame=try watch.snapshot().frame
+        let point=app.coordinate(withNormalizedOffset:.zero).withOffset(CGVector(dx:frame.midX,dy:frame.midY))
         for _ in 0..<4{point.tap()}
         // Four distinct toggle intents must end at the initial state, even while persistence is busy.
         try waitUntil("Four favorite toggles did not settle",timeout:6){(try? self.state(app)["operations"] as? Int)==0}
-        try check((try state(app)["mutationStarts"] as? Int)==before+4,"Rapid test did not dispatch four favorite intents")
-        try check((try state(app)["maxOperations"] as? Int ?? 0)>=2,"Test did not overlap asynchronous favorite writes")
-        try check((try state(app)["watchlist"] as? [String])?.isEmpty==true,"Favorite toggles lost updates")
+        let settled=try state(app)
+        try check((settled["mutationStarts"] as? Int)==before+4,"Rapid test did not dispatch four favorite intents")
+        try check((settled["favoriteBarrierArrivals"] as? Int)==4 && settled["favoriteBarrierFailed"] as? Bool==false,"Favorite overlap fixture did not synchronize four real UI intents")
+        try check((settled["maxOperations"] as? Int ?? 0)>=2,"Test did not overlap asynchronous favorite writes")
+        try check((settled["watchlist"] as? [String])?.isEmpty==true,"Favorite toggles lost updates")
         watch.tap();try waitUntil("Favorite add missing"){watch.value as? String=="已加入"}
         for name in ["行情","資產","總覽","交易","委託","行情","交易"]{app.tabBars.buttons[name].tap()}
         rapid(app.tabBars.buttons["交易"],count:3)
@@ -84,6 +90,7 @@ import XCTest
         let expected=try XCTUnwrap(try state(app)["watchlist"] as? [String]);try check(expected.count==1,"Unexpected favorite count")
         app.terminate();app.launch();try check(app.tabBars.buttons["行情"].waitForExistence(timeout:30),"Relaunch failed")
         try check((try state(app)["watchlist"] as? [String])==expected,"Favorite not durable")
+        completed=true
     }
     func testBackNavigationSheetCancelSwipeAndKeyboard()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)

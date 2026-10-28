@@ -56,7 +56,7 @@ import XCTest
         try check((s["fills"] as? [[String:String]])?.isEmpty==true,"Test inherited fills")
         try check((s["positions"] as? [String:String])?.isEmpty==true,"Test inherited positions")
         try check((s["cash"] as? [String:String])==["TWD":"100000"],"Fixture did not start from clean capital")
-        capture("Clean baseline")
+        capture("Clean baseline",includeHierarchy:false,snapshot:s)
     }
     func reveal(_ element:XCUIElement,in app:XCUIApplication,identifier:String?=nil)throws{
         // Callers with an exact known query ID can avoid two preliminary AX
@@ -185,7 +185,7 @@ import XCTest
         try check(app.textViews["journalText"].waitForExistence(timeout:5),"Journal sheet missing")
     }
     func marketOrder(_ app:XCUIApplication)throws{
-        app.tabBars.buttons["交易"].tap();let open=app.buttons["openOrder"];try reveal(open,in:app);open.tap()
+        app.tabBars.buttons["交易"].tap();let open=app.buttons["openOrder"];try reveal(open,in:app,identifier:"openOrder");open.tap()
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
     }
     func rapid(_ element:XCUIElement,count:Int=4){element.tap(withNumberOfTaps:count,numberOfTouches:1)}
@@ -205,16 +205,17 @@ import XCTest
         // an AX read returned two characters short. Wait for delivery of the
         // single input event; never retype, accept a prefix or extend the case.
         let deadline=Date().addingTimeInterval(3)
-        while element.value as? String != text,Date()<deadline{
+        var actual=element.value as? String
+        while actual != text,Date()<deadline{
             RunLoop.current.run(until:Date().addingTimeInterval(0.05))
+            actual=element.value as? String
         }
-        let actual=element.value as? String
         let detail:String
         if let actual{detail=String(reflecting:actual)}else{detail="<unavailable>"}
         try check(actual==text,"Keyboard input differs before any save. Actual: "+detail)
     }
-    func finish(){
-        capture("final")
+    func finish(includeHierarchy:Bool=true){
+        capture("final",includeHierarchy:includeHierarchy)
         guard let app=testedApp else{return}
         RunLoop.current.run(until:Date().addingTimeInterval(0.15))
         if app.state != .notRunning{app.terminate()}

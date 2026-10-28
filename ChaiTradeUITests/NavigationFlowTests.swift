@@ -2,7 +2,7 @@ import XCTest
 
 @MainActor final class NavigationFlowTests:IsolatedUITestCase{
     private func verifyBrowsingOnly(_ id:String,query:String,crypto:Bool)throws{
-        let app=launchClean();defer{finish()}
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)}
         let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Fresh navigation account missing");start.tap()
         try check(app.tabBars.buttons["行情"].waitForExistence(timeout:30),"Navigation account failed to load")
         let initial=try state(app)
@@ -18,10 +18,11 @@ import XCTest
         try check(!app.navigationBars["模擬下單"].exists,"Viewing a product opened an order form")
         try check((viewed["cash"] as? [String:String])==(initial["cash"] as? [String:String]),"Browsing moved account funds")
         try check((viewed["orders"] as? [Any])?.isEmpty==true && (viewed["fills"] as? [Any])?.isEmpty==true,"Browsing created an order")
-        capture("FLOW markets-only detail "+query)
+        capture("FLOW markets-only detail "+query,includeHierarchy:false,snapshot:viewed)
         app.navigationBars.buttons.element(boundBy:0).tap()
         try check(app.textFields["marketSearch"].value as? String==query,"Back reset market search")
         try check(try state(app)["quoteFocus"] as? String=="","Back retained an invisible detail subscription")
+        completed=true
     }
     func test2330DetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:TWSE:2330",query:"2330",crypto:false)}
     func testBTCDetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:Coinbase_Exchange:BTC-USD",query:"BTC",crypto:true)}
@@ -29,18 +30,19 @@ import XCTest
 }
 
 @MainActor final class TradingHandoffTests:IsolatedUITestCase{
-    private func onboardUSD(_ app:XCUIApplication)throws{
+    @discardableResult private func onboardUSD(_ app:XCUIApplication)throws->[String:Any]{
         let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Fresh onboarding missing")
-        let currency=app.buttons["baseCurrency"];try reveal(currency,in:app);currency.tap();app.buttons["USD"].tap();try reveal(start,in:app);start.tap()
+        let currency=app.buttons["baseCurrency"];try reveal(currency,in:app,identifier:"baseCurrency");currency.tap();app.buttons["USD"].tap();try reveal(start,in:app,identifier:"startTrading");start.tap()
         try check(app.tabBars.buttons["行情"].waitForExistence(timeout:30),"Clean account failed")
         let s=try state(app);for key in ["orders","fills","journals","watchlist"]{try check((s[key] as? [Any])?.isEmpty==true,"Inherited "+key)}
+        return s
     }
     private func detail(_ app:XCUIApplication,_ symbol:String)throws{
         app.tabBars.buttons["行情"].tap();app.buttons["marketCrypto"].tap()
         let search=app.textFields["marketSearch"];try check(search.waitForExistence(timeout:5),"Market list not restored");search.tap();search.typeText(symbol)
         app.buttons["market-SIM:Coinbase_Exchange:"+symbol+"-USD"].tap()
         try check(app.tabBars.buttons["行情"].isSelected,"Browsing changed tab")
-        capture("FLOW list to "+symbol+" detail stays in markets")
+        capture("FLOW list to "+symbol+" detail stays in markets",includeHierarchy:false)
     }
     func testExplicitSellHandsExactETHIdentityToTradeWithoutSubmitting()throws{
         let app=launchClean();defer{finish()};try onboardUSD(app);try detail(app,"ETH")
@@ -52,28 +54,46 @@ import XCTest
         capture("FLOW ETH explicit sell exact identity no auto order")
     }
     func testMarketDetailTradePickerThenOneSimulatedOrder()throws{
-        let app=launchClean();defer{finish()};try onboardUSD(app);try detail(app,"BTC")
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)}
+        let initial=try onboardUSD(app);try detail(app,"BTC")
         app.buttons["openOrder"].tap();try check(app.navigationBars["模擬下單"].waitForExistence(timeout:5),"Buy handoff failed")
-        try check((try state(app)["orders"] as? [String])?.isEmpty==true,"Buy handoff submitted automatically")
-        capture("FLOW explicit buy switches to trade form");app.buttons["完成"].tap()
-        let picker=app.buttons["tradeProductPicker"];try reveal(picker,in:app);picker.tap()
+        let handed=try state(app)
+        try check((handed["orders"] as? [String])?.isEmpty==true,"Buy handoff submitted automatically")
+        try check(handed["tab"] as? Int==2 && handed["tradeProduct"] as? String=="SIM:Coinbase_Exchange:BTC-USD" && handed["tradeSide"] as? String=="buy","BTC buy handoff changed exact product, side or tab")
+        capture("FLOW explicit buy switches to trade form",includeHierarchy:false,snapshot:handed);app.buttons["完成"].tap()
+        let picker=app.buttons["tradeProductPicker"];try reveal(picker,in:app,identifier:"tradeProductPicker");picker.tap()
         let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("ETH")
-        let eth=app.buttons["trade-product-SIM:Coinbase_Exchange:ETH-USD"];try reveal(eth,in:app);eth.tap()
-        try waitUntil("Independent trade picker failed"){(try? self.state(app)["tradeProduct"] as? String)=="SIM:Coinbase_Exchange:ETH-USD"}
-        capture("FLOW independent trade picker changed BTC to ETH")
-        let open=app.buttons["openOrder"];try check(open.waitForExistence(timeout:5),"New ETH quote did not enable an explicit order entry");open.tap();let size=app.textFields["orderQuantity"];try reveal(size,in:app)
+        let eth=app.buttons["trade-product-SIM:Coinbase_Exchange:ETH-USD"];try reveal(eth,in:app,identifier:"trade-product-SIM:Coinbase_Exchange:ETH-USD");eth.tap()
+        var picked:[String:Any]?
+        try waitUntil("Independent trade picker failed"){
+            picked=try? self.state(app)
+            return picked?["tradeProduct"] as? String=="SIM:Coinbase_Exchange:ETH-USD"
+        }
+        capture("FLOW independent trade picker changed BTC to ETH",includeHierarchy:false,snapshot:picked)
+        let open=app.buttons["openOrder"];try check(open.waitForExistence(timeout:5),"New ETH quote did not enable an explicit order entry");open.tap();let size=app.textFields["orderQuantity"];try reveal(size,in:app,identifier:"orderQuantity")
         try check(size.value as? String=="0.001","Another product quantity leaked into ETH")
         size.tap();size.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:8)+"0.01")
         app.buttons["orderKind"].tap();app.buttons["市價"].tap()
-        let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap()
+        let submit=app.buttons["submitOrder"];try reveal(submit,in:app,identifier:"submitOrder");submit.tap()
         try check(app.alerts["確認本機模擬委託"].waitForExistence(timeout:5),"No order review")
-        capture("FLOW exact ETH quantity and local account before confirm");rapid(app.buttons["確認送出"])
+        let pending=try state(app)
+        try check((pending["orders"] as? [String])?.isEmpty==true && (pending["fills"] as? [[String:String]])?.isEmpty==true,"Review submitted before explicit confirmation")
+        try check((pending["cash"] as? [String:String])==(initial["cash"] as? [String:String]),"Review moved funds before confirmation")
+        capture("FLOW exact ETH quantity and local account before confirm",includeHierarchy:false,snapshot:pending);rapid(app.buttons["確認送出"])
         try waitUntil("Confirmed simulation did not return receipt",timeout:10){app.navigationBars["委託與成交"].exists}
         let s=try state(app),intents=try XCTUnwrap(s["orderIntents"] as? [[String:String]])
         try check(intents.count==1 && intents[0]["instrument"]=="SIM:Coinbase_Exchange:ETH-USD" && intents[0]["side"]=="buy","One intent used wrong product/side or duplicated")
         try check((s["fills"] as? [[String:String]])?.count==1,"Simulation filled more than once")
         try check((s["positions"] as? [String:String])?["SIM:Coinbase_Exchange:ETH-USD"]=="0.01","Simulation position wrong")
-        capture("FLOW single local fill and receipt")
+        let fill=try XCTUnwrap((s["fills"] as? [[String:String]])?.first)
+        let price=number(try XCTUnwrap(fill["price"])),quantity=number(try XCTUnwrap(fill["quantity"]))
+        let fee=number(try XCTUnwrap(fill["fee"])),tax=number(try XCTUnwrap(fill["tax"]))
+        let initialCash=number(try XCTUnwrap((initial["cash"] as? [String:String])?["USD"]))
+        let actualCash=number(try XCTUnwrap((s["cash"] as? [String:String])?["USD"]))
+        let expectedCash=initialCash.subtracting(price.multiplying(by:quantity).adding(fee).adding(tax))
+        try check(actualCash==expectedCash,"One ETH intent must debit exact notional, fee and tax only once")
+        capture("FLOW single local fill and receipt",includeHierarchy:false,snapshot:s)
+        completed=true
     }
     func testNewDefaultLimitPricesFollowEachProductTickAndSubmitOnlyTheETHIntent()throws{
         let app=launchClean();defer{finish()};try onboardUSD(app);let baseline=try state(app);try detail(app,"BTC")
@@ -113,6 +133,27 @@ import XCTest
 }
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
+    func testEarlyStockBoardTapAndSummaryRefreshKeepGeometryAndAccount()throws{
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)}
+        let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Fresh header-regression onboarding missing");start.tap()
+        try check(app.tabBars.buttons["行情"].waitForExistence(timeout:30),"Fresh header-regression account missing")
+        let before=try state(app);app.tabBars.buttons["行情"].tap()
+        let product=app.buttons["market-SIM:TWSE:2330"];try check(product.waitForExistence(timeout:5),"2330 missing before early board tap");product.tap()
+        let board=app.buttons["board-regular"],first=try board.snapshot().frame
+        // One early real tap, without retrying until an eventual success.
+        board.tap();try waitUntil("First visible whole-lot tap was lost",timeout:5){board.isSelected}
+        let summary=app.otherElements["productSummaryMetrics"]
+        try check(summary.waitForExistence(timeout:5),"Stable summary slot is missing")
+        let refresh=app.buttons["refreshMarketQuotes"];try check(refresh.isHittable,"Detail refresh is not reachable");refresh.tap()
+        try waitUntil("B detail refresh did not finish",timeout:5){refresh.isEnabled}
+        let afterFrame=try board.snapshot().frame,after=try state(app)
+        try check(abs(afterFrame.minY-first.minY)<1 && abs(afterFrame.height-first.height)<1,"Summary update moved the board after the tap target was located")
+        try check(board.isSelected && (after["boardRequests"] as? [String])==["regular"],"Early board selection required multiple taps or lost its state")
+        try check(after["tab"] as? Int==1 && after["selected"] as? String=="SIM:TWSE:2330","Header refresh changed market navigation or exact product")
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]) && (after["orders"] as? [String])?.isEmpty==true && (after["fills"] as? [[String:String]])?.isEmpty==true,"Header inspection or refresh submitted a trade or moved cash")
+        capture("FLOW early stock board stays stationary through summary refresh",includeHierarchy:false,snapshot:after)
+        completed=true
+    }
     func testStockOrderTickTracksEditedLimitPriceWithoutSubmitting()throws{
         let app=launchClean(fixture:true,flags:["--uitest-full-catalog"]);defer{finish()};try ready(app)
         let before=try state(app);app.tabBars.buttons["交易"].tap()

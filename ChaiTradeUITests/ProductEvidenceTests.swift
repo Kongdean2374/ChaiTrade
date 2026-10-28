@@ -53,28 +53,29 @@ import XCTest
         try unchanged(app)
     }
     func testVisibleChartDepthAdvancedOrderAndProductRulesEvidence()throws{
-        let app=launchClean();defer{finish()};try start(app)
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)};try start(app)
         app.tabBars.buttons["交易"].tap()
-        let board=app.buttons["整股（張）"];try reveal(board,in:app);board.tap()
+        let board=app.buttons["整股（張）"];try reveal(board,in:app,identifier:"board-regular");board.tap()
         try waitUntil("Evidence did not actually select whole lots",timeout:5){board.isSelected}
         // Inspect the specifications while the product header is already here.
         // Keep every original check/capture and the later Tab roundtrip, without
         // walking to the product bottom and then back to this same header.
         try specifications(app)
-        let chart=app.webViews["inlineChartWeb"];try check(chart.waitForExistence(timeout:10),"Inline chart missing");try reveal(chart,in:app)
+        let chart=app.webViews["inlineChartWeb"];try check(chart.waitForExistence(timeout:10),"Inline chart missing");try reveal(chart,in:app,identifier:"inlineChartWeb")
         try waitUntil("Evidence chart has no rendered candles",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
         pageCapture("AFTER complete inline stock chart volume and indicators")
         let book=app.otherElements["productBookTitle"].firstMatch
         let bookText=app.staticTexts["買賣盤"].firstMatch
-        if book.exists{try reveal(book,in:app)}else{try reveal(bookText,in:app)}
+        if book.exists{try reveal(book,in:app,identifier:"productBookTitle")}else{try reveal(bookText,in:app)}
         pageCapture("AFTER stock available depth")
-        let bottom=app.staticTexts["productBottom"];try reveal(bottom,in:app);pageCapture("AFTER stock related news and product bottom")
-        let order=app.buttons["openOrder"];try reveal(order,in:app);order.tap()
+        let bottom=app.staticTexts["productBottom"];try reveal(bottom,in:app,identifier:"productBottom");pageCapture("AFTER stock related news and product bottom")
+        let order=app.buttons["openOrder"];try reveal(order,in:app,identifier:"openOrder");order.tap()
         let advanced=app.buttons["進階委託與保護"];try reveal(advanced,in:app);advanced.tap();pageCapture("AFTER stock advanced order options")
         app.swipeUp();pageCapture("AFTER stock advanced order summary");app.buttons["完成"].firstMatch.tap()
         app.tabBars.buttons["行情"].tap();app.tabBars.buttons["交易"].tap()
         try check(board.isSelected,"Read-only page and Tab roundtrip changed the selected whole-lot board")
         try unchanged(app)
+        completed=true
     }
     private func specifications(_ app:XCUIApplication)throws{
         let specification=app.buttons["商品規格"];try reveal(specification,in:app);specification.tap()
@@ -85,7 +86,7 @@ import XCTest
         let lot=(app.staticTexts["specBoardLot"].value as? String)?.replacingOccurrences(of:",",with:"")
         try check(lot=="1 張 = 1000 股","Stock specifications lost the board lot conversion")
         pageCapture("AFTER stock identity and explicit trading units")
-        let precision=app.staticTexts["specPricePrecision"];try reveal(precision,in:app)
+        let precision=app.staticTexts["specPricePrecision"];try reveal(precision,in:app,identifier:"specPricePrecision")
         try check(precision.value as? String=="1","2330 price precision does not match its current price tier")
         let minimum=(app.staticTexts["specQuantityStep"].value as? String)?.replacingOccurrences(of:",",with:"")
         try check(minimum=="1 張（1000 股）","Whole-lot minimum quantity is incorrect")

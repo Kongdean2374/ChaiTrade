@@ -82,6 +82,7 @@ struct ChartAmendment: Identifiable {
     @Published var catalogIssue:String?
     @Published var credentialReady:[ProviderID:Bool]=[:]
     var visibleOwners:[String:Set<String>]=[:]
+    var visibleRanks:[String:[String:Int]]=[:]
     let quoteScheduler=VisibleQuoteScheduler()
     var quoteServiceTask:Task<Void,Never>?
     var quoteServiceGeneration=UUID()
@@ -490,7 +491,12 @@ struct ChartAmendment: Identifiable {
     }
     func toggleWatch(_ id: String) async {
         guard let engine,let context else{return}
-        await run{try await engine.toggleWatch(id,context:context)}
+        await run{
+            #if DEBUG
+            try await UITestSupport.awaitFavoriteContention()
+            #endif
+            try await engine.toggleWatch(id,context:context)
+        }
     }
     func saveJournal(_ entry:JournalEntry)async->Bool{
         guard let engine,let context else{error="帳戶尚未準備完成";return false}

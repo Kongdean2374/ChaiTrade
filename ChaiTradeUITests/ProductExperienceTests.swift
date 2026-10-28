@@ -20,7 +20,7 @@ import XCTest
         try check(s["session"] as? String==session,"Wrong product test directory")
         try check((s["instruments"] as? [[String:String]])?.count==125,"Fresh account did not contain the complete built-in catalog")
         for field in ["orders","fills","journals","watchlist"]{try check((s[field] as? [Any])?.isEmpty==true,"New case inherited "+field)}
-        capture("PRODUCT clean fresh "+(online ? "A":"B"))
+        capture("PRODUCT clean fresh "+(online ? "A":"B"),includeHierarchy:false,snapshot:s)
         return s
     }
     func testPercentageAlertRapidCreateRemoveAndNotificationCenterIsolation()throws{
@@ -48,7 +48,7 @@ import XCTest
         capture("AFTER account notification center")
     }
     func testOfflineThreeActionDiscoveryAndFullStockJourney()throws{
-        let app=launchClean();defer{finish()};try onboard(app)
+        let app=launchClean();var finished=false;defer{finish(includeHierarchy:!finished)};try onboard(app)
         // Home's first stock is reachable directly; no hidden settings or catalog prerequisite.
         let product=app.buttons["market-SIM:TWSE:2330"].firstMatch;try reveal(product,in:app,identifier:"market-SIM:TWSE:2330");product.tap()
         try check((try state(app))["selected"] as? String=="SIM:TWSE:2330","2330 selected the wrong identity")
@@ -100,6 +100,7 @@ import XCTest
         let journals=try XCTUnwrap(completed["journals"] as? [[String:String]])
         try check(journals.count==1 && journals.first?["text"]=="PRODUCT_STOCK_JOURNEY","Full journey journal was duplicated or lost its exact text")
         capture("AFTER B stock actual 1000-share holding",includeHierarchy:false,snapshot:completed)
+        finished=true
     }
     func testOfflineCryptoDiscoveryNewsAndContractSeparation()throws{
         let app=launchClean();defer{finish()};try onboard(app)
@@ -153,19 +154,19 @@ import XCTest
         capture("AFTER per-market browsing restored")
     }
     func testFreshAHasSpecificKeyStateAndLoadsMultiplePublicQuotes()throws{
-        let app=launchClean();defer{finish()};try onboard(app,online:true)
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)};try onboard(app,online:true)
         app.tabBars.buttons["行情"].tap()
         let stock=app.buttons["market-fugle:2330"]
         try check(stock.waitForExistence(timeout:5),"A built-in stock directory missing")
         try check(stock.label.contains("尚未設定行情金鑰"),"Missing stock key was not explained specifically")
-        capture("AFTER A stocks without credentials")
+        capture("AFTER A stocks without credentials",includeHierarchy:false,snapshot:try state(app))
         app.buttons["marketCrypto"].tap()
         try waitUntil("Visible BTC and ETH did not both receive actual public prices",timeout:40){
             guard let quotes=try? self.state(app)["quotes"] as? [String:[String:String]] else{return false}
             return quotes["coinbase:BTC-USD"]?["valid"]=="true" && quotes["coinbase:ETH-USD"]?["valid"]=="true"
         }
-        capture("AFTER A visible BTC ETH quotes actual HTTP")
         let current=try state(app),clock=Int64(Date().timeIntervalSince1970)
+        capture("AFTER A visible BTC ETH quotes actual HTTP",includeHierarchy:false,snapshot:current)
         try check(abs(clock-(current["marketClock"] as? Int64 ?? 0))<=2,"Foreground quote-status clock stopped while actual prices updated")
         let quotes=try XCTUnwrap(current["quotes"] as? [String:[String:String]])
         let statuses=try XCTUnwrap(current["quoteStates"] as? [String:String])
@@ -176,6 +177,7 @@ import XCTest
         app.buttons["marketStocks"].tap();stock.tap()
         try check(!app.buttons["openOrder"].exists,"Unconfigured A stock exposed an operational buy panel")
         app.tabBars.buttons["委託"].tap();try check(app.navigationBars["委託與成交"].exists,"Unavailable quote hid local order records")
+        completed=true
     }
     func testSettingsSectionsCancelAndSafeAreaReachability()throws{
         let app=launchClean();defer{finish()};try onboard(app)
@@ -336,20 +338,21 @@ import XCTest
         app.tabBars.buttons["資產"].tap();capture("AFTER B crypto assets after roundtrip")
     }
     func testContractPositionHasAnExplicitReduceOnlyCloseJourney()throws{
-        let app=launchClean();defer{finish()};let baseline=try onboard(app,currency:"USDT")
+        let app=launchClean();var finished=false;defer{finish(includeHierarchy:!finished)};let baseline=try onboard(app,currency:"USDT")
         app.buttons["marketCrypto"].tap();app.tabBars.buttons["行情"].tap();app.buttons["合約"].tap()
         let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app,identifier:"market-"+instrument);product.tap()
         let originalCash=baseline["cash"] as? [String:String]
         let enable=app.buttons["enableContractTrading"];try check(enable.waitForExistence(timeout:5),"Disabled contract feature has no clear next step");enable.tap()
-        let firstAcknowledgment=app.switches["acknowledgeContractRisk"];firstAcknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()
-        try check(firstAcknowledgment.value as? String=="1","Risk switch did not actually turn on before cancel");app.buttons["取消"].tap()
+        let firstAcknowledgment=app.switches["acknowledgeContractRisk"];try reveal(firstAcknowledgment,in:app,identifier:"acknowledgeContractRisk");firstAcknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()
+        try waitUntil("Risk switch did not actually turn on before cancel",timeout:5){firstAcknowledgment.value as? String=="1"};app.buttons["取消"].tap()
         let canceled=try state(app)
         try check(canceled["leverageEnabled"] as? Bool==false,"Canceled consent enabled contracts")
         try check((canceled["cash"] as? [String:String])==originalCash,"Canceled consent changed money")
         enable.tap();let acknowledgment=app.switches["acknowledgeContractRisk"]
+        try reveal(acknowledgment,in:app,identifier:"acknowledgeContractRisk")
         try check(acknowledgment.value as? String=="0","Reopened consent retained a canceled acknowledgement")
         acknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app,identifier:"confirmContractAccess")
-        try check(acknowledgment.value as? String=="1" && accept.isEnabled,"Explicit acknowledgment does not enable the confirmation control");accept.tap()
+        try waitUntil("Explicit acknowledgment does not enable the confirmation control",timeout:5){acknowledgment.value as? String=="1" && accept.isEnabled};accept.tap()
         try waitUntil("Explicit risk acceptance did not enable this account"){(try? self.state(app)["leverageEnabled"] as? Bool)==true && app.buttons["openOrder"].exists}
         app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()
         let size=app.textFields["orderQuantity"];try reveal(size,in:app,identifier:"orderQuantity");size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"0.001")
@@ -369,6 +372,7 @@ import XCTest
         try check(intents.count==2 && intents.filter{$0["reduceOnly"]=="true" && $0["side"]=="sell"}.count==1,"Close was not exactly one reduce-only sell")
         try check((snapshot["positions"] as? [String:String])?[instrument]=="0","Explicit contract close reversed or retained the position")
         app.tabBars.buttons["資產"].tap();capture("AFTER contract local roundtrip assets",includeHierarchy:false,snapshot:snapshot)
+        finished=true
     }
     func testFinancialHistoryEmptyCategoriesKeepAccountAndPageBoundaries()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)

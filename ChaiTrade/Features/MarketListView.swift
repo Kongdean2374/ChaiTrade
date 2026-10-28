@@ -66,8 +66,8 @@ struct MarketsView:View {
                 if !searching{MarketRefreshStatus()}
                 if !searching && preferences.search.isEmpty && !preferences.favoritesOnly && preferences.sort == .familiar{recentProducts}
                 if products.isEmpty{ContentUnavailableView("沒有符合的商品",systemImage:"magnifyingglass",description:Text("調整搜尋或分類，也可從商品目錄查看來源支援範圍。"));Button("清除篩選"){searching=false;searchText="";pageSize=40;model.editBrowsing(domain){$0.search="";$0.favoritesOnly=false;$0.groupID=nil;$0.sort = .familiar;$0.category=domain == .crypto ? "現貨":"全部"}}}
-                ForEach(Array(products.prefix(pageSize))){instrument in
-                    MarketProductRow(instrument:instrument,owner:"markets-"+domain.rawValue).padding(.horizontal,12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12)).id(instrument.id)
+                ForEach(Array(products.prefix(pageSize).enumerated()),id:\.element.id){entry in
+                    MarketProductRow(instrument:entry.element,owner:"markets-"+domain.rawValue,rank:entry.offset).padding(.horizontal,12).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:12)).id(entry.element.id)
                 }
                 if products.count>pageSize{Button("載入更多（已顯示 \(pageSize)／\(products.count)）"){pageSize+=40}.frame(maxWidth:.infinity)}
                 if (model.state?.instruments ?? []).contains(where:{$0.identity?.legacy==true && $0.market==domain}){NavigationLink("舊版自訂商品與原有身份"){LegacyProductsView()}.font(.footnote)}

@@ -26,6 +26,7 @@ struct TradingView:View{
     @State private var alert=false
     @State private var connections=false
     @State private var contractAccess=false
+    @State private var contractAccessSession=UUID()
     @State private var indicator="MA"
     @State private var period=20
     @State private var line=false
@@ -48,7 +49,7 @@ struct TradingView:View{
             .sheet(isPresented:$drawing){NavigationStack{DrawingEditor()}}
             .sheet(isPresented:$alert){NavigationStack{AlertEditor()}}
             .sheet(isPresented:$connections){NavigationStack{ConnectionsView()}}
-            .sheet(isPresented:$contractAccess){NavigationStack{ContractAccessView()}}
+            .sheet(isPresented:$contractAccess){NavigationStack{ContractAccessView().id(contractAccessSession)}}
             .fullScreenCover(isPresented:$fullscreen){VStack(spacing:0){HStack{Text(instrument?.name ?? "").font(.headline);Spacer();Button("完成"){fullscreen=false}.accessibilityIdentifier("closeFullscreenChart")}.padding();ChartView(indicator:indicator,period:period,line:line,role:"fullscreen").accessibilityIdentifier("fullscreenChartWeb")}.background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreenChart")}
             .task(id:"\(active)-\(instrument?.id ?? "")"){guard active,let i=instrument else{return};if browseInstrumentID==nil{model.focusTradeProduct(i)}else{model.focusProduct(i)};if let p=model.state?.chartPreferences?[i.id]{indicator=p.indicator;period=p.period;line=p.line;model.interval=p.interval}else{indicator="MA";period=20;line=false;model.interval=60};consumeFormRequest();await model.loadChart();await model.loadNews()}
             .onChange(of:model.tradeFormRequest){_,_ in consumeFormRequest()}
@@ -155,14 +156,28 @@ struct TradingView:View{
     }
     private func saveChart(){guard active,let id=instrument?.id,let context=model.context else{return};let capturedIndicator=indicator,capturedPeriod=period,capturedLine=line,capturedInterval=model.interval;Task{guard model.context==context,let engine=model.engine else{return};await model.run{try await engine.saveChartPreferences(instrumentID:id,preferences:ChartPreferences(interval:capturedInterval,indicator:capturedIndicator,period:capturedPeriod,line:capturedLine),context:context)}}}
     private func productHeader(_ i:Instrument)->some View{
-        VStack(alignment:.leading,spacing:12){
+        let summary=model.summary(for:i)
+        let change=MarketText.change(quote,summary:summary,instrument:i)
+        return VStack(alignment:.leading,spacing:12){
             HStack(alignment:.top){VStack(alignment:.leading,spacing:5){Text(i.name).font(.title2.bold());Text(i.symbol+" · "+(i.identity?.exchange ?? i.asset.label)+" · "+i.currency).font(.caption).foregroundStyle(.secondary)};Spacer();Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id)==true ? "star.fill":"star").frame(minWidth:36,minHeight:44)}.accessibilityLabel("切換自選").disabled(model.interactionBlocked).accessibilityIdentifier("toggleWatch").accessibilityValue(model.state?.watchlist.contains(i.id)==true ? "已加入":"未加入");Button{details=true}label:{Image(systemName:"info.circle").frame(minWidth:30,minHeight:44)}.accessibilityLabel("商品規格")}
             Text(MarketText.price(quote?.last,instrument:i)).font(.system(size:34,weight:.bold,design:.rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.5)
-            if let change=MarketText.change(quote,summary:model.summary(for:i),instrument:i){Text(change.0).font(.subheadline.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.taiwanColors ? Color.red:Color.green):(model.settings.taiwanColors ? Color.green:Color.red))}
+            Text(change?.0 ?? "漲跌資料尚未提供").font(.subheadline.monospacedDigit()).lineLimit(1).foregroundStyle(change.map{$0.1 >= .zero ? (model.settings.taiwanColors ? Color.red:Color.green):(model.settings.taiwanColors ? Color.green:Color.red)} ?? Color.secondary)
             HStack{QuoteStatusLabel(status:model.status(for:i,board:i.usesTaiwanBoards ? model.selectedBoard:nil));Spacer();if let q=quote{Text(Date(timeIntervalSince1970:TimeInterval(q.time)).formatted(date:.abbreviated,time:.shortened)).font(.caption2).foregroundStyle(.secondary)}}
-            if let summary=model.summary(for:i){HStack{Metric(title:summary.window+"量",value:MarketText.quantity(summary.volume,instrument:i));if let high=summary.high{Metric(title:"最高",value:MarketText.price(high,instrument:i))};if let low=summary.low{Metric(title:"最低",value:MarketText.price(low,instrument:i))}}}
+            // Keep the controls below this header stationary while the async
+            // summary arrives. Unknown values are explicit placeholders, never0.
+            HStack(alignment:.top,spacing:12){
+                headerMetric((summary?.window ?? (i.market == .crypto ? "24小時":"當日"))+"量",value:summary.map{MarketText.quantity($0.volume,instrument:i)} ?? "—")
+                headerMetric("最高",value:MarketText.price(summary?.high,instrument:i))
+                headerMetric("最低",value:MarketText.price(summary?.low,instrument:i))
+            }.accessibilityElement(children:.contain).accessibilityIdentifier("productSummaryMetrics").accessibilityValue(summary==nil ? "等待摘要":"摘要已更新")
             if model.state?.mode == .offline{Text("價格、成交與事件均為離線模擬").font(.caption).foregroundStyle(.orange)}
         }
+    }
+    private func headerMetric(_ title:String,value:String)->some View{
+        VStack(alignment:.leading,spacing:4){
+            Text(title).font(.caption).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(.secondary)
+            Text(value).font(.headline.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
+        }.frame(maxWidth:.infinity,alignment:.leading)
     }
     private var chartSection:some View{MarketCard{
         ScrollView(.horizontal,showsIndicators:false){HStack{ForEach(intervals,id:\.1){label,seconds in Button(label){model.interval=seconds;saveChart();Task{await model.loadChart()}}.font(.caption).buttonStyle(.bordered).tint(model.interval==seconds ? .orange:.gray)}}}
@@ -176,7 +191,7 @@ struct TradingView:View{
     }}
     private var alertAction:some View{Button("到價提醒"){alert=true}.font(.caption).padding(.vertical,8).accessibilityIdentifier("openPriceAlert")}
     private var historyNavigation:some View{HStack{Button("更多歷史"){Task{await model.loadEarlierChart()}}.disabled(model.chartLoading);if model.chartBefore != nil{Button("返回最新"){Task{await model.loadLatestChart()}}}}.font(.caption)}
-    private var drawingActions:some View{HStack{Button("繪圖"){drawing=true};Button("截圖"){Task{await model.captureChart()}}}.font(.caption)}
+    private var drawingActions:some View{HStack{Button("繪圖"){drawing=true};Button("截圖"){Task{await model.captureChart()}}.accessibilityIdentifier("captureChart")}.font(.caption)}
     private var historyActions:some View{HStack{historyNavigation;Spacer();drawingActions}}
     private var indicatorPicker:some View{HStack{Picker("指標",selection:$indicator){ForEach(["無","MA","EMA","MACD","RSI","KD","BOLL","VWAP","ATR"],id:\.self){Text($0)}}.labelsHidden();Stepper("\(period)",value:$period,in:2...100).font(.caption).frame(maxWidth:150)}}
     private var chartActions:some View{HStack{Button{line.toggle()}label:{Label("線圖／K線",systemImage:line ? "chart.bar.xaxis":"waveform.path")};Button{fullscreen=true}label:{Label("橫向圖表",systemImage:"arrow.up.left.and.arrow.down.right")}.accessibilityIdentifier("openFullscreenChart")}.font(.caption).padding(.vertical,8)}
@@ -203,7 +218,7 @@ struct TradingView:View{
             .background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeActionBar")
     }
     @ViewBuilder private var tradeEntryActions:some View{
-        if let i=instrument,i.asset.derivative,model.canTrade(i),model.state?.leverageEnabled != true{HStack{VStack(alignment:.leading){Text("合約功能尚未啟用").font(.subheadline);Text("既有部位仍可平倉").font(.caption).foregroundStyle(.secondary)};Spacer();Button("了解與啟用"){contractAccess=true}.buttonStyle(.borderedProminent).accessibilityIdentifier("enableContractTrading")}.padding(12).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeEntryActions")}
+        if let i=instrument,i.asset.derivative,model.canTrade(i),model.state?.leverageEnabled != true{HStack{VStack(alignment:.leading){Text("合約功能尚未啟用").font(.subheadline);Text("既有部位仍可平倉").font(.caption).foregroundStyle(.secondary)};Spacer();Button("了解與啟用"){contractAccessSession=UUID();contractAccess=true}.buttonStyle(.borderedProminent).accessibilityIdentifier("enableContractTrading")}.padding(12).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeEntryActions")}
         else if let i=instrument,i.asset != .index,model.canTrade(i),model.context != nil{HStack(spacing:12){Button(i.buyLabel){beginTrade(i,.buy)}.accessibilityIdentifier("openOrder");Button(i.sellLabel){beginTrade(i,.sell)}.accessibilityIdentifier("openSellOrder")}.font(.headline).buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity).padding(.horizontal,18).padding(.vertical,10).background(Color(.systemBackground)).accessibilityElement(children:.contain).accessibilityIdentifier("tradeEntryActions")}
         else if let i=instrument{HStack{Image(systemName:"info.circle");Text(i.asset == .index ? "指數僅供參考；請選擇相關ETF或期貨。":model.interactionBlocked ? "市場補算中，暫停新委託":"目前行情或規則不符合新委託條件").font(.caption);Spacer();Button("查看委託"){model.tab=3}}.padding(12).background(.bar)}
     }

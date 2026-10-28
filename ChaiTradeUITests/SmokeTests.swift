@@ -107,14 +107,14 @@ import XCTest
     }
 
     func testChartScreenshotCanBeAttachedToLocalJournal()throws{
-        let app=launchClean();defer{finish()}
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)}
         try startFreshOffline(app);app.tabBars.buttons["交易"].tap()
         let capture=app.buttons["截圖"]
         // Retained c333 failure put the entire canvas below the fixed actions.
         // Inspect the visible chart before the same 10-second draw assertion.
-        try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app)
+        try reveal(app.webViews["inlineChartWeb"].firstMatch,in:app,identifier:"inlineChartWeb")
         try waitUntil("Chart screenshot requested before actual canvas rendering",timeout:10){((try? self.state(app)["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0}
-        try reveal(capture,in:app)
+        try reveal(capture,in:app,identifier:"captureChart")
         XCTAssertTrue(capture.isHittable);capture.tap()
         let captured=app.buttons.containing(NSPredicate(format:"label BEGINSWITH %@","已保存本機圖表草稿")).firstMatch
         XCTAssertTrue(captured.waitForExistence(timeout:10));captured.tap()
@@ -139,6 +139,7 @@ import XCTest
         XCTAssertTrue(app.images["savedJournalChart"].exists)
         XCTAssertEqual((try state(app)["journals"] as? [[String:String]])?.first?["text"],"CT_CHART_JOURNAL_2374")
         app.buttons["完成"].tap()
+        completed=true
     }
 
 }

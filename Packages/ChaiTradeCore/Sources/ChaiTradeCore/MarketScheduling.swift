@@ -11,13 +11,17 @@ public actor VisibleQuoteScheduler {
     private var context:AccountContext?
     private var visible:Set<String>=[],protected:Set<String>=[]
     private var selected:String?
+    private var visibleRank:[String:Int]=[:]
     private var due:[String:Int64]=[:],attempted:[String:Int64]=[:],failures:[String:Int]=[:]
     private var flights:[String:QuoteLease]=[:]
     private var retryFloor:[String:Int64]=[:],manualAttempts:[String:Int64]=[:]
     public init(){}
-    public func demand(context:AccountContext,visible:Set<String>,selected:String?,protected:Set<String>){
+    public func demand(context:AccountContext,visible:Set<String>,selected:String?,protected:Set<String>,priority:[String]=[]){
         if self.context != context{self.context=context;due=[:];attempted=[:];failures=[:];flights=[:];retryFloor=[:];manualAttempts=[:]}
-        self.visible=Set(visible.sorted().prefix(48));self.selected=selected;self.protected=protected
+        var ranks:[String:Int]=[:]
+        for id in priority where visible.contains(id) && ranks[id]==nil{ranks[id]=ranks.count}
+        self.visibleRank=ranks
+        self.visible=Set(visible.sorted{(ranks[$0] ?? Int.max,$0)<(ranks[$1] ?? Int.max,$1)}.prefix(48));self.selected=selected;self.protected=protected
         let wanted=all
         flights=flights.filter{wanted.contains($0.key)}
         due=due.filter{wanted.contains($0.key)};attempted=attempted.filter{wanted.contains($0.key)}
@@ -28,7 +32,9 @@ public actor VisibleQuoteScheduler {
         retryFloor=retryFloor.filter{$0.value>now}
         let ids=all.filter{flights[$0]==nil && max(due[$0] ?? 0,retryFloor[$0] ?? 0)<=now}.sorted{a,b in
             let pa=a==selected ? 0:visible.contains(a) ? 1:2,pb=b==selected ? 0:visible.contains(b) ? 1:2
-            return (pa,attempted[a] ?? 0,a)<(pb,attempted[b] ?? 0,b)
+            // Display order breaks ties between equally unattempted visible
+            // products. Oldest attempt still wins over rank on later rounds.
+            return (pa,attempted[a] ?? 0,visibleRank[a] ?? Int.max,a)<(pb,attempted[b] ?? 0,visibleRank[b] ?? Int.max,b)
         }.prefix(min(8,limit))
         return ids.map{id in let lease=QuoteLease(id:UUID(),instrumentID:id,context:context);flights[id]=lease;attempted[id]=now;return lease}
     }

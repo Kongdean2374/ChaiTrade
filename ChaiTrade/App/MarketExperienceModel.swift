@@ -9,6 +9,11 @@ private enum QuoteResult:Sendable {
 extension AppModel {
     var currentBrowsing:MarketBrowsingState{browsing[market] ?? MarketBrowsingState()}
     var visibleQuoteIDs:Set<String>{visibleOwners.values.reduce(into:Set<String>()){$0.formUnion($1)}}
+    var visibleQuotePriority:[String]{
+        var ranks:[String:Int]=[:]
+        for (owner,items) in visibleRanks{for (id,rank) in items where visibleOwners[owner]?.contains(id)==true{ranks[id]=min(ranks[id] ?? Int.max,rank)}}
+        return visibleQuoteIDs.sorted{(ranks[$0] ?? Int.max,$0)<(ranks[$1] ?? Int.max,$1)}
+    }
     var protectedQuoteIDs:Set<String>{
         guard let state else{return []}
         let catalog=Dictionary(uniqueKeysWithValues:state.instruments.map{($0.id,$0)})
@@ -57,7 +62,7 @@ extension AppModel {
         #endif
         guard target != market else{return}
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)
-        market=target;visibleOwners=[:]
+        market=target;visibleOwners=[:];visibleRanks=[:]
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel()
         let saved=browsing[target]?.selectedID
         selectedID=state?.instruments.first{$0.id==saved && $0.market==target}?.id ?? defaultProduct(in:target)?.id ?? ""
@@ -78,11 +83,12 @@ extension AppModel {
         selectedBoard=instrument.usesTaiwanBoards ? .oddLot:.regular
         restartStream();Task{if let context{await quoteScheduler.cancel(context:context)};await requestSelectedBoard();await quoteScheduler.retry([instrument.id]);await ensureQuoteService();await loadChart()}
     }
-    func visible(_ id:String,owner:String,present:Bool){
-        if present{guard state?.instruments.contains(where:{$0.id==id})==true else{return};visibleOwners[owner,default:[]].insert(id)}else{visibleOwners[owner]?.remove(id)}
+    func visible(_ id:String,owner:String,present:Bool,rank:Int?=nil){
+        if present,owner.hasPrefix("markets-"),owner != "markets-"+market.rawValue{return}
+        if present{guard state?.instruments.contains(where:{$0.id==id})==true else{return};visibleOwners[owner,default:[]].insert(id);if let rank{visibleRanks[owner,default:[:]][id]=rank}}else{visibleOwners[owner]?.remove(id);visibleRanks[owner]?.removeValue(forKey:id)}
         Task{await ensureQuoteService()}
     }
-    func removeVisibleOwner(_ owner:String){visibleOwners.removeValue(forKey:owner);Task{await ensureQuoteService()}}
+    func removeVisibleOwner(_ owner:String){visibleOwners.removeValue(forKey:owner);visibleRanks.removeValue(forKey:owner);Task{await ensureQuoteService()}}
     func changeBoard(_ board:TradingBoard){selectedBoard=board;clearChartCaches();candles=[];Task{await requestSelectedBoard();await loadChart()}}
     func requestSelectedBoard()async{
         guard context?.mode == .online else{return}
@@ -141,7 +147,7 @@ extension AppModel {
     func ensureQuoteService()async{
         guard let context else{return}
         if context.mode == .offline{if let engine{do{try await engine.setSimulationDemand(activeProductID.map{[$0]} ?? [],context:context);guard self.context==context else{return};state=await engine.snapshot()}catch{if self.context==context{self.notice=error.localizedDescription}}};await updateSimulatedSummaries();return}
-        await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(activeProductID.map{[$0]} ?? []),selected:selectedQuoteID.isEmpty ? nil:selectedQuoteID,protected:protectedQuoteIDs)
+        await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(activeProductID.map{[$0]} ?? []),selected:selectedQuoteID.isEmpty ? nil:selectedQuoteID,protected:protectedQuoteIDs,priority:visibleQuotePriority)
         guard foreground,quoteServiceTask==nil else{return}
         let generation=UUID();quoteServiceGeneration=generation
         quoteServiceTask=Task{await quoteLoop(context:context,generation:generation)}
@@ -149,7 +155,7 @@ extension AppModel {
     private func quoteLoop(context:AccountContext,generation:UUID)async{
         defer{if quoteServiceGeneration==generation{fetching=false;quoteServiceTask=nil}}
         while !Task.isCancelled,foreground,self.context==context,state?.mode == .online{
-            await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(activeProductID.map{[$0]} ?? []),selected:selectedQuoteID.isEmpty ? nil:selectedQuoteID,protected:protectedQuoteIDs)
+            await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(activeProductID.map{[$0]} ?? []),selected:selectedQuoteID.isEmpty ? nil:selectedQuoteID,protected:protectedQuoteIDs,priority:visibleQuotePriority)
             let leases=await quoteScheduler.next(context:context,now:Int64(Date().timeIntervalSince1970),limit:3)
             if leases.isEmpty{do{try await Task.sleep(for:.milliseconds(500))}catch{return};continue}
             var work:[(QuoteLease,Instrument,MarketDataProvider,TradingBoard?)]=[]

@@ -15,7 +15,7 @@ struct ContractAccessView:View{
         }
         if let issue{Text(issue).foregroundStyle(.orange)}
         Button(saving ? "保存中…":"啟用本機合約功能"){enable()}.disabled(!understood || saving || model.interactionBlocked).accessibilityIdentifier("confirmContractAccess")
-    }.disabled(saving).navigationTitle("合約模擬風險").toolbar{Button("取消"){understood=false;dismiss()}.disabled(saving)}.interactiveDismissDisabled(saving).onAppear{understood=false;issue=nil}}
+    }.disabled(saving).navigationTitle("合約模擬風險").navigationBarTitleDisplayMode(.inline).toolbar{Button("取消"){understood=false;dismiss()}.disabled(saving)}.interactiveDismissDisabled(saving)}
     private func enable(){
         guard understood,!saving,let engine=model.engine,let context=model.context else{return};saving=true
         Task{defer{saving=false};do{

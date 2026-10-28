@@ -13,6 +13,21 @@ import ChaiTradeCore
     static var fixture:Bool { session != nil && ProcessInfo.processInfo.arguments.contains("--uitest-fixture") }
     static var contention:Bool { fixture && ProcessInfo.processInfo.arguments.contains("--uitest-contention") }
     static var controlledCatchup:Bool { fixture && ProcessInfo.processInfo.arguments.contains("--uitest-controlled-catchup") }
+    private(set) static var favoriteBarrierArrivals=0
+    private(set) static var favoriteBarrierFailed=false
+    // Only this fixture synchronizes the first four distinct UI intents. A fixed
+    // two-second sleep did not overlap the slower native pointer dispatches.
+    // Real SQLite mutations still use the unmodified serial engine transaction.
+    static func awaitFavoriteContention()async throws{
+        guard fixture,ProcessInfo.processInfo.arguments.contains("--uitest-favorite-barrier"),favoriteBarrierArrivals<4 else{return}
+        favoriteBarrierArrivals+=1
+        let clock=ContinuousClock(),deadline=clock.now.advanced(by:.seconds(30))
+        while favoriteBarrierArrivals<4{
+            guard !favoriteBarrierFailed,clock.now<deadline else{favoriteBarrierFailed=true;throw TradeError.invalid("自選並發測試未收到四次獨立操作")}
+            try await Task.sleep(for:.milliseconds(50))
+        }
+        guard !favoriteBarrierFailed else{throw TradeError.invalid("自選並發測試同步失敗")}
+    }
     static func root(base:URL)->URL{
         guard let session else{return base.appendingPathComponent("ChaiTrade",isDirectory:true)}
         return base.appendingPathComponent("ChaiTradeUITests/\(session)",isDirectory:true)
@@ -88,7 +103,7 @@ struct UITestProbe: View {
             "fillCash":s?.ledger.filter{$0.account=="cash" && ids.contains($0.eventID)}.map{["event":$0.eventID,"amount":$0.amount.description]} ?? [],
             "orderDismissRequests":model.uiTestOrderDismissRequests,"orderDismissDiagnostics":model.uiTestOrderDismissDiagnostics,
             "boardRequests":model.uiTestBoardRequests,"selectedBoard":model.selectedBoard.rawValue,"tradeWorkspaceBoard":model.tradeWorkspace?.board.rawValue ?? "","chartDiagnostics":model.uiTestChartDiagnostics,
-            "operations":model.uiTestOperations,"mutationStarts":model.uiTestMutationStarts,"maxOperations":model.uiTestMaxOperations,"catchupNotices":s?.events.filter{$0.kind=="catchupComplete"}.count ?? 0,
+            "operations":model.uiTestOperations,"mutationStarts":model.uiTestMutationStarts,"maxOperations":model.uiTestMaxOperations,"favoriteBarrierArrivals":UITestSupport.favoriteBarrierArrivals,"favoriteBarrierFailed":UITestSupport.favoriteBarrierFailed,"catchupNotices":s?.events.filter{$0.kind=="catchupComplete"}.count ?? 0,
             "marketTapRequests":model.uiTestMarketRequests,"productTapSelections":model.uiTestProductSelections,
             "catchup":model.progress != nil,"pendingCatchup":model.catchupTarget != nil,
             "chartTime":model.candles.last?.time ?? 0,"chartLoading":model.chartLoading,"time":s?.simulation?.time ?? 0,
