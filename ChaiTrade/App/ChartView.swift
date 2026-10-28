@@ -132,7 +132,13 @@ struct ChartView: UIViewRepresentable {
             web.callAsyncJavaScript("window.render(data); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); const box=document.getElementById('chart'); return {count:data.candles.length,visible:box.clientWidth>0 && box.clientHeight>0 && box.querySelectorAll('canvas').length>0};",arguments:["data":payload],in:nil,in:.page){[weak self,weak web] result in
                 Task{@MainActor in
                 guard let self,let web,self.inFlight==encoded else{return};self.inFlight=nil
-                guard let capturedContext,let instrument,self.model.context==capturedContext,self.model.selectedID==instrument,self.model.interval==renderInterval else{return}
+                guard let capturedContext,let instrument,self.model.context==capturedContext,self.model.selectedID==instrument,self.model.interval==renderInterval else{
+                    // A new product/interval may have arrived while this single
+                    // request was in flight. Drain its current payload even if
+                    // B is paused and no further clock update will occur.
+                    if self.payload["account"] as? String==self.model.context?.accountID,self.payload["epoch"] as? String==self.model.context?.epoch.uuidString,self.payload["id"] as? String==self.model.selectedID{self.render(web)}
+                    return
+                }
                 guard (try? JSONSerialization.data(withJSONObject:self.payload,options:.sortedKeys))==encoded else{self.render(web);return}
                 switch result{
                 case .failure(let error):let code=(error as NSError).code;self.lastRendered=nil;self.record("render failed \(code)");self.model.chartError="本機圖表更新失敗（\(code)），請重載圖表或切換週期"
