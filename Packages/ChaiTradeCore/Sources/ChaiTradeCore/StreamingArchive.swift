@@ -8,7 +8,7 @@ public struct ArchiveLimits:Sendable{
 struct ArchiveFileHeader:Codable{
     var version=1
     var mode:Mode
-    var databaseSchema=7
+    var databaseSchema=8
     var expandedBytes:Int64
     var chunkBytes=1_048_576
     var algorithm:String
@@ -33,11 +33,11 @@ public enum StreamingArchiveService{
     private static func read(_ handle:FileHandle,count:Int)throws->Data{
         guard count>=0,count<=maximumFrame else{throw TradeError.corrupt("封存區塊超過安全上限")}
         var result=Data();result.reserveCapacity(count)
-        while result.count<count{guard let bytes=try handle.read(upToCount:count-result.count),!bytes.isEmpty else{throw TradeError.corrupt("封存已截斷，原帳戶未變")};result.append(bytes)}
+        while result.count<count{guard let bytes=try ArchiveMemory.read(handle,upToCount:count-result.count),!bytes.isEmpty else{throw TradeError.corrupt("封存已截斷，原帳戶未變")};result.append(bytes)}
         return result
     }
     public static func recognizes(_ url:URL)throws->Bool{
-        let input=try FileHandle(forReadingFrom:url);defer{try? input.close()};return try input.read(upToCount:magic.count)==magic
+        let input=try FileHandle(forReadingFrom:url);defer{try? input.close()};return try ArchiveMemory.read(input,upToCount:magic.count)==magic
     }
     private static func size(_ url:URL)throws->Int64{guard let number=try FileManager.default.attributesOfItem(atPath:url.path)[.size] as? NSNumber else{throw TradeError.unavailable("無法讀取封存大小")};return number.int64Value}
     private static func writeFrame(_ frame:ArchiveFrame,payload:Data,key:Data,to handle:FileHandle)throws->String{
@@ -71,11 +71,13 @@ public enum StreamingArchiveService{
         let input=try FileHandle(forReadingFrom:source),output=try FileHandle(forWritingTo:partial);defer{try? input.close();try? output.close()}
         try output.write(contentsOf:magic);try output.write(contentsOf:word(UInt32(encoded.count)));try output.write(contentsOf:encoded)
         let digest=try ArchiveDigest();var bytes:Int64=0,index=0,previous=headerDigest
-        while let block=try input.read(upToCount:header.chunkBytes),!block.isEmpty{
+        while let block=try ArchiveMemory.read(input,upToCount:header.chunkBytes),!block.isEmpty{
+            try ArchiveMemory.scoped{
             try Task.checkCancellation();bytes+=Int64(block.count);guard bytes<=length else{throw TradeError.corrupt("檔案快照在封存期間發生變更")}
             try digest.update(block)
             previous=try writeFrame(ArchiveFrame(index:index,expandedBytes:block.count,previous:previous,header:headerDigest,isFinal:false),payload:BackupService.compress(block),key:key,to:output)
             index+=1;guard try output.offset()<=limits.maximumArchiveBytes else{throw TradeError.invalid("大型封存超過檔案上限")};progress?(Double(bytes)/Double(length))
+            }
         }
         try Task.checkCancellation();guard bytes==length else{throw TradeError.corrupt("檔案快照長度不符")}
         _=try writeFrame(ArchiveFrame(index:index,expandedBytes:0,previous:previous,header:headerDigest,isFinal:true,fileDigest:digest.finish()),payload:Data(),key:key,to:output)
@@ -88,7 +90,7 @@ public enum StreamingArchiveService{
         guard try read(input,count:magic.count)==magic else{throw TradeError.corrupt("不是ChaiTrade大型封存")}
         let headerLength=try integer(read(input,count:4));guard (1...16384).contains(headerLength) else{throw TradeError.corrupt("封存標頭長度無效")}
         let rawHeader=try read(input,count:headerLength),header=try JSONDecoder().decode(ArchiveFileHeader.self,from:rawHeader),headerDigest=BackupService.digest(rawHeader)
-        guard header.version==1,(6...7).contains(header.databaseSchema),header.mode==expectedMode,header.chunkBytes==1_048_576,header.expandedBytes>0,header.expandedBytes<=limits.maximumExpandedBytes,header.createdAt>=0 else{throw TradeError.corrupt("封存版本、帳戶或展開大小不符")}
+        guard header.version==1,(6...8).contains(header.databaseSchema),header.mode==expectedMode,header.chunkBytes==1_048_576,header.expandedBytes>0,header.expandedBytes<=limits.maximumExpandedBytes,header.createdAt>=0 else{throw TradeError.corrupt("封存版本、帳戶或展開大小不符")}
         let key:Data
         if header.algorithm=="none"{guard header.iterations==0,header.salt.isEmpty else{throw TradeError.corrupt("封存加密參數不合法")};key=Data()}
         else{guard header.algorithm=="AES-256-GCM/PBKDF2-HMAC-SHA256/chunks-1",let password else{throw TradeError.corrupt("需要此大型封存的密碼")};key=try BackupService.derive(password,salt:header.salt,iterations:header.iterations)}
@@ -99,7 +101,9 @@ public enum StreamingArchiveService{
         try FileManager.default.createDirectory(at:database.deletingLastPathComponent(),withIntermediateDirectories:true);try Data().write(to:database,options:.withoutOverwriting)
         let output=try FileHandle(forWritingTo:database);defer{try? output.close()}
         let digest=try ArchiveDigest();var expanded:Int64=0,index=0,previous=headerDigest
-        while true{
+        var finished=false
+        while !finished{
+            try ArchiveMemory.scoped{
             try Task.checkCancellation()
             let length=try integer(read(input,count:4));guard (29...maximumFrame).contains(length) else{throw TradeError.corrupt("封存區塊長度無效")}
             let frame=try read(input,count:length),nonce=Data(frame.prefix(12));var tag=Data(frame.dropFirst(12).prefix(16))
@@ -110,15 +114,16 @@ public enum StreamingArchiveService{
             let metadata=try JSONDecoder().decode(ArchiveFrame.self,from:Data(body.dropFirst(4).prefix(metadataLength))),payload=Data(body.dropFirst(4+metadataLength))
             guard metadata.header==headerDigest,metadata.index==index,metadata.previous==previous else{throw TradeError.corrupt("封存區塊順序、身份或校驗鏈不符")}
             if metadata.isFinal{
-                guard metadata.expandedBytes==0,payload.isEmpty,expanded==header.expandedBytes,try digest.finish()==metadata.fileDigest,try input.read(upToCount:1)?.isEmpty != false else{throw TradeError.corrupt("封存結尾、總量或校驗碼不符")};break
+                guard metadata.expandedBytes==0,payload.isEmpty,expanded==header.expandedBytes,try digest.finish()==metadata.fileDigest,try ArchiveMemory.read(input,upToCount:1)?.isEmpty != false else{throw TradeError.corrupt("封存結尾、總量或校驗碼不符")};finished=true;return
             }
             let required=Int(min(Int64(header.chunkBytes),header.expandedBytes-expanded))
             guard metadata.fileDigest==nil,metadata.expandedBytes==required,metadata.expandedBytes>0,expanded+Int64(metadata.expandedBytes)<=header.expandedBytes else{throw TradeError.corrupt("封存區塊展開大小超過上限或不是完整分塊")}
             let block=try BackupService.expand(payload,size:metadata.expandedBytes);try digest.update(block);try output.write(contentsOf:block)
             expanded+=Int64(block.count);index+=1;previous=BackupService.digest(body);progress?(Double(expanded)/Double(header.expandedBytes)*0.85)
+            }
         }
         try output.synchronize();try output.close();progress?(0.87)
-        let verified=try SQLiteArchiveDatabase.verify(database,mode:expectedMode)
+        let verified=try SQLiteArchiveDatabase.verify(database,mode:expectedMode,expectedVersion:header.databaseSchema)
         if expectedMode == .online{guard verified.state.quotes.isEmpty,verified.state.consumed.isEmpty else{throw TradeError.corrupt("真實行情封存不得攜帶報價／撮合快取")}}
         let repository=try AccountRepository(root:stagingRoot,mode:expectedMode)
         guard let migrated=try repository.load() else{throw TradeError.corrupt("封存遷移後缺少帳戶")}

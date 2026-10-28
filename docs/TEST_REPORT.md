@@ -103,3 +103,6 @@ run40580779802的原互動20次：17通過、2圖表日誌匯出入口失敗、1
 Fed、TWSE72則與CryptoSlate10則本輪實際HTTP成功，另BTC/ETH三輪報價、K線、時間戳、恢復與一次本機成交、Nasdaq目錄成功。RSS只做合法個人閱讀，來源與條款見NEWS_SOURCE_POLICY.md。前一Apple產品core因Fed404失敗仍保留；新增一次有限重試，不用fixture冒充。
 
 9158167視覺及焦點測試失敗證據已保留並實際檢視，修正前景彈窗與鍵盤邊界、虛擬化列表不存在元素及SE大標題下的手勢起點；仍保留七次手勢與120秒。完整狀態見PRODUCT_VALIDATION_20261027_LATEST.md，不列產品已完成。
+
+
+2026-10-28：d88de26 Apple裝置／XCTest及核心157項、T45通過，超512MB記憶體失敗（約1.09GB），全體仍失敗。原始日誌保留，autorelease範圍修正與SQLite v8歷史冪等索引正在驗證。最新完整紀錄見PRODUCT_VALIDATION_20261027_LATEST.md；不放寬原門檻。

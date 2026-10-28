@@ -44,7 +44,7 @@ final class ArchiveDigest{
     }
     static func file(_ url:URL)throws->String{
         let handle=try FileHandle(forReadingFrom:url);defer{try? handle.close()};let digest=try ArchiveDigest()
-        while let block=try handle.read(upToCount:1_048_576),!block.isEmpty{try Task.checkCancellation();try digest.update(block)}
+        while let block=try ArchiveMemory.read(handle,upToCount:1_048_576),!block.isEmpty{try Task.checkCancellation();try ArchiveMemory.scoped{try digest.update(block)}}
         return try digest.finish()
     }
 }
@@ -75,7 +75,7 @@ enum SQLiteArchiveDatabase{
         var statement:OpaquePointer?;guard sqlite3_prepare_v2(db,sql,-1,&statement,nil)==SQLITE_OK,let statement else{throw TradeError.corrupt("歸檔查核無法準備")};defer{sqlite3_finalize(statement)}
         for (n,value) in values.enumerated(){guard value.withCString({sqlite3_bind_text(statement,Int32(n+1),$0,-1,unsafeBitCast(-1,to:sqlite3_destructor_type.self))})==SQLITE_OK else{throw TradeError.corrupt("歸檔查核參數無效")}}
         var status=sqlite3_step(statement)
-        while status==SQLITE_ROW{try Task.checkCancellation();guard let text=sqlite3_column_text(statement,0) else{throw TradeError.corrupt("歸檔欄位遺失")};try body(String(cString:text));status=sqlite3_step(statement)}
+        while status==SQLITE_ROW{try Task.checkCancellation();guard let text=sqlite3_column_text(statement,0) else{throw TradeError.corrupt("歸檔欄位遺失")};try ArchiveMemory.scoped{try body(String(cString:text))};status=sqlite3_step(statement)}
         guard status==SQLITE_DONE else{
             if ProcessInfo.processInfo.environment["CHAI_ARCHIVE_DIAGNOSTIC"]=="1" {
                 // Opt-in CI diagnostics: SQL here is a compiled constant, bind values are excluded.
@@ -86,7 +86,7 @@ enum SQLiteArchiveDatabase{
     }
     static func strings(_ db:OpaquePointer,_ sql:String,values:[String]=[])throws->[String]{var rows:[String]=[];try visit(db,sql:sql,values:values){rows.append($0)};return rows}
     static func schema(_ db:OpaquePointer)throws->[String]{try strings(db,"SELECT type||char(31)||name||char(31)||tbl_name||char(31)||coalesce(sql,'') FROM sqlite_schema ORDER BY type,name")}
-    static func verify(_ url:URL,mode:Mode)throws->VerifiedAccountDatabase{
+    static func verify(_ url:URL,mode:Mode,expectedVersion:Int?=nil)throws->VerifiedAccountDatabase{
         let templateRoot=url.deletingLastPathComponent().appendingPathComponent("schema-"+UUID().uuidString),template=try AccountRepository(root:templateRoot,mode:mode)
         defer{try? FileManager.default.removeItem(at:templateRoot)}
         let expected=try template.withArchiveConnection{try schema($0)}
@@ -98,13 +98,13 @@ enum SQLiteArchiveDatabase{
             // Inspect only sqlite_schema first, then permit the exact compiled schema's built-in indexes.
             // No imported views, triggers, virtual tables or custom SQL are accepted or evaluated.
             let version=try strings(db,"PRAGMA user_version")
-            let permitted=version==["6"] ? expected.filter{!$0.components(separatedBy:"\u{1f}")[2].hasPrefix("journal_")}:expected
-            guard (version==["6"] || version==["7"]),try schema(db)==permitted else{throw TradeError.corrupt("歸檔資料庫版本或結構不符；不執行自訂SQL")}
+            let permitted=expected.filter{row in let table=row.components(separatedBy:"\u{1f}")[2];return !(version==["6"] && table.hasPrefix("journal_")) && !(["6","7"].contains(version.first ?? "") && table=="applied_event_ids")}
+            guard ["6","7","8"].contains(version.first ?? ""),expectedVersion.map({version==[String($0)]}) ?? true,try schema(db)==permitted else{throw TradeError.corrupt("歸檔資料庫版本或結構不符；不執行自訂SQL")}
             guard try strings(db,"PRAGMA quick_check")==["ok"],try strings(db,"SELECT count(*) FROM account_state")==["1"] else{throw TradeError.corrupt("歸檔資料庫完整性不符")}
         }
         guard let hot=try reader.load(),hot.mode==mode,hot.accountID==mode.accountID else{throw TradeError.wrongAccount}
         try verifyRows(reader,state:hot)
-        try reader.withArchiveConnection{_ in try reader.verifyJournalsUnlocked(hot)}
+        try reader.withArchiveConnection{_ in try reader.verifyJournalsUnlocked(hot);try reader.verifyAppliedEventsUnlocked(hot)}
         try reader.verifyCapitalHistory(hot)
         return try VerifiedAccountDatabase(mode:mode,url:url,digest:ArchiveDigest.file(url),state:hot)
     }

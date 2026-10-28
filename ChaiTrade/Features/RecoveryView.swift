@@ -22,6 +22,6 @@ struct RecoveryView: View {
             .onDisappear{if model.fileArchiveWorking && model.fileArchiveCanCancel{model.cancelFileArchive()}}
             .onChange(of:model.state?.accountID){_,account in if account != nil{dismiss()}}
             .fileImporter(isPresented:$importing,allowedContentTypes:[.data,.json]){result in switch result{case .success(let file):url=file;confirm=true;case .failure(let error):model.error=error.localizedDescription}}
-            .confirmationDialog("以此備份恢復目標帳戶？",isPresented:$confirm,titleVisibility:.visible){Button("驗證並恢復",role:.destructive){if let url{Task{await model.recoverFailedAccount(url,password:password);if model.state != nil{dismiss()}}}}}
+            .alert("以此備份恢復目標帳戶？",isPresented:$confirm){Button("驗證並恢復",role:.destructive){if let url{Task{await model.recoverFailedAccount(url,password:password);if model.state != nil{dismiss()}}}};Button("取消",role:.cancel){url=nil}}message:{Text("完整驗證後才取代無法啟動的帳戶；舊目錄保留，另一帳戶不變。")}
     }
 }

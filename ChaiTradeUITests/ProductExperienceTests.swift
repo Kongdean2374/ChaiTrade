@@ -200,6 +200,22 @@ import XCTest
         try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Failed discovery changed cash")
         capture("AFTER source directory missing Key is explicit")
     }
+    func testActualOfficialUSDirectoryReturnsToETFWithoutGrantingQuotePermission()throws{
+        let app=launchClean();defer{finish()};try onboard(app,online:true)
+        let before=try state(app)
+        app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap()
+        let source=app.buttons["catalogSource-alpaca"];try reveal(source,in:app);source.tap();app.buttons["搜尋官方美股／ETF目錄"].tap()
+        let search=app.textFields["usDirectorySearch"];try check(search.waitForExistence(timeout:5),"US identity search missing");search.tap();search.typeText("SPY")
+        let update=app.buttons["搜尋官方目錄"];try reveal(update,in:app);update.tap()
+        let item=app.buttons["discover-alpaca:SPY"];try check(item.waitForExistence(timeout:30),"Actual official US directory did not return SPY ETF")
+        capture("AFTER actual official US identity and original venue");try reveal(item,in:app);item.tap()
+        try waitUntil("US selection did not return to product",timeout:10){(try? self.state(app)["selected"] as? String)=="alpaca:SPY" && !app.textFields["usDirectorySearch"].exists}
+        try check(!app.buttons["openOrder"].exists,"Official metadata incorrectly granted quote/trading permission")
+        let after=try state(app)
+        try check((after["instruments"] as? [[String:String]])?.count==(before["instruments"] as? [[String:String]])?.count,"Existing SPY identity duplicated")
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"US directory selection changed cash")
+        capture("AFTER US ETF without quote credential remains browseable")
+    }
     func testLocalRecoveryCancelThenVerifiedRestorePreservesOriginalPoint()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)
         let cash=try state(app)["cash"] as? [String:String]
@@ -211,7 +227,9 @@ import XCTest
         try waitUntil("Post-point journal missing"){(try? self.state(app)["journals"] as? [[String:String]])?.count==1}
         app.buttons["完成"].tap();app.tabBars.buttons["總覽"].tap();app.buttons["設定"].tap();app.buttons["資料備份／還原"].tap();app.buttons["本機恢復點"].tap()
         let point=app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","recoveryPoint-manual-")).firstMatch
-        try check(point.waitForExistence(timeout:5),"Manual point not listed in current account");point.tap();app.buttons["取消"].tap()
+        try check(point.waitForExistence(timeout:5),"Manual point not listed in current account");point.tap()
+        try check(app.buttons["取消"].waitForExistence(timeout:5),"Restore confirmation has no explicit cancel action")
+        capture("BEFORE local recovery cancel preserves draft");app.buttons["取消"].tap()
         try check((try state(app)["journals"] as? [[String:String]])?.count==1,"Canceled restore changed journal")
         point.tap();app.buttons["確認驗證並還原"].tap()
         try waitUntil("Verified local point did not restore",timeout:30){
@@ -249,13 +267,14 @@ import XCTest
         app.buttons["marketCrypto"].tap();app.tabBars.buttons["行情"].tap();app.buttons["合約"].tap()
         let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app);product.tap()
         app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()
+        let size=app.textFields["orderQuantity"];try reveal(size,in:app);size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"0.001")
         var review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
         try waitUntil("Contract open did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
-        try check((try state(app)["positions"] as? [String:String])?[instrument]=="1","Contract open produced the wrong position")
+        try check((try state(app)["positions"] as? [String:String])?[instrument]=="0.001","Contract open produced the wrong position")
         app.tabBars.buttons["交易"].tap();let close=app.buttons["closePosition-"+instrument];try reveal(close,in:app)
         capture("AFTER contract position with explicit close and risk");close.tap()
         try check(app.staticTexts["平多"].firstMatch.waitForExistence(timeout:5),"Close draft lost its direction")
-        try check(app.textFields["orderQuantity"].value as? String=="1","Close draft did not use held quantity")
+        try check(app.textFields["orderQuantity"].value as? String=="0.001","Close draft did not use held quantity")
         app.buttons["orderKind"].tap();app.buttons["市價"].tap();review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
         try waitUntil("Contract close did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
         let snapshot=try state(app),intents=try XCTUnwrap(snapshot["orderIntents"] as? [[String:String]])

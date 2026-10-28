@@ -346,6 +346,7 @@ public struct HistoryWindow: Codable, Sendable {
     public var equityMetrics:EquityMetrics?
     public var financialFlowOffset:Int?
     public var journalCount:Int?
+    public var appliedEventCount:Int?
     public init() {}
 }
 public struct FillTotals: Codable, Sendable {
@@ -380,6 +381,7 @@ public struct AccountState: Codable, Sendable {
     public var events: [AuditEvent] = []
     public var history: HistoryWindow?
     @CanonicalStringSet public var appliedEvents: Set<String> = []
+    @RuntimeAppliedLookup private var archivedAppliedLookup:(@Sendable(String)throws->Bool)?=nil
     public var quotes: [String: Quote] = [:]
     public var consumed: [String: [Level]] = [:]
     public var instruments: [Instrument]
@@ -401,6 +403,8 @@ public struct AccountState: Codable, Sendable {
     public var sequence: Int64 = 0
     public var lifecycle: LifecycleState?
     public var productPreferences:ProductPreferences?
+    func hasApplied(_ id:String)throws->Bool{if appliedEvents.contains(id){return true};return try archivedAppliedLookup?(id) ?? false}
+    mutating func attachAppliedLookup(_ lookup:@escaping @Sendable(String)throws->Bool){archivedAppliedLookup=lookup}
     public init(mode: Mode, baseCurrency: String, instruments: [Instrument]) {
         self.mode = mode; self.accountID = mode.accountID; self.baseCurrency = baseCurrency; self.instruments = instruments
         if mode == .offline { self.simulation = SimulationState() }

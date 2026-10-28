@@ -41,6 +41,7 @@ public struct USStockDirectory:Sendable{
                 ExchangeCalendarFacts.applyUS(to:&rules)
                 rules.source+="；Nasdaq Trader 官方身份；整股模擬、0.01美元報價保護步進、自訂費率；IEX行情需另行授權"
                 var instrument=Instrument(id:"alpaca:"+symbol,symbol:symbol,name:name,asset:isETF ? .etf:.usStock,currency:"USD",rules:rules,initialPrice:.zero,provider:.alpaca)
+                instrument.requiresRuleConfirmation=true
                 instrument.identity=InstrumentIdentity(exchange:exchange,market:.stocks,baseAsset:symbol,unit:"股",boardLot:Int(fields[5]) ?? 100,sector:isETF ? "ETF":"美股")
                 instrument.identity!.catalogVersion=InstrumentCatalog.version
                 instruments.append(instrument)

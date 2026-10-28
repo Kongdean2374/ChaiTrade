@@ -29,7 +29,7 @@ struct DataBackupView:View{
         Section{NavigationLink("匯出紀錄與帳本"){DataToolsView()};NavigationLink("重設目前帳戶"){AccountResetView()}}
     }.navigationTitle("資料備份／還原")
         .fileImporter(isPresented:$importing,allowedContentTypes:[.data,.json]){result in switch result{case .success(let url):restoreURL=url;confirmRestore=true;case .failure(let error):model.error=error.localizedDescription}}
-        .confirmationDialog("以備份取代目前帳戶？",isPresented:$confirmRestore,titleVisibility:.visible){Button("確認驗證並還原",role:.destructive){if let url=restoreURL{Task{await model.importBackup(url,password:backupPassword)}}}}
+        .alert("以備份取代目前帳戶？",isPresented:$confirmRestore){Button("確認驗證並還原",role:.destructive){if let url=restoreURL{Task{await model.importBackup(url,password:backupPassword)}}};Button("取消",role:.cancel){restoreURL=nil}}message:{Text("先驗證完整備份，再保存目前帳戶的恢復點並還原。另一帳戶不變。")}
     }
 }
 struct LocalRecoveryPointsView:View{
@@ -43,7 +43,7 @@ struct LocalRecoveryPointsView:View{
         if points.isEmpty{ContentUnavailableView("尚無本機恢復點",systemImage:"clock.arrow.circlepath",description:Text("可返回建立恢復點；還原與重設前也會自動保存。"))}
         ForEach(points,id:\.self){url in Button{selection=url;confirm=true}label:{VStack(alignment:.leading,spacing:6){Text(pointTitle(url)).font(.subheadline);Text("驗證並還原").font(.caption).foregroundStyle(.secondary)}}.disabled(model.fileArchiveWorking).accessibilityIdentifier("recoveryPoint-"+(url.pathExtension=="sqlite" ? url.deletingLastPathComponent().lastPathComponent:url.lastPathComponent))}
     }.navigationTitle("本機恢復點").task{points=model.localRecoveryPoints()}.onChange(of:model.fileArchiveWorking){_,working in if !working{points=model.localRecoveryPoints()}}
-        .confirmationDialog("還原所選恢復點？",isPresented:$confirm,titleVisibility:.visible){Button("確認驗證並還原",role:.destructive){if let selection{if selection.pathExtension=="sqlite"{model.startFileArchiveRestore(selection,password:"",localPoint:true)}else{Task{await model.importBackup(selection,password:"")}}}}}
+        .alert("還原所選恢復點？",isPresented:$confirm){Button("確認驗證並還原",role:.destructive){if let selection{if selection.pathExtension=="sqlite"{model.startFileArchiveRestore(selection,password:"",localPoint:true)}else{Task{await model.importBackup(selection,password:"")}}}};Button("取消",role:.cancel){selection=nil}}message:{Text("將先保存目前帳戶的新恢復點，再驗證並還原所選資料。取消不會修改帳戶。")}
     }
     private func pointTitle(_ url:URL)->String{
         let name=url.pathExtension=="sqlite" ? url.deletingLastPathComponent().lastPathComponent:url.lastPathComponent
@@ -61,7 +61,7 @@ struct AccountResetView:View{
         if model.fileArchiveWorking{Section{ProgressView(value:model.fileArchiveProgress);Text(model.fileArchivePhase);Button("取消檔案操作"){model.cancelFileArchive()}.disabled(!model.fileArchiveCanCancel)}}
         Section{Label("這會取代目前帳戶的所有資料",systemImage:"exclamationmark.triangle.fill").foregroundStyle(.red);Text("請先匯出備份。只有目前帳戶會重設；另一帳戶保持隔離。執行前也會保存本機恢復點。");Button("準備重設 \(model.settings.activeMode.accountID)",role:.destructive){resetStage=true}}
         if resetStage{Section("二次確認"){TextField("輸入 RESET",text:$resetText).autocorrectionDisabled();Button("確認重設目前帳戶",role:.destructive){confirmReset=true}.disabled(resetText != "RESET" || model.interactionBlocked)}}
-    }.navigationTitle("重設帳戶").confirmationDialog("確定重設此帳戶？",isPresented:$confirmReset,titleVisibility:.visible){Button("重設並保存恢復點",role:.destructive){Task{await reset()}}}}
+    }.navigationTitle("重設帳戶").alert("確定重設此帳戶？",isPresented:$confirmReset){Button("重設並保存恢復點",role:.destructive){Task{await reset()}};Button("取消",role:.cancel){}}message:{Text("將以初始虛擬資金取代目前帳戶，執行前保留完整恢復點。另一帳戶不變。")}}
     func reset() async {
         model.startFileAccountReset();resetStage=false;resetText=""
     }

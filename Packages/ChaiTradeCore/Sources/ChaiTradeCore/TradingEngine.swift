@@ -11,7 +11,10 @@ public actor TradingEngine {
     public init(context: AccountContext, repository: AccountRepository, initial: AccountState,wallClock:(@Sendable ()->Int64)?=nil) throws {
         guard context.mode == repository.mode else { throw TradeError.wrongAccount }
         try AccountRepository.validate(initial, mode: context.mode)
-        self.context = context; self.repository = repository; self.wallClock=wallClock;self.state = try repository.save(initial)
+        var persisted=try repository.save(initial)
+        let appliedCutoff=persisted.history?.appliedEventCount ?? persisted.appliedEvents.count
+        persisted.attachAppliedLookup{try repository.appliedEventExists($0,throughOrdinal:appliedCutoff)}
+        self.context=context;self.repository=repository;self.wallClock=wallClock;self.state=persisted
     }
     public func prepareProductExperience(context:AccountContext)throws{
         try check(context)
@@ -106,6 +109,8 @@ public actor TradingEngine {
             while next.inbox!.count>200,let index=next.inbox!.firstIndex(where:{$0.delivered}){next.inbox!.remove(at:index)}
         }
         state = try repository.save(next)
+        let appliedCutoff=state.history?.appliedEventCount ?? state.appliedEvents.count
+        state.attachAppliedLookup{[repository] in try repository.appliedEventExists($0,throughOrdinal:appliedCutoff)}
         return result
     }
     public static func initial(mode: Mode, baseCurrency: String = "TWD", capital: Amount, time: Int64) throws -> AccountState {
@@ -136,7 +141,7 @@ public actor TradingEngine {
         return try (state.cash[currency] ?? .zero) - sum(groups.values) - locked - payables
     }
     private static func adjustCash(_ s: inout AccountState, currency: String, amount: Amount, time: Int64, eventID: String) throws {
-        guard !s.appliedEvents.contains(eventID) else { return }
+        guard !(try s.hasApplied(eventID)) else { return }
         if try amount < .zero && amount.magnitude > available(s, currency: currency) { throw TradeError.insufficient("減資超過可用資金；請先撤單或平倉") }
         let rate=s.lifecycle?.rates.first{$0.currency==currency && $0.base==s.baseCurrency && $0.usable(at:time)}
         let flow=try CapitalFlowValuation(currency:currency,amount:amount,baseCurrency:s.baseCurrency,time:time,rate:rate)
@@ -160,7 +165,7 @@ public actor TradingEngine {
         try check(context)
         guard from != to, amount > .zero, rate > .zero else { throw TradeError.invalid("換匯資料不合法") }
         try transaction { s in
-            if s.appliedEvents.contains(eventID) { return }
+            if (try s.hasApplied(eventID)) { return }
             guard try Self.available(s, currency: from) >= amount else { throw TradeError.insufficient("換匯資金不足") }
             let received = try amount * rate
             s.cash[from] = try (s.cash[from] ?? .zero) - amount; s.cash[to] = try (s.cash[to] ?? .zero) + received
@@ -579,7 +584,7 @@ public actor TradingEngine {
         }else if level==0,evaluation.equity > (try maintenance*Amount("2.5")){s.marginWarningLevels!.removeValue(forKey:key)}
         guard evaluation.equity<=evaluation.maintenanceAndClosingFee else{return}
         let event="liquidation-\(p.id)-\(q.sequence)"
-        guard !s.appliedEvents.contains(event) else{return}
+        guard !(try s.hasApplied(event)) else{return}
         for id in s.orders.keys where s.orders[id]!.status.open && s.orders[id]!.request.instrumentID==i.id && s.positionKey(for:s.orders[id]!.request,instrument:i)==p.id{s.orders[id]!.status = .cancelled;s.orders[id]!.reserved = .zero}
         var request=OrderRequest(instrumentID:i.id,side:p.quantity > .zero ? .sell:.buy,kind:.market,quantity:p.quantity.magnitude)
         request.requestID=event;request.reduceOnly=true;request.positionSide=p.side;request.leverage=p.leverage;request.marginMode=p.marginMode
@@ -635,7 +640,7 @@ public actor TradingEngine {
         for bucket in [time/SimulationNews.period-1,time/SimulationNews.period]{
             guard let story=SimulationNews.story(bucket:bucket,state:sim),story.publishedAt>=accountingFrom else{continue}
             let publication="published-"+story.id
-            if story.publishedAt<=time,!s.appliedEvents.contains(publication){
+            if story.publishedAt<=time,!(try s.hasApplied(publication)){
                 s.appliedEvents.insert(publication);s.audit("simulationNews",story.title+"；模擬情境，非真實新聞",time:story.publishedAt,id:publication)
                 if let id=story.instrumentIDs.first,story.kind=="dividend"{
                     let action=CorporateAction(id:story.id,instrumentID:id,kind:.dividend,time:story.publishedAt,cashPerUnit:try Amount("0.25"),paymentTime:story.endsAt,source:"B 模擬新聞情境 "+story.id)
@@ -838,7 +843,7 @@ public actor TradingEngine {
         try check(context)
         if let eventID{guard !eventID.isEmpty,eventID.utf8.count<=128 else{throw TradeError.invalid("保證金調整識別不合法")}}
         try transaction { s in
-            if let eventID,s.appliedEvents.contains(eventID){return}
+            if let eventID,(try s.hasApplied(eventID)){return}
             let i=try Self.instrument(s,instrumentID)
             let key=s.positionKey(instrument:i,side:positionSide)
             guard i.asset.derivative,var p=s.positions[key],p.quantity != .zero,p.marginMode == .isolated else {throw TradeError.invalid("需有有效標記價與逐倉合約部位")}
@@ -855,7 +860,7 @@ public actor TradingEngine {
         }
     }
     private static func postCarry(_ s:inout AccountState,instrument i:Instrument,rate:Amount,mark:Amount,amount:Amount,time:Int64,eventID:String,kind:String,source:String,model:String,positionKey:String?=nil)throws{
-        guard !s.appliedEvents.contains(eventID) else{return}
+        guard !(try s.hasApplied(eventID)) else{return}
         let key=positionKey ?? i.id
         if amount > .zero,var position=s.positions[key],position.marginMode == .isolated{
             let free=max(Amount.zero,try Self.available(s,currency:i.currency)),fromMargin=max(Amount.zero,try amount-free)
@@ -872,7 +877,7 @@ public actor TradingEngine {
         try check(context)
         guard mark > .zero,!source.isEmpty,rate.magnitude <= .one else {throw TradeError.invalid("費率、標記價或來源不合法")}
         try transaction{s in
-            guard !s.appliedEvents.contains(eventID) else{return}
+            guard !(try s.hasApplied(eventID)) else{return}
             let i=try Self.instrument(s,instrumentID)
             guard i.asset.derivative else{throw TradeError.invalid("此介面僅限合約持有費用")}
             for position in s.heldPositions(instrumentID){
@@ -885,7 +890,7 @@ public actor TradingEngine {
         }
     }
     private static func settleFutureState(_ s:inout AccountState,instrument i:Instrument,price:Amount,time:Int64,eventID:String,final:Bool,source:String)throws{
-        guard !s.appliedEvents.contains(eventID) else{return}
+        guard !(try s.hasApplied(eventID)) else{return}
         guard i.asset == .future,price > .zero else{throw TradeError.invalid("需為有效期貨結算價")}
         for current in s.heldPositions(i.id){
             var p=current
@@ -941,7 +946,7 @@ public actor TradingEngine {
         try check(context);try transaction{s in try Self.applyCorporateAction(action,to:&s)}
     }
     private static func applyCorporateAction(_ action:CorporateAction,to s:inout AccountState)throws{
-            guard !s.appliedEvents.contains(action.id) else{return}
+            guard !(try s.hasApplied(action.id)) else{return}
             guard !action.source.isEmpty,let index=s.instruments.firstIndex(where:{$0.id==action.instrumentID}) else {throw TradeError.invalid("缺少事件來源或商品")}
             let i=s.instruments[index]
             guard !i.asset.derivative else {throw TradeError.invalid("股務事件不可套到合約")}
@@ -989,6 +994,8 @@ public actor TradingEngine {
         guard maintenance==maintenanceToken else{throw TradeError.invalid("還原維護工作階段不符")}
         try AccountRepository.validate(restored, mode: context.mode)
         state = try repository.save(restored, replacing: true)
+        let appliedCutoff=state.history?.appliedEventCount ?? state.appliedEvents.count
+        state.attachAppliedLookup{[repository] in try repository.appliedEventExists($0,throughOrdinal:appliedCutoff)}
         maintenance=nil
         if retireAfterRestore{retired=true}
     }

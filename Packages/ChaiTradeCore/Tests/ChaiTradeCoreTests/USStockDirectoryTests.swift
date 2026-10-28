@@ -33,6 +33,7 @@ private actor DirectoryTransport:MarketTransport{
     let spy=try #require(try await directory.search("SPY").instruments.first)
     #expect(spy.asset == .etf);#expect(spy.name=="SPDR S&P 500 ETF Trust");#expect(spy.identity?.exchange=="NYSE ARCA");#expect(spy.currency=="USD")
     #expect(spy.initialPrice == .zero);#expect(spy.provider == .alpaca)
+    #expect(spy.requiresRuleConfirmation==true)
     let brk=try #require(try await directory.search("Berkshire").instruments.first)
     #expect(brk.symbol=="BRK.B");#expect(brk.identity?.exchange=="NYSE")
     #expect(NetworkPolicy.permits(URL(string:"https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt")!,method:"GET",mode:.online))
