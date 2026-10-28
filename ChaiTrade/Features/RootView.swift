@@ -28,14 +28,14 @@ struct RootView: View {
                     if let notice=model.notice{
                         Button{model.notice=nil}label:{HStack(alignment:.top){Text(notice).lineLimit(3).fixedSize(horizontal:false,vertical:true);Spacer(minLength:8);Image(systemName:"xmark.circle.fill")}.font(.caption).foregroundStyle(.primary).padding(12).frame(maxWidth:.infinity,alignment:.leading).contentShape(Rectangle())}.buttonStyle(.plain).accessibilityLabel(notice).accessibilityIdentifier("dismissNotice").background(Color.orange.opacity(0.08))
                     }
-                    MarketSwitcher()
+                    if model.tab != 2{MarketSwitcher()}
                     TabView(selection:$model.tab) {
                         NavigationStack { DashboardView(domain:model.market).id(model.market) }.tabItem{Label("總覽",systemImage:"square.grid.2x2")}.tag(0)
-                        NavigationStack { MarketsView(domain:model.market).id(model.market) }.tabItem{Label("行情",systemImage:"chart.bar.xaxis")}.tag(1)
+                        NavigationStack(path:Binding(get:{model.marketPaths[model.market] ?? []},set:{model.marketPaths[model.market]=$0})) { MarketsView(domain:model.market).id(model.market).navigationDestination(for:String.self){id in TradingView(browseInstrumentID:id)} }.tabItem{Label("行情",systemImage:"chart.bar.xaxis")}.tag(1)
                         NavigationStack { TradingView() }.tabItem{Label("交易",systemImage:"arrow.left.arrow.right")}.tag(2)
                         NavigationStack { OrdersView() }.tabItem{Label("委託",systemImage:"list.bullet.rectangle")}.tag(3)
                         NavigationStack { PortfolioView() }.tabItem{Label("資產",systemImage:"wallet.bifold")}.tag(4)
-                    }.id(model.stateRevision).onChange(of:model.tab){_,_ in UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}
+                    }.id(model.stateRevision).onChange(of:model.tab){_,_ in UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);model.focusActivePage()}
                 }
             }
         }
@@ -45,6 +45,11 @@ struct RootView: View {
         .sheet(item:$model.chartAmendment){intent in NavigationStack{ChartAmendConfirm(intent:intent)}}
         .sheet(item:$model.openedNotice){destination in NavigationStack{NoticeDetailView(destination:destination)}.modifier(UITestVisualEnvironment())}
         .onChange(of:model.catalogNavigationRevision){_,_ in settings=false}
+        .confirmationDialog("保留目前未送出的交易草稿？",isPresented:Binding(get:{model.pendingTrade != nil},set:{if !$0{model.pendingTrade=nil}}),titleVisibility:.visible){
+            Button("保留原草稿"){model.pendingTrade=nil}
+            Button("放棄草稿並切換商品／方向",role:.destructive){model.discardAndApplyTrade()}
+            Button("取消",role:.cancel){model.pendingTrade=nil}
+        }message:{Text("新商品會重新載入價格、數量、單位與風險規則。保留原草稿將取消本次切換；任何選擇都不會自動送單。")}
         .onReceive(NoticeTapMailbox.shared.$pending.compactMap{$0}){link in NoticeTapMailbox.shared.pending=nil;Task{await model.handleNoticeLink(link)}}
         .confirmationDialog("這則通知屬於另一個獨立帳戶",isPresented:Binding(get:{model.requestedAccountNotice != nil},set:{if !$0{model.requestedAccountNotice=nil}}),titleVisibility:.visible){
             if let link=model.requestedAccountNotice{Button("下次完整啟動切換至 "+link.mode.label){model.queueNoticeAccountSwitch(link)}}

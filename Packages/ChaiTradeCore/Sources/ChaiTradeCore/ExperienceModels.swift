@@ -58,6 +58,7 @@ public struct ProductPreferences:Codable,Sendable {
     public var markets:[String:MarketBrowsingState]=[:]
     public var groups:[WatchGroup]=[]
     public var catalogMigrated=false
+    public var tradeWorkspace:TradeWorkspace?
     public init(){}
 }
 public enum TradingBoard:String,Codable,CaseIterable,Sendable {

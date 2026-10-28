@@ -7,6 +7,6 @@ common=(-project ChaiTrade.xcodeproj -scheme ChaiTrade -destination "platform=iO
   CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='' ONLY_ACTIVE_ARCH=YES ARCHS="$(uname -m)")
 xcodebuild build-for-testing "${common[@]}" 2>&1 | tee build/logs/navigation-build.log
 xcodebuild test-without-building "${common[@]}" -resultBundlePath build/NavigationFlowTests.xcresult \
-  -only-testing:ChaiTradeUITests/NavigationFlowTests \
+  -only-testing:ChaiTradeUITests/NavigationFlowTests -only-testing:ChaiTradeUITests/TradingHandoffTests -only-testing:ChaiTradeUITests/TradeWorkspaceInteractionTests \
   -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
   2>&1 | tee build/logs/navigation-tests.log

@@ -13,9 +13,10 @@ public actor VisibleQuoteScheduler {
     private var selected:String?
     private var due:[String:Int64]=[:],attempted:[String:Int64]=[:],failures:[String:Int]=[:]
     private var flights:[String:QuoteLease]=[:]
+    private var retryFloor:[String:Int64]=[:],manualAttempts:[String:Int64]=[:]
     public init(){}
     public func demand(context:AccountContext,visible:Set<String>,selected:String?,protected:Set<String>){
-        if self.context != context{self.context=context;due=[:];attempted=[:];failures=[:];flights=[:]}
+        if self.context != context{self.context=context;due=[:];attempted=[:];failures=[:];flights=[:];retryFloor=[:];manualAttempts=[:]}
         self.visible=Set(visible.sorted().prefix(48));self.selected=selected;self.protected=protected
         let wanted=all
         flights=flights.filter{wanted.contains($0.key)}
@@ -24,7 +25,8 @@ public actor VisibleQuoteScheduler {
     private var all:Set<String>{visible.union(protected).union(selected.map{[$0]} ?? [])}
     public func next(context:AccountContext,now:Int64,limit:Int=4)->[QuoteLease]{
         guard self.context==context,limit>0 else{return []}
-        let ids=all.filter{flights[$0]==nil && (due[$0] ?? 0)<=now}.sorted{a,b in
+        retryFloor=retryFloor.filter{$0.value>now}
+        let ids=all.filter{flights[$0]==nil && max(due[$0] ?? 0,retryFloor[$0] ?? 0)<=now}.sorted{a,b in
             let pa=a==selected || protected.contains(a) ? 0:1,pb=b==selected || protected.contains(b) ? 0:1
             return (pa,attempted[a] ?? 0,a)<(pb,attempted[b] ?? 0,b)
         }.prefix(min(8,limit))
@@ -36,10 +38,22 @@ public actor VisibleQuoteScheduler {
         if let failure{
             let count=(failures[lease.instrumentID] ?? 0)+1;failures[lease.instrumentID]=count
             due[lease.instrumentID]=now+max(failure.retryAfter ?? 0,failure.kind == .missingKey || failure.kind == .unauthorized || failure.kind == .unsupported ? 3600:Int64(min(300,5*(1<<min(6,count-1)))))
-        }else{failures[lease.instrumentID]=0;due[lease.instrumentID]=now+10}
+            if let seconds=failure.retryAfter,seconds>0{retryFloor[lease.instrumentID]=max(retryFloor[lease.instrumentID] ?? 0,now+seconds)}
+        }else{failures[lease.instrumentID]=0;retryFloor.removeValue(forKey:lease.instrumentID);due[lease.instrumentID]=now+10}
         return true
     }
-    public func retry(_ ids:Set<String>){for id in ids{due[id]=0;failures[id]=0}}
+    public func retry(_ ids:Set<String>){for id in ids{due[id]=0}}
+    /// A foreground user refresh joins current flights and cannot reset source cooldowns.
+    @discardableResult public func manualRefresh(_ ids:Set<String>,context:AccountContext,now:Int64)->Set<String>{
+        guard self.context==context else{return []}
+        var accepted=Set<String>()
+        for id in ids.intersection(all){
+            if let previous=manualAttempts[id],now-previous<5{continue}
+            manualAttempts[id]=now
+            guard flights[id]==nil,(retryFloor[id] ?? 0)<=now else{continue}
+            due[id]=0;accepted.insert(id)
+        };return accepted
+    }
     public func cancel(context:AccountContext){if self.context==context{flights=[:];visible=[];selected=nil;protected=[]}}
 }
 

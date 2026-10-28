@@ -5,6 +5,8 @@ struct MarketsView:View {
     @EnvironmentObject var model:AppModel
     let domain:MarketDomain
     @State private var pageSize=40
+    @State private var searchText=""
+    @State private var searchInitialized=false
     @FocusState private var searching:Bool
     @State private var groups=false
     @State private var custom=false
@@ -19,7 +21,7 @@ struct MarketsView:View {
         }
         if preferences.favoritesOnly{pool=pool.filter{model.state?.watchlist.contains($0.id)==true}}
         if let groupID=preferences.groupID,let group=model.state?.productPreferences?.groups.first(where:{$0.id==groupID}){pool=pool.filter{group.instrumentIDs.contains($0.id)}}
-        let query=preferences.search.trimmingCharacters(in:.whitespacesAndNewlines)
+        let query=searchText.trimmingCharacters(in:.whitespacesAndNewlines)
         if !query.isEmpty{pool=pool.filter{[$0.symbol,$0.name,$0.id,$0.identity?.exchange ?? ""].contains{$0.localizedCaseInsensitiveContains(query)}}}
         if [.gainers,.losers].contains(preferences.sort){pool=pool.filter{(model.summary(for:$0)?.reference ?? .zero) > .zero && model.state?.quotes[$0.id] != nil}}
         if preferences.sort == .volume{pool=pool.filter{model.summary(for:$0)?.volume != nil}}
@@ -39,7 +41,7 @@ struct MarketsView:View {
         }
     }
     private func changeRatio(_ i:Instrument)->Amount{guard let quote=model.state?.quotes[i.id],let reference=model.summary(for:i)?.reference,reference > .zero else{return .zero};return (try? quote.last/reference) ?? .zero}
-    private var search:Binding<String>{Binding(get:{preferences.search},set:{text in model.editBrowsing(domain){$0.search=text;$0.scrollID=nil};pageSize=40})}
+    private var search:Binding<String>{Binding(get:{searchText},set:{text in searchText=text;pageSize=40})}
     private var scroll:Binding<String?>{Binding(get:{preferences.scrollID},set:{id in model.editBrowsing(domain){$0.scrollID=id}})}
     var body:some View{
         ScrollView{
@@ -60,6 +62,7 @@ struct MarketsView:View {
                     if domain == .crypto{Text(preferences.category == "合約" ? "合約另有槓桿、保證金與強平風險。":"現貨以幣數買入／賣出；不包含合約。 ").font(.caption).foregroundStyle(.secondary)}
                     }
                 }.id("marketTop")
+                if !searching{MarketRefreshStatus()}
                 if !searching && preferences.search.isEmpty && !preferences.favoritesOnly && preferences.sort == .familiar{recentProducts}
                 if products.isEmpty{ContentUnavailableView("沒有符合的商品",systemImage:"magnifyingglass",description:Text("調整搜尋或分類，也可從商品目錄查看來源支援範圍。"));Button("清除篩選"){model.editBrowsing(domain){$0.search="";$0.favoritesOnly=false;$0.groupID=nil;$0.sort = .familiar;$0.category=domain == .crypto ? "現貨":"全部"}}}
                 ForEach(Array(products.prefix(pageSize))){instrument in
@@ -69,10 +72,12 @@ struct MarketsView:View {
                 if (model.state?.instruments ?? []).contains(where:{$0.identity?.legacy==true && $0.market==domain}){NavigationLink("舊版自訂商品與原有身份"){LegacyProductsView()}.font(.footnote)}
                 Text("已到目前列表底部").font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity).accessibilityIdentifier("marketBottom")
             }.scrollTargetLayout().padding(16).padding(.bottom,20)
-        }.scrollPosition(id:scroll,anchor:.top).scrollDismissesKeyboard(.immediately).background(Color(.systemGroupedBackground)).navigationTitle("行情").navigationBarTitleDisplayMode(.inline)
+        }.refreshable{await model.fetchQuotes()}.scrollPosition(id:scroll,anchor:.top).scrollDismissesKeyboard(.immediately).background(Color(.systemGroupedBackground)).navigationTitle("行情").navigationBarTitleDisplayMode(.inline)
             .toolbar{ToolbarItemGroup(placement:.keyboard){Spacer();Button("完成搜尋"){searching=false}}}
             .sheet(isPresented:$model.catalogVisible){NavigationStack{ProductCatalogView()}}
             .sheet(isPresented:$groups){NavigationStack{WatchGroupsView()}}
+            .onAppear{if !searchInitialized{searchText=preferences.search;searchInitialized=true}}
+            .onChange(of:searchText){_,text in model.editBrowsing(domain){$0.search=text;$0.scrollID=nil}}
             .task(id:domain){if let id=preferences.scrollID,let index=products.firstIndex(where:{$0.id==id}){pageSize=max(40,(index/40+1)*40)};await model.ensureQuoteService()}
             .onChange(of:model.tab){_,tab in if tab != 1{searching=false}}
             .onDisappear{searching=false;model.removeVisibleOwner("markets-"+domain.rawValue)}

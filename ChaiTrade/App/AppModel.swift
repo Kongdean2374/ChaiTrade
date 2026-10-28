@@ -59,6 +59,13 @@ struct ChartAmendment: Identifiable {
     #endif
     @Published var market=MarketDomain.stocks
     @Published var browsing:[MarketDomain:MarketBrowsingState]=[:]
+    @Published var marketPaths:[MarketDomain:[String]]=[:]
+    @Published var tradeWorkspace:TradeWorkspace?
+    @Published var pendingTrade:TradeHandoff?
+    @Published var tradeFormRequest:UUID?
+    @Published var tradeSession=UUID()
+    var tradeSaveTask:Task<Void,Never>?
+    var tradeDirty=false
     @Published var quoteIssues:[String:MarketIssueKind]=[:]
     @Published var quoteRetryAt:[String:Int64]=[:]
     @Published var marketClock=Int64(Date().timeIntervalSince1970)
@@ -251,7 +258,7 @@ struct ChartAmendment: Identifiable {
                         var cursor=sim.time
                         while cursor < target && !Task.isCancelled && foreground && catchupTarget == nil { cursor=try await engine.advance(to:target,wallTarget:Int64(Date().timeIntervalSince1970),context:context) }
                         await refresh();await updateSimulatedSummaries()
-                        if tab==2 { await loadChart() }
+                        if tab==2 || (tab==1 && !(marketPaths[market] ?? []).isEmpty) { await loadChart() }
                     }
                 }
             } else if uptime-lastFetch>=10 {
@@ -263,6 +270,7 @@ struct ChartAmendment: Identifiable {
         foreground=false
         summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute = -1;summaryGeneration=UUID()
         browseSaveTask?.cancel();await flushBrowsing()
+        tradeSaveTask?.cancel();await flushTradeWorkspace()
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID()
         if let context{await quoteScheduler.cancel(context:context)}
         candleTask?.cancel();candleTask=nil;boardQuoteTask?.cancel();boardQuoteTask=nil
@@ -357,9 +365,13 @@ struct ChartAmendment: Identifiable {
         return try MarketDataProvider(id:id,credentials:credentials,transport:ReadOnlyTransport(mode:.online))
     }
     func fetchQuotes()async{
-        guard context?.mode == .online else{return}
-        await quoteScheduler.retry(requiredQuoteIDs)
+        guard let context,let engine else{return}
+        if context.mode == .offline{
+            do{let snapshot=try await engine.marketSnapshot(context:context);guard self.context==context else{return};state=snapshot;await updateSimulatedSummaries();if tab==1 || tab==2{await loadChart()}}catch{notice=error.localizedDescription}
+            return
+        }
         await ensureQuoteService()
+        _ = await quoteScheduler.manualRefresh(requiredQuoteIDs,context:context,now:Int64(Date().timeIntervalSince1970))
     }
     func saveChartPreferences(indicator:String,period:Int,line:Bool)async{
         guard let engine,let context,!selectedID.isEmpty else{return}

@@ -8,7 +8,7 @@ private extension OrderStatus{
 struct OrdersView:View{
     @EnvironmentObject var model:AppModel
     @State private var openOnly=true
-    @State private var allMarkets=false
+    @State private var allMarkets=true
     @State private var amendment:Order?
     @State private var historical:[FillPageRow]=[]
     @State private var historyCursor:Int64?

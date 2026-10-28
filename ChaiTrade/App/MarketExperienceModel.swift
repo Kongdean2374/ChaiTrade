@@ -13,7 +13,8 @@ extension AppModel {
         guard let state else{return []}
         return state.watchlist.union(state.positions.values.filter{$0.quantity != .zero}.map(\.instrumentKey)).union(state.orders.values.filter{$0.status.open}.map{$0.request.instrumentID}).union(state.alerts.filter{$0.firedAt==nil}.map(\.instrumentID))
     }
-    var requiredQuoteIDs:Set<String>{visibleQuoteIDs.union(protectedQuoteIDs).union(selectedID.isEmpty ? []:[selectedID])}
+    var selectedQuoteID:String{selected?.quoteKey(board:selected?.usesTaiwanBoards==true ? selectedBoard:nil) ?? selectedID}
+    var requiredQuoteIDs:Set<String>{visibleQuoteIDs.union(protectedQuoteIDs).union(selectedID.isEmpty ? []:[selectedID,selectedQuoteID])}
     func restoreProductBrowsing(){
         guard let state else{return}
         latestOrderReceipt=nil
@@ -22,6 +23,7 @@ extension AppModel {
         market=state.productPreferences?.activeMarket ?? .stocks
         selectedID=browsing[market]?.selectedID.flatMap{id in state.instruments.first{$0.id==id && $0.market==market}}?.id ?? defaultProduct(in:market)?.id ?? ""
         selectedBoard=selected?.usesTaiwanBoards==true ? .oddLot:.regular
+        restoreTradeWorkspace()
     }
     func defaultProduct(in market:MarketDomain)->Instrument?{
         let pool=(state?.instruments ?? []).filter{$0.market==market && $0.asset != .index && $0.identity?.legacy != true}
@@ -60,33 +62,28 @@ extension AppModel {
         selectedBoard=selected?.usesTaiwanBoards==true ? .oddLot:.regular
         restartStream();Task{if let context{await quoteScheduler.cancel(context:context)};await ensureQuoteService();await requestSelectedBoard();if tab==2{await loadChart()}}
     }
-    func selectProduct(_ instrument:Instrument){
+    func selectProduct(_ instrument:Instrument){browseProduct(instrument)}
+    func focusProduct(_ instrument:Instrument){
         #if DEBUG
         if UITestSupport.session != nil{uiTestProductSelections.append(instrument.id)}
         #endif
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)
-        if market != instrument.market{switchMarket(instrument.market)}
+        guard selectedID != instrument.id else{return}
         quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel()
-        selectedID=instrument.id;chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartBefore=nil;chartCount=160;tab=2
-        editBrowsing(instrument.market){value in value.selectedID=instrument.id;value.recent.removeAll{$0==instrument.id};value.recent.insert(instrument.id,at:0);value.recent=Array(value.recent.prefix(30))}
+        selectedID=instrument.id;chartGeneration=UUID();candleTask?.cancel();candles=[];chartError=nil;chartBefore=nil;chartCount=160
         selectedBoard=instrument.usesTaiwanBoards ? .oddLot:.regular
         restartStream();Task{if let context{await quoteScheduler.cancel(context:context)};await requestSelectedBoard();await quoteScheduler.retry([instrument.id]);await ensureQuoteService();await loadChart()}
     }
     func visible(_ id:String,owner:String,present:Bool){
-        if present{guard state?.instruments.first(where:{$0.id==id})?.market==market else{return};visibleOwners[owner,default:[]].insert(id)}else{visibleOwners[owner]?.remove(id)}
+        if present{guard state?.instruments.contains(where:{$0.id==id})==true else{return};visibleOwners[owner,default:[]].insert(id)}else{visibleOwners[owner]?.remove(id)}
         Task{await ensureQuoteService()}
     }
     func removeVisibleOwner(_ owner:String){visibleOwners.removeValue(forKey:owner);Task{await ensureQuoteService()}}
     func changeBoard(_ board:TradingBoard){selectedBoard=board;clearChartCaches();candles=[];Task{await requestSelectedBoard();await loadChart()}}
     func requestSelectedBoard()async{
-        boardQuoteTask?.cancel()
-        guard let instrument=selected,instrument.usesTaiwanBoards,selectedBoard == .oddLot,let context,context.mode == .online,let source=instrument.provider,let engine else{return}
-        let key=instrument.quoteKey(board:.oddLot)
-        boardQuoteTask=Task{
-            quoteIssues[key] = .loading
-            do{let q=try await provider(source).quote(instrument,now:now,includeSummary:true,board:.oddLot);guard !Task.isCancelled,self.context==context,self.selectedID==instrument.id else{return};try await engine.ingest(q,now:now,context:context);quoteIssues[key] = .ready;await refresh()}
-            catch{guard !Task.isCancelled,self.context==context else{return};quoteIssues[key]=(error as? MarketDataFailure)?.kind ?? .connectionFailed}
-        }
+        guard context?.mode == .online else{return}
+        // Regular and odd-lot books share leases, cooldowns and in-flight coalescing.
+        await ensureQuoteService()
     }
     func loadCredentialReadiness(){
         guard context?.mode == .online else{credentialReady=[:];return}
@@ -139,7 +136,7 @@ extension AppModel {
     func ensureQuoteService()async{
         guard let context else{return}
         if context.mode == .offline{if let engine{do{try await engine.setSimulationDemand(selectedID.isEmpty ? []:[selectedID],context:context);guard self.context==context else{return};state=await engine.snapshot()}catch{self.notice=error.localizedDescription}};await updateSimulatedSummaries();return}
-        await quoteScheduler.demand(context:context,visible:visibleQuoteIDs,selected:selectedID,protected:protectedQuoteIDs)
+        await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(selectedID.isEmpty ? []:[selectedID]),selected:selectedQuoteID,protected:protectedQuoteIDs)
         guard foreground,quoteServiceTask==nil else{return}
         let generation=UUID();quoteServiceGeneration=generation
         quoteServiceTask=Task{await quoteLoop(context:context,generation:generation)}
@@ -147,18 +144,18 @@ extension AppModel {
     private func quoteLoop(context:AccountContext,generation:UUID)async{
         defer{if quoteServiceGeneration==generation{fetching=false;quoteServiceTask=nil}}
         while !Task.isCancelled,foreground,self.context==context,state?.mode == .online{
-            await quoteScheduler.demand(context:context,visible:visibleQuoteIDs,selected:selectedID,protected:protectedQuoteIDs)
+            await quoteScheduler.demand(context:context,visible:visibleQuoteIDs.union(selectedID.isEmpty ? []:[selectedID]),selected:selectedQuoteID,protected:protectedQuoteIDs)
             let leases=await quoteScheduler.next(context:context,now:Int64(Date().timeIntervalSince1970),limit:3)
             if leases.isEmpty{do{try await Task.sleep(for:.milliseconds(500))}catch{return};continue}
-            var work:[(QuoteLease,Instrument,MarketDataProvider)]=[]
+            var work:[(QuoteLease,Instrument,MarketDataProvider,TradingBoard?)]=[]
             for lease in leases{
-                guard let instrument=state?.instruments.first(where:{$0.id==lease.instrumentID}),let source=instrument.provider else{_ = await quoteScheduler.complete(lease,now:now,failure:MarketDataFailure(.unsupported));quoteIssues[lease.instrumentID] = .unsupported;continue}
-                do{work.append((lease,instrument,try provider(source)));if state?.quotes[instrument.id]==nil{quoteIssues[instrument.id] = .loading}}
-                catch{let failure=(error as? MarketDataFailure) ?? MarketDataFailure(.missingKey);_ = await quoteScheduler.complete(lease,now:now,failure:failure);quoteIssues[instrument.id]=failure.kind}
+                guard let instrument=state?.instruments.first(where:{$0.id==lease.instrumentID || ($0.usesTaiwanBoards && $0.quoteKey(board:.oddLot)==lease.instrumentID)}),let source=instrument.provider else{_ = await quoteScheduler.complete(lease,now:now,failure:MarketDataFailure(.unsupported));quoteIssues[lease.instrumentID] = .unsupported;continue}
+                do{let board:TradingBoard?=instrument.id==lease.instrumentID ? nil:.oddLot;work.append((lease,instrument,try provider(source),board));if state?.quotes[lease.instrumentID]==nil{quoteIssues[lease.instrumentID] = .loading}}
+                catch{let failure=(error as? MarketDataFailure) ?? MarketDataFailure(.missingKey);_ = await quoteScheduler.complete(lease,now:now,failure:failure);quoteIssues[lease.instrumentID]=failure.kind}
             }
             fetching=true
             let results=await withTaskGroup(of:QuoteResult.self){group in
-                for (lease,instrument,service) in work{group.addTask{do{return .value(lease,instrument,try await service.quote(instrument,now:Int64(Date().timeIntervalSince1970),includeSummary:true))}catch{return .failure(lease,instrument,(error as? MarketDataFailure) ?? MarketDataFailure(.connectionFailed))}}}
+                for (lease,instrument,service,board) in work{group.addTask{do{return .value(lease,instrument,try await service.quote(instrument,now:Int64(Date().timeIntervalSince1970),includeSummary:true,board:board))}catch{return .failure(lease,instrument,(error as? MarketDataFailure) ?? MarketDataFailure(.connectionFailed))}}}
                 var results:[QuoteResult]=[];for await result in group{results.append(result)};return results
             }
             guard !Task.isCancelled,self.context==context,foreground,let engine else{return}
@@ -167,15 +164,15 @@ extension AppModel {
                 switch result{
                 case .value(let lease,let instrument,let quote):
                     guard await quoteScheduler.complete(lease,now:now) else{continue}
-                    do{try await engine.ingest(quote,now:now,context:context);quoteIssues[instrument.id] = quote.quality == .realtime ? .ready:quote.quality == .delayed ? .delayed:.stale;updated.insert(instrument.id)}catch{quoteIssues[instrument.id] = .connectionFailed}
+                    do{try await engine.ingest(quote,now:now,context:context);quoteIssues[lease.instrumentID] = quote.quality == .realtime ? .ready:quote.quality == .delayed ? .delayed:.stale;updated.insert(instrument.id)}catch{quoteIssues[lease.instrumentID] = .connectionFailed}
                 case .failure(let lease,let instrument,let failure):
                     guard await quoteScheduler.complete(lease,now:now,failure:failure) else{continue}
-                    quoteIssues[instrument.id]=failure.kind;quoteRetryAt[instrument.id]=now+(failure.retryAfter ?? 15)
-                    try? await engine.markMonitoringGap(instrumentID:instrument.id,time:now,context:context)
+                    quoteIssues[lease.instrumentID]=failure.kind;quoteRetryAt[lease.instrumentID]=now+(failure.retryAfter ?? 15)
+                    try? await engine.markMonitoringGap(instrumentID:lease.instrumentID,time:now,context:context)
                 }
             }
             await refresh();fetching=false
-            if tab==2,updated.contains(selectedID),now-lastChartRefresh>=10,!chartLoading{
+            if (tab==2 || (tab==1 && !(marketPaths[market] ?? []).isEmpty)),updated.contains(selectedID),now-lastChartRefresh>=10,!chartLoading{
                 await requestSelectedBoard();lastChartRefresh=now;Task{await self.loadChart()}}
         }
     }

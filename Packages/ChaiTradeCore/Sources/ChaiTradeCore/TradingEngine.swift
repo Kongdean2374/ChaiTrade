@@ -41,6 +41,19 @@ public actor TradingEngine {
             if activate{s.productPreferences!.activeMarket=market}
         }
     }
+    public func saveTradeWorkspace(_ workspace:TradeWorkspace,context:AccountContext)throws{
+        try check(context);try workspace.validate(in:state)
+        if let previous=state.productPreferences?.tradeWorkspace{
+            if workspace.revision<previous.revision{return}
+            if workspace.revision==previous.revision{
+                guard workspace==previous else{throw TradeError.invalid("交易草稿版本衝突")};return
+            }
+        }
+        try transaction{s in
+            if s.productPreferences==nil{s.productPreferences=ProductPreferences()}
+            s.productPreferences!.tradeWorkspace=workspace
+        }
+    }
     public func saveWatchGroup(_ group:WatchGroup,context:AccountContext)throws{
         try check(context)
         guard !group.name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,group.name.utf8.count<=160,group.instrumentIDs.count<=500,Set(group.instrumentIDs).count==group.instrumentIDs.count,group.instrumentIDs.allSatisfy({id in state.instruments.contains{$0.id==id && $0.market==group.market}}) else{throw TradeError.invalid("自選群組名稱或商品不合法")}
@@ -58,6 +71,8 @@ public actor TradingEngine {
         }
     }
     public func snapshot() -> AccountState { state }
+    /// B refresh reads the existing world; it never advances time or generates a new price.
+    public func marketSnapshot(context:AccountContext)throws->AccountState{try check(context);return state}
     public func fillPage(limit: Int = 100,before: Int64? = nil,context: AccountContext) throws -> [FillPageRow] {
         try check(context);return try repository.fillPage(limit:limit,before:before)
     }

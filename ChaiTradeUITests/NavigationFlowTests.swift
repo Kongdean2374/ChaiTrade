@@ -26,3 +26,99 @@ import XCTest
     func testBTCDetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:Coinbase_Exchange:BTC-USD",query:"BTC",crypto:true)}
     func testETHDetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:Coinbase_Exchange:ETH-USD",query:"ETH",crypto:true)}
 }
+
+@MainActor final class TradingHandoffTests:IsolatedUITestCase{
+    private func onboardUSD(_ app:XCUIApplication)throws{
+        let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Fresh onboarding missing")
+        let currency=app.buttons["baseCurrency"];try reveal(currency,in:app);currency.tap();app.buttons["USD"].tap();try reveal(start,in:app);start.tap()
+        try check(app.tabBars.buttons["行情"].waitForExistence(timeout:30),"Clean account failed")
+        let s=try state(app);for key in ["orders","fills","journals","watchlist"]{try check((s[key] as? [Any])?.isEmpty==true,"Inherited "+key)}
+    }
+    private func detail(_ app:XCUIApplication,_ symbol:String)throws{
+        app.tabBars.buttons["行情"].tap();app.buttons["marketCrypto"].tap()
+        let search=app.textFields["marketSearch"];try check(search.waitForExistence(timeout:5),"Market list not restored");search.tap();search.typeText(symbol)
+        app.buttons["market-SIM:Coinbase_Exchange:"+symbol+"-USD"].tap()
+        try check(app.tabBars.buttons["行情"].isSelected,"Browsing changed tab")
+        capture("FLOW list to "+symbol+" detail stays in markets")
+    }
+    func testExplicitSellHandsExactETHIdentityToTradeWithoutSubmitting()throws{
+        let app=launchClean();defer{finish()};try onboardUSD(app);try detail(app,"ETH")
+        app.buttons["openSellOrder"].tap()
+        try check(app.navigationBars["模擬下單"].waitForExistence(timeout:5),"Explicit sell did not open trade form")
+        let s=try state(app);try check(s["tab"] as? Int==2 && s["tradeProduct"] as? String=="SIM:Coinbase_Exchange:ETH-USD" && s["tradeSide"] as? String=="sell","ETH sell handoff changed identity, tab or side")
+        try check((s["orders"] as? [String])?.isEmpty==true,"Handoff submitted automatically")
+        try check(app.segmentedControls.buttons["賣出"].isSelected,"Form lost explicit sell direction")
+        capture("FLOW ETH explicit sell exact identity no auto order")
+    }
+    func testMarketDetailTradePickerThenOneSimulatedOrder()throws{
+        let app=launchClean();defer{finish()};try onboardUSD(app);try detail(app,"BTC")
+        app.buttons["openOrder"].tap();try check(app.navigationBars["模擬下單"].waitForExistence(timeout:5),"Buy handoff failed")
+        try check((try state(app)["orders"] as? [String])?.isEmpty==true,"Buy handoff submitted automatically")
+        capture("FLOW explicit buy switches to trade form");app.buttons["完成"].tap()
+        let picker=app.buttons["tradeProductPicker"];try reveal(picker,in:app);picker.tap()
+        let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("ETH")
+        let eth=app.buttons["trade-product-SIM:Coinbase_Exchange:ETH-USD"];try reveal(eth,in:app);eth.tap()
+        try waitUntil("Independent trade picker failed"){(try? self.state(app)["tradeProduct"] as? String)=="SIM:Coinbase_Exchange:ETH-USD"}
+        capture("FLOW independent trade picker changed BTC to ETH")
+        app.buttons["openOrder"].tap();let size=app.textFields["orderQuantity"];try reveal(size,in:app)
+        try check(size.value as? String=="0.001","Another product quantity leaked into ETH")
+        size.tap();size.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:8)+"0.01")
+        app.buttons["orderKind"].tap();app.buttons["市價"].tap()
+        let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap()
+        try check(app.alerts["確認本機模擬委託"].waitForExistence(timeout:5),"No order review")
+        capture("FLOW exact ETH quantity and local account before confirm");rapid(app.buttons["確認送出"])
+        try waitUntil("Confirmed simulation did not return receipt",timeout:10){app.navigationBars["委託與成交"].exists}
+        let s=try state(app),intents=try XCTUnwrap(s["orderIntents"] as? [[String:String]])
+        try check(intents.count==1 && intents[0]["instrument"]=="SIM:Coinbase_Exchange:ETH-USD" && intents[0]["side"]=="buy","One intent used wrong product/side or duplicated")
+        try check((s["fills"] as? [[String:String]])?.count==1,"Simulation filled more than once")
+        try check((s["positions"] as? [String:String])?["SIM:Coinbase_Exchange:ETH-USD"]=="0.01","Simulation position wrong")
+        capture("FLOW single local fill and receipt")
+    }
+}
+
+@MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
+    func testBrowsingAndCancelledHandoffKeepDirtyDraft()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
+        let size=app.textFields["orderQuantity"];try reveal(size,in:app);size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"7")
+        app.buttons["完成"].tap();try waitUntil("Edited draft not retained"){(try? self.state(app)["tradeDraftQuantity"] as? String)=="7"}
+        let saved=try state(app),original=try XCTUnwrap(saved["tradeProduct"] as? String)
+        app.tabBars.buttons["行情"].tap();app.buttons["marketCrypto"].tap()
+        let search=app.textFields["marketSearch"];search.tap();search.typeText("ETH");app.buttons["market-SIM:Coinbase_Exchange:ETH-USD"].tap()
+        try check((try state(app)["tradeProduct"] as? String)==original,"Browsing changed draft product")
+        app.buttons["openSellOrder"].tap();try check(app.buttons["保留原草稿"].waitForExistence(timeout:5),"Dirty draft silently overwritten")
+        capture("FLOW explicit dirty draft conflict");app.buttons["保留原草稿"].tap()
+        let kept=try state(app);try check(kept["tradeProduct"] as? String==original && kept["tradeDraftQuantity"] as? String=="7" && kept["tab"] as? Int==1,"Keep did not cancel handoff")
+        app.buttons["openSellOrder"].tap();app.buttons["放棄草稿並切換商品／方向"].tap()
+        try check(app.navigationBars["模擬下單"].waitForExistence(timeout:5),"Discard did not open requested form")
+        try check(app.textFields["orderQuantity"].value as? String=="0.001","Discard reused old stock size in ETH")
+        try check((try state(app)["orders"] as? [String])?.isEmpty==true,"Draft conflict sent an order")
+        capture("FLOW discard resets ETH quantity and keeps orders empty")
+    }
+    func testDirectTradePickerCategoriesEmptyAndClearPreserveAccount()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app);let original=try state(app)
+        app.tabBars.buttons["交易"].tap();app.buttons["tradeProductPicker"].tap()
+        app.buttons["tradePickerMarket"].tap();app.buttons["加密貨幣"].tap()
+        let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("NO_SUCH_PRODUCT_293")
+        try check(app.staticTexts["沒有符合的商品"].waitForExistence(timeout:5),"Picker has no clear empty state")
+        app.buttons["tradePickerClear"].tap();try check(search.value as? String=="搜尋名稱、代碼或交易所" || search.value as? String=="","Clear did not clear query")
+        search.tap();search.typeText("BTC")
+        let btc=app.buttons["trade-product-SIM:Coinbase_Exchange:BTC-USD"];try reveal(btc,in:app);btc.tap()
+        let selected=try state(app);try check(selected["tradeProduct"] as? String=="SIM:Coinbase_Exchange:BTC-USD","Picker selected another venue")
+        try check(selected["market"] as? String==original["market"] as? String,"Trade picker polluted market browsing classification")
+        try check((selected["cash"] as? [String:String])==(original["cash"] as? [String:String]),"Picker changed funds")
+        try check((selected["orders"] as? [String])?.isEmpty==true,"Picker auto submitted")
+        capture("FLOW direct trade categorized picker search clear and selection")
+    }
+    func testRapidOfflineRefreshLeavesWorldAndFormUnchanged()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        app.tabBars.buttons["交易"].tap();let refresh=app.buttons["refreshMarketQuotes"];try reveal(refresh,in:app)
+        let before=try state(app);rapid(refresh)
+        let after=try state(app)
+        try check((before["quotes"] as? [String:[String:String]])==(after["quotes"] as? [String:[String:String]]),"B refresh regenerated prices")
+        try check((before["time"] as? NSNumber)==(after["time"] as? NSNumber),"B refresh advanced simulation time")
+        try check((before["cash"] as? [String:String])==(after["cash"] as? [String:String]),"Refresh changed money")
+        try check(before["tradeProduct"] as? String==after["tradeProduct"] as? String && before["tradeSide"] as? String==after["tradeSide"] as? String,"Refresh changed form identity or side")
+        capture("FLOW rapid offline refresh unchanged clock prices account and form")
+    }
+}

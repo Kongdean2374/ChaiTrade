@@ -66,7 +66,7 @@ import XCTest
         try check((try state(app))["selected"] as? String=="SIM:Coinbase_Exchange:BTC-USD","BTC discovery selected a contract or another venue")
         try check(app.buttons["openOrder"].label=="買入","Crypto spot did not use spot language")
         capture("AFTER B BTC chart and price")
-        app.tabBars.buttons["行情"].tap();let search=app.textFields["marketSearch"];search.tap();search.typeText("ETH")
+        app.navigationBars.buttons.element(boundBy:0).tap();let search=app.textFields["marketSearch"];search.tap();search.typeText("ETH")
         try check(app.buttons["market-SIM:Coinbase_Exchange:ETH-USD"].waitForExistence(timeout:5),"ETH is not searchable on first offline launch")
         try check(!app.buttons["market-SIM:TWSE:2330"].exists,"Crypto search leaked a stock")
         capture("AFTER B ETH search")
@@ -187,7 +187,7 @@ import XCTest
         let row=try XCTUnwrap(choices.first{!initialIDs.contains(String($0.identifier.dropFirst("discover-".count)))})
         let expected=String(row.identifier.dropFirst("discover-".count));try reveal(row,in:app);row.tap()
         try waitUntil("Selected directory identity did not return to product",timeout:15){
-            guard let s=try? self.state(app) else{return false};return s["selected"] as? String==expected && s["tab"] as? Int==2 && !app.buttons["reloadSourceCatalog"].exists
+            guard let s=try? self.state(app) else{return false};return s["selected"] as? String==expected && s["tab"] as? Int==1 && !app.buttons["reloadSourceCatalog"].exists
         }
         let after=try state(app),catalog=try XCTUnwrap(after["instruments"] as? [[String:String]])
         try check(catalog.count==initialIDs.count+1 && catalog.filter{$0["id"]==expected}.count==1,"One selection did not add exactly one identity")
@@ -267,7 +267,7 @@ import XCTest
         try waitUntil("Crypto chart has no actual local candles",timeout:10){guard let snapshot=try? self.state(app),let time=snapshot["chartTime"] as? NSNumber else{return false};return time.int64Value>0}
         capture("AFTER B USD crypto chart before trade")
         for action in ["openOrder","openSellOrder"]{
-            app.tabBars.buttons["交易"].tap();let entry=app.buttons[action];try reveal(entry,in:app);entry.tap()
+            if action=="openSellOrder"{app.tabBars.buttons["交易"].tap()};let entry=app.buttons[action];try reveal(entry,in:app);entry.tap()
             app.buttons["orderKind"].tap();app.buttons["市價"].tap()
             let submit=app.buttons["submitOrder"];try reveal(submit,in:app);submit.tap();app.buttons["確認送出"].tap()
             try waitUntil("Crypto receipt did not reach orders",timeout:10){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}

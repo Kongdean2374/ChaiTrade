@@ -188,6 +188,7 @@ public final class AccountRepository: @unchecked Sendable {
         return try encoder.encode(object)
     }
     public static func validate(_ state: AccountState, mode: Mode) throws {
+        try state.productPreferences?.tradeWorkspace?.validate(in:state)
         if let basis=state.capitalBasis{
             guard basis.matches(state.netFlows),basis.unvaluedCount>=basis.unvaluedCurrencies.count,basis.unvaluedCount>=0 else{throw TradeError.corrupt("歷史投入成本與外部資金不符")}
             if (state.history?.ledger ?? 0)==0{guard try basis==CapitalBasis.reconstruct(state) else{throw TradeError.corrupt("歷史投入成本與原始帳本／匯率證據不符")}}
