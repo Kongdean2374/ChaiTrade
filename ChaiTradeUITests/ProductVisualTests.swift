@@ -31,8 +31,15 @@ import XCTest
         capture("AFTER VISUAL dark accessibility order keyboard")
         let submit=app.buttons["submitOrder"];try reveal(submit,in:app);try check(submit.isHittable,"Keyboard covers order review at large text size")
         capture("AFTER VISUAL dark accessibility order bottom")
-        app.buttons["完成"].firstMatch.tap()
-        try check(!app.navigationBars["模擬下單"].exists,"Order cancel left a sheet")
+        let cancel=app.navigationBars["模擬下單"].buttons["完成"].firstMatch
+        try check(cancel.isHittable,"Order navigation cancel is not reachable above the keyboard");cancel.tap()
+        // Retained e467da0 failure read the dismissing bar once, then its actual
+        // failure PNG/tree already showed Trade with the sheet and keyboard gone.
+        // Wait for that same presentation to finish, without another tap or any
+        // change to the original 120-second case/financial checks.
+        try waitUntil("Order cancel left a sheet or blocked the trade tab",timeout:5){
+            !app.navigationBars["模擬下單"].exists && app.tabBars.buttons["交易"].isHittable
+        }
         let s=try state(app);try check((s["orders"] as? [String])?.isEmpty==true && (s["fills"] as? [[String:String]])?.isEmpty==true,"Canceled visual order changed account")
         app.tabBars.buttons["資產"].tap();try check(app.navigationBars["資產"].exists,"Cancel blocked Tab switching")
     }
