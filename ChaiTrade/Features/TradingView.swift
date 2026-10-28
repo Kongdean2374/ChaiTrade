@@ -368,9 +368,9 @@ struct OrderForm:View{
                 if instrument.asset.derivative && reduceOnly{LabeledContent("方向",value:directionLabel).accessibilityElement(children:.ignore).accessibilityLabel("方向").accessibilityValue(directionLabel).accessibilityAddTraits(.isStaticText).accessibilityIdentifier("orderDirection");Text("僅減少既有部位，不反向開倉。").font(.caption).foregroundStyle(.secondary)}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
             }
             Button{editing=nil;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);choosingOrderKind=true}label:{HStack{Text("委託類型").foregroundStyle(.primary);Spacer();Text(kind.label);Image(systemName:"chevron.up.chevron.down").font(.caption)}.frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.plain).accessibilityIdentifier("orderKind").accessibilityValue(kind.label)
-            if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad).focused($editing,equals:.price).accessibilityIdentifier("orderPrice")}
+            if [.limit,.stopLimit].contains(kind){numericInput("限價（\(instrument.currency)）",text:$price,field:.price,identifier:"orderPrice")}
             if instrument.usesTaiwanBoards{Picker("數量單位",selection:$unit){Text("股").tag("股");Text("張").tag("張")}.pickerStyle(.segmented);Text("1 張＝\(instrument.identity?.boardLot ?? 1000) 股").font(.caption).foregroundStyle(.secondary)}
-            TextField("數量（\(unit)）",text:$quantity).keyboardType(.decimalPad).focused($editing,equals:.quantity).accessibilityIdentifier("orderQuantity")
+            numericInput("數量（\(unit)）",text:$quantity,field:.quantity,identifier:"orderQuantity")
             HStack{ForEach([25,50,75,100],id:\.self){percent in Button("\(percent)%"){setProportion(percent)}.font(.caption).buttonStyle(.borderless)}}
             if !instrument.asset.derivative{LabeledContent("可賣數量（\(instrument.quantityUnit)）",value:MarketText.number(model.state?.positions[instrument.id]?.quantity ?? .zero))}
             if instrument.asset.derivative{LabeledContent("可平數量（\(instrument.quantityUnit)）",value:MarketText.number(selectedPosition?.quantity.magnitude ?? .zero))}
@@ -387,15 +387,15 @@ struct OrderForm:View{
     }
     @ViewBuilder private var advancedSection:some View{
         if board != .oddLot{Section{DisclosureGroup("進階委託與保護",isExpanded:$advanced){
-            if kind.conditional && kind != .trailing{TextField("觸發價",text:$trigger).keyboardType(.decimalPad).focused($editing,equals:.trigger)}
-            if kind == .trailing{TextField("距離／比例（0.05＝5%）",text:$distance).keyboardType(.decimalPad).focused($editing,equals:.distance);Toggle("使用百分比",isOn:$trailingPercent)}
+            if kind.conditional && kind != .trailing{numericInput("觸發價（\(instrument.currency)）",text:$trigger,field:.trigger,identifier:"orderTriggerPrice")}
+            if kind == .trailing{numericInput(trailingPercent ? "追蹤比例（0.05＝5%）":"追蹤距離（\(instrument.currency)）",text:$distance,field:.distance,identifier:"orderTrailingDistance");Toggle("使用百分比",isOn:$trailingPercent)}
             if kind.conditional{Picker("觸發依據",selection:$reference){ForEach(TriggerReference.allCases,id:\.self){Text($0.rawValue)}}}
             Picker("有效期限",selection:$tif){ForEach(TimeInForce.allCases,id:\.self){Text($0.rawValue)}}
             if tif == .GTD{DatePicker("到期",selection:$expiry,in:Date()...)}
             Toggle("Post-only（僅掛單）",isOn:$postOnly)
             if instrument.asset.derivative && !hedge{Toggle("Reduce-only（僅減倉）",isOn:$reduceOnly)}
             Picker("條件保護",selection:$protection){Text("無").tag("無");Text("括號（成交後保護）").tag("括號");Text("OCO（兩張退出委託）").tag("OCO")}
-            if protection != "無"{TextField("停利價",text:$profit).keyboardType(.decimalPad).focused($editing,equals:.profit);TextField("停損價",text:$stop).keyboardType(.decimalPad).focused($editing,equals:.stop)}
+            if protection != "無"{numericInput("停利價（\(instrument.currency)）",text:$profit,field:.profit,identifier:"orderProfitPrice");numericInput("停損價（\(instrument.currency)）",text:$stop,field:.stop,identifier:"orderStopPrice")}
             Text("條件單只在引擎有有效資料並運作時監控。未監控期間不會補造A成交。").font(.caption).foregroundStyle(.secondary)
         }}}else{Section{Text("盤中零股採當日有效限價，獨立買賣盤與交易時段；不支援市價、跨日、IOC／FOK與Post-only。").font(.caption)}}
     }
@@ -416,6 +416,12 @@ struct OrderForm:View{
         // both actions in this inset lets Dynamic Type reserve their full heights.
         if editing != nil{Button("收起鍵盤"){editing=nil;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}.font(.subheadline).frame(maxWidth:.infinity,minHeight:44).buttonStyle(.borderless).accessibilityIdentifier("orderDismissKeyboard")}
         }.background(.bar).accessibilityElement(children:.contain).accessibilityIdentifier("orderActionBar")
+    }
+    private func numericInput(_ title:String,text:Binding<String>,field:EditingField,identifier:String)->some View{
+        VStack(alignment:.leading,spacing:6){
+            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true).accessibilityIdentifier(identifier+"Label")
+            TextField("輸入數值",text:text).keyboardType(.decimalPad).focused($editing,equals:field).accessibilityLabel(title).accessibilityIdentifier(identifier)
+        }.accessibilityElement(children:.contain)
     }
     private var riskDraft:OrderRequest?{guard let size=orderQuantity else{return nil};var request=OrderRequest(instrumentID:instrument.id,side:effectiveSide,kind:kind,quantity:size);request.positionSide=hedge ? contractAction.positionSide:nil;request.reduceOnly=effectiveReduceOnly;request.leverage=leverage;request.marginMode=margin;return request}
     private var preview:(Amount,Amount,Amount,Amount)?{

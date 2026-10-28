@@ -58,6 +58,10 @@ import XCTest
         try check((s["cash"] as? [String:String])==["TWD":"100000"],"Fixture did not start from clean capital")
         capture("Clean baseline",includeHierarchy:false,snapshot:s)
     }
+    private func finiteFrame(_ frame:CGRect)->Bool{
+        !frame.isNull && !frame.isInfinite && frame.minX.isFinite && frame.minY.isFinite && frame.maxX.isFinite && frame.maxY.isFinite && frame.width.isFinite && frame.height.isFinite && frame.width>0 && frame.height>0
+    }
+    private func onScreen(_ frame:CGRect,_ screen:CGRect)->Bool{finiteFrame(frame) && screen.intersects(frame)}
     func reveal(_ element:XCUIElement,in app:XCUIApplication,identifier:String?=nil)throws{
         // Callers with an exact known query ID can avoid two preliminary AX
         // reads. Geometry still comes from the current native snapshot and the
@@ -78,9 +82,12 @@ import XCTest
                 try check(false,"Cannot obtain current geometry for: "+targetID);return
             }
             let nodes=descendants(snapshot),screen=snapshot.frame
-            let navigation=nodes.last{$0.elementType == .navigationBar}
-            let tabs=nodes.first{$0.elementType == .tabBar}
-            let keyboard=nodes.first{$0.elementType == .keyboard}
+            guard finiteFrame(screen) else{print("UI_REVEAL_INVALID_SCREEN",name,targetID,screen);try revealWithIndividualQueries(element,in:app,maximumGestures:7-attempt);return}
+            // A dismissed order-kind sheet can remain in AX with CGRect.null.
+            // Its infinite maxY is not the foreground navigation boundary.
+            let navigation=nodes.last{$0.elementType == .navigationBar && onScreen($0.frame,screen)}
+            let tabs=nodes.first{$0.elementType == .tabBar && onScreen($0.frame,screen)}
+            let keyboard=nodes.first{$0.elementType == .keyboard && onScreen($0.frame,screen)}
             let top=navigation?.frame.maxY ?? screen.minY
             var bottom=screen.maxY
             if let tabs,app.tabBars.firstMatch.isHittable{bottom=min(bottom,tabs.frame.minY)}
@@ -88,27 +95,32 @@ import XCTest
                 var obstruction=keyboard.frame.minY
                 for strip in nodes where ["SystemInputAssistantView","inputView"].contains(strip.identifier){
                     let rect=strip.frame
-                    if rect.height>0,rect.minY>top{obstruction=min(obstruction,rect.minY)}
+                    if onScreen(rect,screen),rect.minY>top{obstruction=min(obstruction,rect.minY)}
                 }
                 for bar in nodes where bar.elementType == .toolbar{
                     let rect=bar.frame
-                    if rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=keyboard.frame.minY+1,rect.maxY>=keyboard.frame.minY-180{obstruction=min(obstruction,rect.minY)}
+                    if onScreen(rect,screen),rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=keyboard.frame.minY+1,rect.maxY>=keyboard.frame.minY-180{obstruction=min(obstruction,rect.minY)}
                 }
                 bottom=min(bottom,obstruction)
             }
-            let footerID=nodes.contains{$0.identifier=="submitOrder"} ? "orderActionBar":"tradeActionBar"
-            if !isFooterAction,let footer=nodes.first(where:{$0.identifier==footerID}),app.otherElements[footerID].firstMatch.isHittable{
-                bottom=min(bottom,footer.frame.minY)
+            if !isFooterAction{
+                for footerID in ["orderActionBar","tradeActionBar"]{
+                    if let footer=nodes.last(where:{$0.identifier==footerID && onScreen($0.frame,screen)}),app.otherElements[footerID].firstMatch.isHittable{bottom=min(bottom,footer.frame.minY);break}
+                }
             }
             let viewport=CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
+            guard finiteFrame(viewport),screen.contains(viewport) else{
+                print("UI_REVEAL_INVALID_VIEWPORT",name,targetID,"screen",screen,"top",top,"bottom",bottom)
+                try revealWithIndividualQueries(element,in:app,maximumGestures:7-attempt);return
+            }
             // A unique stable identifier in this same native snapshot also gives
             // the target frame. Avoid two more cross-process AX reads; ambiguous
             // or unlabeled elements retain the original live lookup. The full
             // viewport check and the live hit test below are unchanged.
             let targets=targetID.isEmpty || targetID=="requested control" ? []:nodes.filter{$0.identifier==targetID}
             let frame:CGRect?
-            if targets.count==1{frame=targets[0].frame}
-            else{frame=element.exists ? element.frame:nil}
+            if targets.count==1,finiteFrame(targets[0].frame){frame=targets[0].frame}
+            else{let measured=element.exists ? element.frame:nil;frame=measured.flatMap{finiteFrame($0) ? $0:nil}}
             let contained=frame.map{viewport.contains($0)} ?? false
             let reachable=contained && element.isHittable
             if reachable{return}
@@ -128,44 +140,46 @@ import XCTest
         }
         try check(false,"Control is not completely visible and reachable: "+targetID)
     }
-    private func revealWithIndividualQueries(_ element:XCUIElement,in app:XCUIApplication)throws{
-        let screen=app.frame,navigation=app.navigationBars.allElementsBoundByIndex.last,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
+    private func revealWithIndividualQueries(_ element:XCUIElement,in app:XCUIApplication,maximumGestures:Int=7)throws{
+        let screen=app.frame,tabs=app.tabBars.firstMatch,keyboard=app.keyboards.firstMatch
+        try check(finiteFrame(screen),"Live screen geometry is invalid; no pointer gesture sent")
         let keyboardAssistant=app.otherElements["SystemInputAssistantView"].firstMatch,keyboardInput=app.otherElements["inputView"].firstMatch
         var measuredKeyboard:CGRect?,keyboardOcclusion:CGFloat?
         // A presented sheet retains the underlying TabBar in the AX tree. Its frame
         // does not occlude the sheet; use the foreground navigation and hittable bars.
-        let tabBottom=tabs.exists && tabs.isHittable ? tabs.frame.minY:screen.maxY
         let targetID=element.exists ? element.identifier:"requested control"
         // Hittable alone accepts partly exposed controls behind the pinned buy/sell bar.
         // Require the entire target inside the usable viewport before tapping it.
-        let footer=app.otherElements[app.buttons["submitOrder"].exists ? "orderActionBar":"tradeActionBar"].firstMatch
         let isFooterAction=["openOrder","openSellOrder","submitOrder","saveJournal","enableContractTrading"].contains(targetID) || targetID.hasPrefix("closePosition-")
-        let hasFooter = !isFooterAction && footer.exists && footer.isHittable
         func usableViewport()->CGRect{
+            let navigation=app.navigationBars.allElementsBoundByIndex.last{bar in let rect=bar.frame;return onScreen(rect,screen) && bar.isHittable}
             let top=navigation?.frame.maxY ?? screen.minY
-            var bottom=tabBottom
-            if keyboard.exists{
+            let tabFrame=tabs.exists && tabs.isHittable ? tabs.frame:nil
+            var bottom=tabFrame.flatMap{onScreen($0,screen) ? $0.minY:nil} ?? screen.maxY
+            if keyboard.exists,onScreen(keyboard.frame,screen){
                 let frame=keyboard.frame
                 if measuredKeyboard != frame{
                     measuredKeyboard=frame;var obstruction=frame.minY
-                    for strip in [keyboardAssistant,keyboardInput] where strip.exists{let rect=strip.frame;if rect.height>0,rect.minY>top{obstruction=min(obstruction,rect.minY)}}
+                    for strip in [keyboardAssistant,keyboardInput] where strip.exists{let rect=strip.frame;if onScreen(rect,screen),rect.minY>top{obstruction=min(obstruction,rect.minY)}}
                     // The custom 48pt keyboard toolbar is above the prediction strip.
                     // Use its actual frame; otherwise swipes land on the Done button.
-                    for bar in app.toolbars.allElementsBoundByIndex where bar.exists{let rect=bar.frame;if rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=frame.minY+1,rect.maxY>=frame.minY-180{obstruction=min(obstruction,rect.minY)}}
+                    for bar in app.toolbars.allElementsBoundByIndex where bar.exists{let rect=bar.frame;if onScreen(rect,screen),rect.width>=screen.width*0.6,rect.minY>top,rect.maxY<=frame.minY+1,rect.maxY>=frame.minY-180{obstruction=min(obstruction,rect.minY)}}
                     keyboardOcclusion=obstruction
                 }
                 bottom=min(frame.minY,keyboardOcclusion ?? frame.minY)
             }
-            if hasFooter{bottom=min(bottom,footer.frame.minY)}
+            if !isFooterAction{for id in ["orderActionBar","tradeActionBar"]{let footer=app.otherElements[id].firstMatch;if footer.exists,footer.isHittable,onScreen(footer.frame,screen){bottom=min(bottom,footer.frame.minY);break}}}
             return CGRect(x:screen.minX,y:top,width:screen.width,height:max(1,bottom-top)).insetBy(dx:0,dy:2)
         }
-        for attempt in 0...7{
+        for attempt in 0...maximumGestures{
             // Sample each AX property once per iteration. Keep the same complete
             // visibility/hit-test rules and at most seven gestures.
             let viewport=usableViewport(),exists=element.exists
-            let frame=exists ? element.frame:nil
+            try check(finiteFrame(viewport) && screen.contains(viewport),"Live content geometry is invalid; no pointer gesture sent")
+            let measured=exists ? element.frame:nil
+            let frame=measured.flatMap{finiteFrame($0) ? $0:nil}
             if let frame,viewport.contains(frame),element.isHittable{return}
-            guard attempt<7 else{break}
+            guard attempt<maximumGestures else{break}
             // Large titles collapse while scrolling; both ends must remain inside
             // the current content area. A screen-relative downward swipe can start
             // in the SE navigation bar and never move the scroll view at all.

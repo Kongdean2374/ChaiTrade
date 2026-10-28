@@ -179,6 +179,66 @@ import XCTest
         app.tabBars.buttons["委託"].tap();try check(app.navigationBars["委託與成交"].exists,"Unavailable quote hid local order records")
         completed=true
     }
+    func testFreshAPublicBTCChartAndLocalFillPersistWithoutDuplicateDebit()throws{
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)}
+        let initial=try onboard(app,online:true,currency:"USD")
+        try check(initial["mode"] as? String=="online","Public quote journey did not start in A")
+        app.tabBars.buttons["行情"].tap();app.buttons["marketCrypto"].tap()
+        try waitUntil("Fresh A BTC did not receive a real current public quote",timeout:40){
+            guard let snapshot=try? self.state(app),snapshot["mode"] as? String=="online",
+                  let q=(snapshot["quotes"] as? [String:[String:String]])?["coinbase:BTC-USD"],
+                  q["valid"]=="true",q["quality"]=="realtime",q["source"]=="Coinbase Exchange",
+                  let time=Int64(q["time"] ?? ""),let received=Int64(q["receivedAt"] ?? ""),let age=Int64(q["maximumAge"] ?? "") else{return false}
+            let clock=Int64(Date().timeIntervalSince1970)
+            return clock>=time-5 && clock>=received-5 && clock-time<=age && clock-received<=age
+        }
+        let btc=app.buttons["market-coinbase:BTC-USD"];try reveal(btc,in:app,identifier:"market-coinbase:BTC-USD");btc.tap()
+        try check(app.tabBars.buttons["行情"].isSelected,"A quote browsing changed the selected tab")
+        let chart=app.webViews["inlineChartWeb"].firstMatch;try reveal(chart,in:app,identifier:"inlineChartWeb")
+        try waitUntil("A public chart has no real rendered candles",timeout:10){
+            guard let snapshot=try? self.state(app) else{return false}
+            return snapshot["selected"] as? String=="coinbase:BTC-USD" && ((snapshot["chartRendered"] as? [String:Int])?["inline"] ?? 0)>0 && (snapshot["chartTime"] as? Int64 ?? 0)>0
+        }
+        capture("AFTER A actual public BTC candles before explicit trade",includeHierarchy:false,snapshot:try state(app))
+        let buy=app.buttons["openOrder"];try reveal(buy,in:app,identifier:"openOrder");buy.tap()
+        try check(app.navigationBars["模擬下單"].waitForExistence(timeout:5),"Explicit A buy did not open the local form")
+        let handoff=try state(app)
+        try check(handoff["mode"] as? String=="online" && handoff["tradeProduct"] as? String=="coinbase:BTC-USD" && handoff["tradeSide"] as? String=="buy","A buy lost account, full product identity or side")
+        try check((handoff["orders"] as? [String])?.isEmpty==true && (handoff["cash"] as? [String:String])==(initial["cash"] as? [String:String]),"A handoff submitted or moved funds automatically")
+        let size=app.textFields["orderQuantity"];try reveal(size,in:app,identifier:"orderQuantity")
+        try check(size.value as? String=="0.001" && app.staticTexts["orderQuantityLabel"].label=="數量（BTC）" && app.staticTexts["orderQuantityLabel"].isHittable,"A quantity or its visible BTC unit is incorrect")
+        app.buttons["orderKind"].tap();app.buttons["市價"].tap()
+        let submit=app.buttons["submitOrder"];try reveal(submit,in:app,identifier:"submitOrder");submit.tap()
+        try check(app.alerts["確認本機模擬委託"].waitForExistence(timeout:5),"A order was not reviewed before confirmation")
+        let reviewed=try state(app)
+        try check((reviewed["orders"] as? [String])?.isEmpty==true && (reviewed["fills"] as? [[String:String]])?.isEmpty==true,"A review sent an order without explicit confirmation")
+        capture("AFTER A actual public BTC local-only confirmation",includeHierarchy:false,snapshot:reviewed)
+        rapid(app.buttons["確認送出"])
+        try waitUntil("A locally matched order did not reach its receipt",timeout:10){self.receiptVisible(app)}
+        let filled=try state(app),intents=try XCTUnwrap(filled["orderIntents"] as? [[String:String]]),fills=try XCTUnwrap(filled["fills"] as? [[String:String]])
+        try check(intents.count==1 && intents[0]["instrument"]=="coinbase:BTC-USD" && intents[0]["side"]=="buy" && intents[0]["status"]=="filled","A rapid confirmation created a wrong, partial or duplicate intent")
+        try check(fills.count==1,"A rapid confirmation did not produce exactly one local fill")
+        let fill=try XCTUnwrap(fills.first)
+        try check(fill["instrument"]=="coinbase:BTC-USD" && fill["quantity"]=="0.001" && fill["estimated"]=="false","A fill used another product, quantity or an estimated price")
+        let cost=number(try XCTUnwrap(fill["price"])).multiplying(by:number(try XCTUnwrap(fill["quantity"]))).multiplying(by:number(try XCTUnwrap(fill["multiplier"]))).adding(number(try XCTUnwrap(fill["fee"]))).adding(number(try XCTUnwrap(fill["tax"])))
+        let initialCash=number(try XCTUnwrap((initial["cash"] as? [String:String])?["USD"]))
+        let expected=initialCash.subtracting(cost)
+        try check(number((filled["cash"] as? [String:String])?["USD"] ?? "NaN")==expected,"A virtual USD was not debited exactly once")
+        let cashEntries=try XCTUnwrap(filled["fillCash"] as? [[String:String]])
+        let debit=cashEntries.reduce(NSDecimalNumber.zero){$0.adding(number($1["amount"] ?? "NaN"))}
+        try check(debit==cost.multiplying(by:number("-1")),"A fill cash ledger does not reconcile exactly")
+        try check((filled["positions"] as? [String:String])?["coinbase:BTC-USD"]=="0.001","A BTC position does not match the single local fill")
+        capture("AFTER A actual public BTC single local fill receipt",includeHierarchy:false,snapshot:filled)
+        app.tabBars.buttons["資產"].tap()
+        let realized=app.staticTexts.matching(NSPredicate(format:"label BEGINSWITH %@","已實現價差（未扣費）")).firstMatch;try reveal(realized,in:app)
+        try check(app.staticTexts["Bitcoin 比特幣"].firstMatch.isHittable && app.staticTexts["0.001"].firstMatch.isHittable,"A actual BTC holding and quantity are not visibly present")
+        capture("AFTER A actual public BTC virtual holding",includeHierarchy:false)
+        app.terminate();app.launch();try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"A order cold relaunch failed")
+        let restored=try state(app)
+        try check(restored["mode"] as? String=="online" && (restored["fills"] as? [[String:String]])==fills && (restored["orders"] as? [String])==(filled["orders"] as? [String]),"A restart duplicated a fill, lost its order or changed account")
+        try check(number((restored["cash"] as? [String:String])?["USD"] ?? "NaN")==expected && (restored["positions"] as? [String:String])?["coinbase:BTC-USD"]=="0.001","A restart changed exact virtual cash or BTC position")
+        completed=true
+    }
     func testSettingsSectionsCancelAndSafeAreaReachability()throws{
         let app=launchClean();defer{finish()};try onboard(app)
         app.buttons["設定"].tap()
@@ -275,20 +335,22 @@ import XCTest
         capture("AFTER source directory missing Key is explicit")
     }
     func testActualOfficialUSDirectoryReturnsToETFWithoutGrantingQuotePermission()throws{
-        let app=launchClean();defer{finish()};try onboard(app,online:true)
-        let before=try state(app)
+        let app=launchClean();var completed=false;defer{finish(includeHierarchy:!completed)}
+        let before=try onboard(app,online:true)
         app.tabBars.buttons["行情"].tap();app.buttons["openCatalog"].tap();app.buttons["exploreSourceCatalogs"].tap()
-        let source=app.buttons["catalogSource-alpaca"];try reveal(source,in:app);source.tap();app.buttons["搜尋官方美股／ETF目錄"].tap()
+        let source=app.buttons["catalogSource-alpaca"];try reveal(source,in:app,identifier:"catalogSource-alpaca");source.tap();app.buttons["搜尋官方美股／ETF目錄"].tap()
         let search=app.textFields["usDirectorySearch"];try check(search.waitForExistence(timeout:5),"US identity search missing");search.tap();search.typeText("SPY")
-        let update=app.buttons["搜尋官方目錄"];try reveal(update,in:app);update.tap()
+        let update=app.buttons["搜尋官方目錄"];try reveal(update,in:app,identifier:"搜尋官方目錄");update.tap()
         let item=app.buttons["discover-alpaca:SPY"];try check(item.waitForExistence(timeout:30),"Actual official US directory did not return SPY ETF")
-        capture("AFTER actual official US identity and original venue");try reveal(item,in:app);item.tap()
+        capture("AFTER actual official US identity and original venue",includeHierarchy:false);try reveal(item,in:app,identifier:"discover-alpaca:SPY");item.tap()
         try waitUntil("US selection did not return to product",timeout:10){(try? self.state(app)["selected"] as? String)=="alpaca:SPY" && !app.textFields["usDirectorySearch"].exists}
         try check(!app.buttons["openOrder"].exists,"Official metadata incorrectly granted quote/trading permission")
         let after=try state(app)
         try check((after["instruments"] as? [[String:String]])?.count==(before["instruments"] as? [[String:String]])?.count,"Existing SPY identity duplicated")
         try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"US directory selection changed cash")
-        capture("AFTER US ETF without quote credential remains browseable")
+        try check((after["orders"] as? [String])?.isEmpty==true && (after["fills"] as? [[String:String]])?.isEmpty==true,"US metadata discovery created a local order or fill")
+        capture("AFTER US ETF without quote credential remains browseable",includeHierarchy:false,snapshot:after)
+        completed=true
     }
     func testLocalRecoveryCancelThenVerifiedRestorePreservesOriginalPoint()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)
