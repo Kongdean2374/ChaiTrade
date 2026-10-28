@@ -78,6 +78,32 @@ import XCTest
 }
 
 @MainActor final class TradeWorkspaceInteractionTests:IsolatedUITestCase{
+    func testOrderTypeChooserCancelAndSlideKeepTheExactUnsentDraft()throws{
+        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let before=try state(app);app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
+        let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);let typed=(try XCTUnwrap(quantity.value as? String))+"0";quantity.tap();quantity.typeText("0")
+        try waitUntil("Quantity input was not delivered intact",timeout:3){quantity.value as? String==typed}
+        let kind=app.buttons["orderKind"],originalKind=kind.value as? String
+        for attempt in 0..<2{
+            try reveal(kind,in:app);kind.tap()
+            let chooser=app.navigationBars["委託類型"];try check(chooser.waitForExistence(timeout:5),"Order type chooser missing")
+            if attempt==0{app.buttons["取消選擇"].tap()}
+            else{
+                let start=chooser.coordinate(withNormalizedOffset:CGVector(dx:0.25,dy:0.25))
+                let end=app.coordinate(withNormalizedOffset:CGVector(dx:0.25,dy:0.75))
+                start.press(forDuration:0.05,thenDragTo:end,withVelocity:.fast,thenHoldForDuration:0.1)
+            }
+            try waitUntil("Canceling the type chooser dismissed or changed the order",timeout:8){
+                !chooser.exists && app.navigationBars["模擬下單"].exists && kind.isHittable
+            }
+            try check(kind.value as? String==originalKind && quantity.value as? String==typed,"Type chooser cancellation changed the draft")
+        }
+        let after=try state(app)
+        try check(after["tradeProduct"] as? String==before["tradeProduct"] as? String && after["tradeSide"] as? String==before["tradeSide"] as? String,"Type chooser cancellation changed product or direction")
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Type chooser cancellation moved cash")
+        for key in ["orders","fills","journals","watchlist"]{try check((after[key] as? [Any])?.isEmpty==true,"Type chooser cancellation mutated "+key)}
+        capture("FLOW order type chooser cancel and slide keep the exact unsent draft")
+    }
     func testForegroundQuoteClockAdvancesAcrossTabsAndAppReactivation()throws{
         let app=launchClean();defer{finish()}
         let start=app.buttons["startTrading"];try check(start.waitForExistence(timeout:15),"Clock regression onboarding missing")
@@ -247,10 +273,18 @@ import XCTest
         let app=launchClean(fixture:true);defer{finish()};try ready(app)
         let baseline=try state(app);app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
         try check(app.navigationBars["模擬下單"].waitForExistence(timeout:5),"Order form missing")
+        let originalKind=app.buttons["orderKind"].value as? String
+        app.buttons["orderKind"].tap();app.buttons["取消選擇"].tap()
+        try waitUntil("Canceling order type selection changed the unsent form",timeout:3){
+            !app.navigationBars["委託類型"].exists && app.buttons["orderKind"].isHittable && app.buttons["orderKind"].value as? String==originalKind
+        }
         for label in ["市價","限價","市價","限價","市價","限價"]{
             let kind=app.buttons["orderKind"];try check(kind.isHittable,"Order kind row is not reachable")
             kind.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)).tap()
             let option=app.buttons[label];try check(option.waitForExistence(timeout:3),"Whole-row order menu tap did not present "+label);option.tap()
+            try waitUntil("Order type selection did not return the exact form",timeout:3){
+                !app.navigationBars["委託類型"].exists && kind.isHittable && kind.value as? String==label
+            }
             try check(app.navigationBars["模擬下單"].exists,"Menu changed page or dismissed order form")
         }
         let after=try state(app);try check((after["orders"] as? [String])?.isEmpty==true && (after["cash"] as? [String:String])==(baseline["cash"] as? [String:String]),"Order type changes submitted or moved funds")

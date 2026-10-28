@@ -114,7 +114,7 @@ struct TradingView:View{
     @ViewBuilder private var bookSection:some View{
         if let i=instrument,model.canTrade(i),let q=quote,q.valid,[ExecutionGrade.E1,.E2].contains(q.grade),!q.bids.isEmpty,!q.asks.isEmpty{
             let subtitle=model.state?.mode == .offline ? "本機模擬對手盤；數量依商品單位":"來源提供的買賣盤；本機成交會消耗可用流動性"
-            MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:subtitle).accessibilityIdentifier("productBookTitle");HStack(alignment:.top,spacing:18){BookSide(title:"買盤",levels:(try? SimulationParticipants.displayLevels(q.bids,usage:model.state?.participantUsage)) ?? [],color:.green);BookSide(title:"賣盤",levels:(try? SimulationParticipants.displayLevels(q.asks,usage:model.state?.participantUsage)) ?? [],color:.red)}}
+            MarketCard{MarketSectionTitle(title:"買賣盤",subtitle:subtitle).accessibilityIdentifier("productBookTitle");HStack(alignment:.top,spacing:18){BookSide(instrument:i,title:"買盤",levels:(try? SimulationParticipants.displayLevels(q.bids,usage:model.state?.participantUsage)) ?? [],color:.green);BookSide(instrument:i,title:"賣盤",levels:(try? SimulationParticipants.displayLevels(q.asks,usage:model.state?.participantUsage)) ?? [],color:.red)}}
         }else if model.state?.mode == .online{Text("目前沒有可供撮合的可靠買賣盤。可查看既有部位、委託與歷史，也可撤銷本機委託。").font(.footnote).foregroundStyle(.secondary)}
     }
     @ViewBuilder private func holdingSection(_ i:Instrument)->some View{
@@ -157,10 +157,10 @@ struct TradingView:View{
     private func productHeader(_ i:Instrument)->some View{
         VStack(alignment:.leading,spacing:12){
             HStack(alignment:.top){VStack(alignment:.leading,spacing:5){Text(i.name).font(.title2.bold());Text(i.symbol+" · "+(i.identity?.exchange ?? i.asset.label)+" · "+i.currency).font(.caption).foregroundStyle(.secondary)};Spacer();Button{Task{await model.toggleWatch(i.id)}}label:{Image(systemName:model.state?.watchlist.contains(i.id)==true ? "star.fill":"star").frame(minWidth:36,minHeight:44)}.accessibilityLabel("切換自選").disabled(model.interactionBlocked).accessibilityIdentifier("toggleWatch").accessibilityValue(model.state?.watchlist.contains(i.id)==true ? "已加入":"未加入");Button{details=true}label:{Image(systemName:"info.circle").frame(minWidth:30,minHeight:44)}.accessibilityLabel("商品規格")}
-            Text(MarketText.number(quote?.last)).font(.system(size:34,weight:.bold,design:.rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.5)
-            if let change=MarketText.change(quote,summary:model.summary(for:i)){Text(change.0).font(.subheadline.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.taiwanColors ? Color.red:Color.green):(model.settings.taiwanColors ? Color.green:Color.red))}
+            Text(MarketText.price(quote?.last,instrument:i)).font(.system(size:34,weight:.bold,design:.rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.5)
+            if let change=MarketText.change(quote,summary:model.summary(for:i),instrument:i){Text(change.0).font(.subheadline.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.taiwanColors ? Color.red:Color.green):(model.settings.taiwanColors ? Color.green:Color.red))}
             HStack{QuoteStatusLabel(status:model.status(for:i,board:i.usesTaiwanBoards ? model.selectedBoard:nil));Spacer();if let q=quote{Text(Date(timeIntervalSince1970:TimeInterval(q.time)).formatted(date:.abbreviated,time:.shortened)).font(.caption2).foregroundStyle(.secondary)}}
-            if let summary=model.summary(for:i){HStack{Metric(title:summary.window+"量",value:MarketText.number(summary.volume));if let high=summary.high{Metric(title:"最高",value:MarketText.number(high))};if let low=summary.low{Metric(title:"最低",value:MarketText.number(low))}}}
+            if let summary=model.summary(for:i){HStack{Metric(title:summary.window+"量",value:MarketText.quantity(summary.volume,instrument:i));if let high=summary.high{Metric(title:"最高",value:MarketText.price(high,instrument:i))};if let low=summary.low{Metric(title:"最低",value:MarketText.price(low,instrument:i))}}}
             if model.state?.mode == .offline{Text("價格、成交與事件均為離線模擬").font(.caption).foregroundStyle(.orange)}
         }
     }
@@ -209,10 +209,11 @@ struct TradingView:View{
     }
 }
 struct BookSide:View{
+    var instrument:Instrument
     var title:String
     var levels:[Level]
     var color:Color
-    var body:some View{VStack(spacing:9){HStack{Text(title);Spacer();Text("數量")}.font(.caption).foregroundStyle(.secondary);ForEach(Array(levels.prefix(5).enumerated()),id:\.offset){_,level in HStack{Text(MarketText.number(level.price)).foregroundStyle(color);Spacer();Text(MarketText.number(level.quantity))}.font(.system(.caption,design:.monospaced)).lineLimit(1).minimumScaleFactor(0.5)}}.frame(maxWidth:.infinity)}
+    var body:some View{VStack(spacing:9){HStack{Text(title);Spacer();Text("數量")}.font(.caption).foregroundStyle(.secondary);ForEach(Array(levels.prefix(5).enumerated()),id:\.offset){_,level in HStack{Text(MarketText.price(level.price,instrument:instrument)).foregroundStyle(color);Spacer();Text(MarketText.quantity(level.quantity,instrument:instrument))}.font(.system(.caption,design:.monospaced)).lineLimit(1).minimumScaleFactor(0.5)}}.frame(maxWidth:.infinity)}
 }
 private enum ContractAction:String,CaseIterable{
     case openLong,openShort,closeLong,closeShort
@@ -256,6 +257,7 @@ struct OrderForm:View{
     @State private var advanced=false
     @State private var cancelling=false
     @State private var confirm=false
+    @State private var choosingOrderKind=false
     @State private var sending=false
     @State private var submitted=false
     @State private var submitIssue:String?
@@ -277,14 +279,15 @@ struct OrderForm:View{
         contractRiskSection
         advancedSection
         summarySection
-    }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.background(OrderNavigationDismissObserver(enabled:!sending && !confirm && !submitted && !cancelling,onDismiss:cancelUnsentForm)).interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
+    }.disabled(sending).scrollDismissesKeyboard(.immediately).safeAreaInset(edge:.bottom){submitSection}.background(OrderNavigationDismissObserver(enabled:!sending && !confirm && !choosingOrderKind && !submitted && !cancelling,onDismiss:cancelUnsentForm)).interactiveDismissDisabled(sending).presentationDragIndicator(.visible).overlay(alignment:.bottomLeading){UITestProbe()}.modifier(UITestVisualEnvironment()).navigationTitle("模擬下單").navigationBarTitleDisplayMode(.inline).toolbar{
         ToolbarItem(placement:.principal){
             Text("模擬下單").font(.headline).frame(maxWidth:.infinity,minHeight:44)
                 .accessibilityHint("向下拖曳可取消尚未送出的委託")
         }
         ToolbarItem(placement:.topBarLeading){UITestCatchupControl()}
         ToolbarItem(placement:.topBarTrailing){Button("完成"){cancelUnsentForm()}.disabled(sending || cancelling)}
-    }.onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"};if let position=initialPosition{reduceOnly=true;side=position.quantity > .zero ? .sell:.buy;contractAction=position.quantity > .zero ? .closeLong:.closeShort;quantity=position.quantity.magnitude.description;leverage=position.leverage;margin=position.marginMode};if initialPosition==nil,workspaceSession==model.tradeSession,model.tradeWorkspace?.product.matches(instrument)==true,let saved=model.tradeWorkspace?.editor{restoreEditor(saved)};baseline=editorSnapshot}
+    }.sheet(isPresented:$choosingOrderKind){orderKindSelection}
+        .onAppear{guard !initialized else{return};initialized=true;price=quote?.last.description ?? "";side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"};if let position=initialPosition{reduceOnly=true;side=position.quantity > .zero ? .sell:.buy;contractAction=position.quantity > .zero ? .closeLong:.closeShort;quantity=position.quantity.magnitude.description;leverage=position.leverage;margin=position.marginMode};if initialPosition==nil,workspaceSession==model.tradeSession,model.tradeWorkspace?.product.matches(instrument)==true,let saved=model.tradeWorkspace?.editor{restoreEditor(saved)};baseline=editorSnapshot}
         .onDisappear{Task{await model.flushTradeWorkspace()}}
         .onChange(of:editorSnapshot){_,value in guard initialized,baseline != value,!submitted,let session=workspaceSession else{return};model.updateTradeEditor(value,instrument:instrument,context:accountContext,session:session)}
         .onChange(of:reduceOnly){_,closing in if closing,let position=selectedPosition{side=position.quantity > .zero ? .sell:.buy;leverage=position.leverage;margin=position.marginMode}}
@@ -292,7 +295,7 @@ struct OrderForm:View{
         .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text(confirmationText)}
     }
     private func cancelUnsentForm(){
-        guard !sending,!submitted,!confirm,!cancelling else{return};cancelling=true
+        guard !sending,!submitted,!confirm,!choosingOrderKind,!cancelling else{return};cancelling=true
         #if DEBUG
         if UITestSupport.session != nil{model.uiTestOrderDismissRequests+=1}
         #endif
@@ -306,6 +309,16 @@ struct OrderForm:View{
         side=e.side;contractAction=ContractAction(rawValue:e.contractAction) ?? .openLong;kind=e.kind;price=e.price;quantity=e.quantity;unit=e.unit;trigger=e.trigger;distance=e.distance;trailingPercent=e.trailingPercent;reference=e.reference;tif=e.tif;expiry=Date(timeIntervalSince1970:TimeInterval(e.expiry));postOnly=e.postOnly;reduceOnly=e.reduceOnly;leverage=e.leverage;margin=e.margin;protection=e.protection;profit=e.profit;stop=e.stop;advanced=e.advanced;requestID=e.requestID;ocoRequestID=e.ocoRequestID
     }
     private var availableKinds:[OrderKind]{if board == .oddLot{return [.limit]};return advanced ? OrderKind.allCases:[.market,.limit]}
+    private var orderKindSelection:some View{NavigationStack{List{
+        Section("選擇後只更新表單，不會送出委託"){
+            ForEach(availableKinds,id:\.self){choice in
+                Button{guard !sending,!submitted,isCurrent else{return};kind=choice;choosingOrderKind=false}label:{HStack{Text(choice.label);Spacer();if choice==kind{Image(systemName:"checkmark")}}.frame(minHeight:44).contentShape(Rectangle())}
+                    .accessibilityLabel(choice.label).disabled(model.interactionBlocked)
+            }
+        }
+        if board == .oddLot{Text("盤中零股僅支援限價當日單。").font(.footnote)}
+        else if !advanced{Text("其他條件類型可在原表單展開「進階委託與保護」。").font(.footnote)}
+    }.navigationTitle("委託類型").navigationBarTitleDisplayMode(.inline).toolbar{ToolbarItem(placement:.cancellationAction){Button("取消選擇"){choosingOrderKind=false}}}.overlay(alignment:.bottomLeading){UITestProbe()}}.modifier(UITestVisualEnvironment())}
     private var availableMoney:String{model.money(try? model.state.map{try TradingEngine.available($0,currency:instrument.currency)})}
     private var confirmationText:String{
         let direction=directionLabel
@@ -320,7 +333,7 @@ struct OrderForm:View{
                 if instrument.asset.derivative{Picker("合約操作",selection:$reduceOnly){Text("開倉").tag(false);Text("平倉").tag(true)}.pickerStyle(.segmented)}
                 if instrument.asset.derivative && reduceOnly{LabeledContent("方向",value:directionLabel).accessibilityElement(children:.ignore).accessibilityLabel("方向").accessibilityValue(directionLabel).accessibilityAddTraits(.isStaticText).accessibilityIdentifier("orderDirection");Text("僅減少既有部位，不反向開倉。").font(.caption).foregroundStyle(.secondary)}else{Picker("方向",selection:$side){Text(instrument.buyLabel).tag(Side.buy);Text(instrument.sellLabel).tag(Side.sell)}.pickerStyle(.segmented)}
             }
-            Menu{ForEach(availableKinds,id:\.self){choice in Button{kind=choice}label:{if choice==kind{Label(choice.label,systemImage:"checkmark")}else{Text(choice.label)}}.accessibilityLabel(choice.label)}}label:{HStack{Text("委託類型").foregroundStyle(.primary);Spacer();Text(kind.label);Image(systemName:"chevron.up.chevron.down").font(.caption)}.frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.accessibilityIdentifier("orderKind").accessibilityValue(kind.label)
+            Button{editing=nil;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);choosingOrderKind=true}label:{HStack{Text("委託類型").foregroundStyle(.primary);Spacer();Text(kind.label);Image(systemName:"chevron.up.chevron.down").font(.caption)}.frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.plain).accessibilityIdentifier("orderKind").accessibilityValue(kind.label)
             if [.limit,.stopLimit].contains(kind){TextField("限價（\(instrument.currency)）",text:$price).keyboardType(.decimalPad).focused($editing,equals:.price)}
             if instrument.usesTaiwanBoards{Picker("數量單位",selection:$unit){Text("股").tag("股");Text("張").tag("張")}.pickerStyle(.segmented);Text("1 張＝\(instrument.identity?.boardLot ?? 1000) 股").font(.caption).foregroundStyle(.secondary)}
             TextField("數量（\(unit)）",text:$quantity).keyboardType(.decimalPad).focused($editing,equals:.quantity).accessibilityIdentifier("orderQuantity")
@@ -364,7 +377,7 @@ struct OrderForm:View{
     private var submitSection:some View{
         VStack(spacing:0){
         if let submitIssue{Text(submitIssue).font(.caption).foregroundStyle(.orange).frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,16).padding(.top,8).accessibilityIdentifier("orderSubmissionIssue")}
-        Button{editing=nil;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirm=true}label:{Text(sending ? "送出中…":"檢查委託").font(.headline).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.borderedProminent).controlSize(.large).disabled(sending || submitted || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder").padding(.horizontal,16).padding(.vertical,8)
+        Button{editing=nil;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil);confirm=true}label:{Text(sending ? "送出中…":"檢查委託").font(.headline).frame(maxWidth:.infinity,minHeight:44).contentShape(Rectangle())}.buttonStyle(.borderedProminent).controlSize(.large).disabled(sending || submitted || choosingOrderKind || model.interactionBlocked || !isCurrent || (model.state?.mode == .online && !model.canTrade(instrument,board:board))).accessibilityIdentifier("submitOrder").padding(.horizontal,16).padding(.vertical,8)
         // The iOS keyboard toolbar floats above its reported safe area. Keeping
         // both actions in this inset lets Dynamic Type reserve their full heights.
         if editing != nil{Button("收起鍵盤"){editing=nil;UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),to:nil,from:nil,for:nil)}.font(.subheadline).frame(maxWidth:.infinity,minHeight:44).buttonStyle(.borderless).accessibilityIdentifier("orderDismissKeyboard")}
@@ -414,6 +427,17 @@ struct InstrumentDetails:View{
                 LabeledContent("交易所",value:instrument.identity?.exchange ?? "自訂商品")
                 LabeledContent("報價幣別",value:instrument.currency);LabeledContent("交易時區",value:instrument.rules.timeZone)
                 LabeledContent("合約乘數",value:instrument.rules.multiplier.description)
+                LabeledContent("交易單位",value:instrument.quantityUnit).accessibilityElement(children:.ignore).accessibilityLabel("交易單位").accessibilityValue(instrument.quantityUnit).accessibilityAddTraits(.isStaticText).accessibilityIdentifier("specQuantityUnit")
+                if instrument.usesTaiwanBoards{
+                    LabeledContent("整股單位",value:"1 張 = \(instrument.identity?.boardLot ?? 1000) 股").accessibilityElement(children:.ignore).accessibilityLabel("整股單位").accessibilityValue("1 張 = \(instrument.identity?.boardLot ?? 1000) 股").accessibilityAddTraits(.isStaticText).accessibilityIdentifier("specBoardLot")
+                    LabeledContent("目前盤別",value:model.selectedBoard.label)
+                    Text("整股以張輸入，盤中零股以股輸入；最小數量與價格級距依所選盤別核對。").font(.footnote)
+                }
+                LabeledContent("最小數量／數量級距",value:instrument.usesTaiwanBoards && model.selectedBoard == .regular ? "1 張（\(instrument.identity?.boardLot ?? 1000) 股）":instrument.rules.quantityStep.description+" "+instrument.quantityUnit).accessibilityElement(children:.ignore).accessibilityLabel("最小數量／數量級距").accessibilityValue(instrument.usesTaiwanBoards && model.selectedBoard == .regular ? "1 張（\(instrument.identity?.boardLot ?? 1000) 股）":instrument.rules.quantityStep.description+" "+instrument.quantityUnit).accessibilityAddTraits(.isStaticText).accessibilityIdentifier("specQuantityStep")
+                LabeledContent("價格級距",value:instrument.rules.tick(at:model.quote?.last ?? .zero).description+" "+instrument.currency).accessibilityIdentifier("specPriceTick")
+                LabeledContent("價格小數位數",value:String(MarketText.pricePrecision(instrument,at:model.quote?.last))).accessibilityElement(children:.ignore).accessibilityLabel("價格小數位數").accessibilityValue(String(MarketText.pricePrecision(instrument,at:model.quote?.last))).accessibilityAddTraits(.isStaticText).accessibilityIdentifier("specPricePrecision")
+                if instrument.rules.priceTicks != nil{Text("價格級距依價格區間變動；此處按目前價格顯示，送單時再次驗證。").font(.footnote)}
+                if instrument.rules.minimumNotional > .zero{LabeledContent("最低委託金額",value:instrument.rules.minimumNotional.description+" "+instrument.currency)}
             }
             Section("交易規則"){
                 LabeledContent("規則版本",value:instrument.rules.version);Text(instrument.rules.source)

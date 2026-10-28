@@ -1,6 +1,12 @@
 'use strict';
 let chart,series,volume,lastData,extra=[],priceLines=[],mode='';
 const root=document.getElementById('chart'),svg=document.getElementById('drawings');
+function instrumentPriceFormat(data){
+ const precision=Math.max(0,Math.min(12,Number.isInteger(data.pricePrecision)?data.pricePrecision:2));
+ const minMove=Number.isFinite(data.priceTick)&&data.priceTick>0?data.priceTick:10**(-precision);
+ return {type:'price',precision,minMove};
+}
+function displayedPrice(value){return new Intl.NumberFormat('zh-TW',{maximumFractionDigits:instrumentPriceFormat(lastData||{}).precision}).format(value);}
 function chartTimeFormat(time,kind,zone){
  if(typeof time!=='number')return `${time.year}-${String(time.month).padStart(2,'0')}-${String(time.day).padStart(2,'0')}`;
  const date=new Date(time*1000);
@@ -22,13 +28,14 @@ function create(data){
  volume=chart.addSeries(LightweightCharts.HistogramSeries,{priceFormat:{type:'volume'},priceScaleId:'volume',lastValueVisible:false,priceLineVisible:false});
  volume.priceScale().applyOptions({scaleMargins:{top:0.85,bottom:0}});
  extra=[];priceLines=[];
- chart.subscribeCrosshairMove(param=>{const c=param.seriesData.get(series);if(c){document.getElementById('ohlc').textContent=data.line?`模擬交易 · ${c.value}`:`O ${c.open}  H ${c.high}  L ${c.low}  C ${c.close}`;}});
+ chart.subscribeCrosshairMove(param=>{const c=param.seriesData.get(series);if(c){document.getElementById('ohlc').textContent=data.line?`模擬交易 · ${displayedPrice(c.value)}`:`O ${displayedPrice(c.open)}  H ${displayedPrice(c.high)}  L ${displayedPrice(c.low)}  C ${displayedPrice(c.close)}`;}});
  chart.timeScale().subscribeVisibleLogicalRangeChange(draw);
 }
 window.render=function(data){
  const key=[data.id,data.line,data.taiwan,data.dark,data.timeZone,data.fontSize,data.fullscreen].join('|'),changed=mode!==key;
  if(changed){create(data);mode=key;}
  lastData=data;
+ series.applyOptions({priceFormat:instrumentPriceFormat(data)});
  const clean=data.candles.filter(c=>Number.isFinite(c.close)&&c.time>0);
  series.setData(data.line?clean.map(c=>({time:c.time,value:c.close})):clean);
  volume.setData(clean.filter(c=>c.volume!==null&&Number.isFinite(c.volume)).map(c=>({time:c.time,value:c.volume,color:(c.close>=c.open)===!!data.taiwan?'#e65c6638':'#35b79238'})));

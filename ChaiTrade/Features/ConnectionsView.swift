@@ -61,7 +61,7 @@ struct ProviderSettings:View{
             let q=try await model.provider(id).quote(instrument,now:model.now,includeSummary:true)
             guard model.context==context else{return}
             if let engine=model.engine{try await engine.ingest(q,now:model.now,context:context);await model.refresh()}
-            result="已讀取 "+instrument.symbol+" · "+MarketText.number(q.last)+" "+instrument.currency+"。"+(q.quality == .realtime ? "來源標示即時；實際撮合仍需通過新鮮度與規則檢查。":"目前不是可即時撮合的行情。")
+            result="已讀取 "+instrument.symbol+" · "+MarketText.price(q.last,instrument:instrument)+" "+instrument.currency+"。"+(q.quality == .realtime ? "來源標示即時；實際撮合仍需通過新鮮度與規則檢查。":"目前不是可即時撮合的行情。")
         }catch{result=(error as? MarketDataFailure)?.localizedDescription ?? "無法完成測試，請確認連線、權限與來源支援商品後重試。"}
     }
 }

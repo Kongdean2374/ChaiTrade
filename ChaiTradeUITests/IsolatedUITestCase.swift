@@ -9,10 +9,14 @@ import XCTest
         app.launchArguments=["--uitest","--uitest-session",session]+(fixture ? ["--uitest-fixture"]:[])+flags
         testedApp=app;print("UI_TEST_SESSION",name,session);app.launch();return app
     }
-    func capture(_ stage:String){
+    func capture(_ stage:String,includeHierarchy:Bool=true,snapshot:[String:Any]?=nil){
         guard let app=testedApp else{return}
         XCTContext.runActivity(named:stage+" · "+session){activity in
             let shot=XCTAttachment(screenshot:XCUIScreen.main.screenshot());shot.name=stage;shot.lifetime = .keepAlways;activity.add(shot)
+            guard includeHierarchy else{
+                if let snapshot,let data=try? JSONSerialization.data(withJSONObject:snapshot,options:.sortedKeys),let value=String(data:data,encoding:.utf8){let state=XCTAttachment(string:value);state.name="Synthetic account state";state.lifetime = .keepAlways;activity.add(state)}
+                return
+            }
             let hierarchy=app.debugDescription
             let tree=XCTAttachment(string:hierarchy);tree.name="Accessibility hierarchy";tree.lifetime = .keepAlways;activity.add(tree)
             // The hierarchy already contains the exact read-only probe. Reusing

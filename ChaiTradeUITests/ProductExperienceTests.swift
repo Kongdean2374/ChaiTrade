@@ -318,9 +318,10 @@ import XCTest
         let size=app.textFields["orderQuantity"];try reveal(size,in:app);size.tap();size.typeText(XCUIKeyboardKey.delete.rawValue+"0.001")
         var review=app.buttons["submitOrder"];try reveal(review,in:app);review.tap();app.buttons["確認送出"].tap()
         try waitUntil("Contract open did not reach receipt",timeout:12){app.navigationBars["委託與成交"].exists && !app.navigationBars["模擬下單"].exists}
-        try check((try state(app)["positions"] as? [String:String])?[instrument]=="0.001","Contract open produced the wrong position")
+        let openedSnapshot=try state(app)
+        try check((openedSnapshot["positions"] as? [String:String])?[instrument]=="0.001","Contract open produced the wrong position")
         app.tabBars.buttons["交易"].tap();let close=app.buttons["closePosition-"+instrument];try reveal(close,in:app)
-        capture("AFTER contract position with explicit close and risk");close.tap()
+        capture("AFTER contract position with explicit close and risk",includeHierarchy:false,snapshot:openedSnapshot);close.tap()
         let direction=app.staticTexts["orderDirection"].firstMatch
         try check(direction.waitForExistence(timeout:5) && direction.value as? String=="平多","Close draft lost its direction")
         let closeDraft=try state(app);try check(closeDraft["tradeSide"] as? String=="sell" && closeDraft["tradeProduct"] as? String==instrument,"Close draft identity or declared sell direction changed")
@@ -330,7 +331,7 @@ import XCTest
         let snapshot=try state(app),intents=try XCTUnwrap(snapshot["orderIntents"] as? [[String:String]])
         try check(intents.count==2 && intents.filter{$0["reduceOnly"]=="true" && $0["side"]=="sell"}.count==1,"Close was not exactly one reduce-only sell")
         try check((snapshot["positions"] as? [String:String])?[instrument]=="0","Explicit contract close reversed or retained the position")
-        app.tabBars.buttons["資產"].tap();capture("AFTER contract local roundtrip assets")
+        app.tabBars.buttons["資產"].tap();capture("AFTER contract local roundtrip assets",includeHierarchy:false,snapshot:snapshot)
     }
     func testFinancialHistoryEmptyCategoriesKeepAccountAndPageBoundaries()throws{
         let app=launchClean(fixture:true);defer{finish()};try ready(app)

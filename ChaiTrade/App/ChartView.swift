@@ -78,7 +78,12 @@ struct ChartView: UIViewRepresentable {
             if let p=order.request.price ?? order.request.trigger {priceLines.append(["id":order.id,"price":p.displayDouble,"title":order.request.kind.label,"color":"#82aaff"])}
         }
         let data: [String:Any]=["id":model.selectedID,"account":model.context?.accountID ?? "","epoch":model.context?.epoch.uuidString ?? "","fullscreen":role=="fullscreen","candles":candles.map{["time":$0.time,"open":$0.open,"high":$0.high,"low":$0.low,"close":$0.close,"volume":$0.volume.map{$0 as Any} ?? NSNull()]},"overlays":overlays,"drawings":drawingData,"lines":priceLines,"line":line,"timeZone":model.selected?.rules.timeZone ?? "UTC","fontSize":dynamicTypeSize.isAccessibilitySize ? 16:12,"taiwan":model.settings.taiwanColors,"dark":model.settings.theme == "system" ? web.traitCollection.userInterfaceStyle == .dark:model.settings.theme != "light"]
-        context.coordinator.payload=data
+        var formattedData=data
+        if let instrument=model.selected{
+            formattedData["pricePrecision"]=MarketText.pricePrecision(instrument,at:model.quote?.last)
+            formattedData["priceTick"]=instrument.rules.tick(at:model.quote?.last ?? .zero).displayDouble
+        }
+        context.coordinator.payload=formattedData
         context.coordinator.interval=model.interval
         context.coordinator.render(web)
     }

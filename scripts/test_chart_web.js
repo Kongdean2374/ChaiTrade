@@ -4,7 +4,7 @@ const nodes=new Map(),styles={},options=[];
 function node(id){if(!nodes.has(id))nodes.set(id,{style:{},clientWidth:375,clientHeight:300,replaceChildren(){},append(){},setAttribute(){},addEventListener(){},getBoundingClientRect(){return{top:0}}});return nodes.get(id);}
 const plotted=[],series=[];
 const document={body:{style:{}},documentElement:{style:{setProperty(k,v){styles[k]=v}}},getElementById:node,createElementNS:()=>node('svg')};
-const sandbox={document,Intl,Date,console,ResizeObserver:class{observe(){}},window:{},LightweightCharts:{LineSeries:'line',CandlestickSeries:'candle',HistogramSeries:'volume',CrosshairMode:{Normal:0},createChart(root,config){options.push(config);return{remove(){},subscribeCrosshairMove(){},timeScale(){return{subscribeVisibleLogicalRangeChange(){},fitContent(){},timeToCoordinate(){return 0}}},addSeries(kind,config){const object={kind,config,setData(data){plotted.push({kind,config,data})},priceScale(){return{applyOptions(){}}},priceToCoordinate(){return 0},createPriceLine(){},removePriceLine(){}};series.push(object);return object;},removeSeries(){}};}}};
+const sandbox={document,Intl,Date,console,ResizeObserver:class{observe(){}},window:{},LightweightCharts:{LineSeries:'line',CandlestickSeries:'candle',HistogramSeries:'volume',CrosshairMode:{Normal:0},createChart(root,config){options.push(config);return{remove(){},subscribeCrosshairMove(){},timeScale(){return{subscribeVisibleLogicalRangeChange(){},fitContent(){},timeToCoordinate(){return 0}}},addSeries(kind,config){const object={kind,config,applyOptions(value){Object.assign(config,value)},setData(data){plotted.push({kind,config,data})},priceScale(){return{applyOptions(){}}},priceToCoordinate(){return 0},createPriceLine(){},removePriceLine(){}};series.push(object);return object;},removeSeries(){}};}}};
 vm.runInNewContext(fs.readFileSync('ChaiTrade/Resources/ChartWeb/chart.js','utf8'),sandbox);
 const candle={time:Date.parse('2026-10-27T01:30:00Z')/1000,open:100,high:102,low:99,close:101,volume:10};
 const data={id:'synthetic-chart-test',account:'test',epoch:'test',candles:[candle],overlays:[],drawings:[],lines:[],line:false,taiwan:true,dark:false,timeZone:'Asia/Taipei',fontSize:16};
@@ -24,4 +24,12 @@ assert.equal(styles['--chart-font'],'16px');assert.match(node('credit').textCont
 sandbox.window.render({...data,fullscreen:true});
 assert.equal(options.at(-1).handleScroll.vertTouchDrag,true);
 assert.equal(options.at(-1).handleScale.axisPressedMouseMove.price,true);
-console.log('Chart timezone, theme, accessibility font, volume axis/colors and local rendering checks passed.');
+const originalClose=candle.close,createdCharts=options.length;
+sandbox.window.render({...data,fullscreen:true,pricePrecision:5,priceTick:0.00001});
+assert.equal(options.length,createdCharts,'A price precision update must preserve the current chart view');
+assert.equal(series.filter(s=>s.kind==='candle').at(-1).config.priceFormat.precision,5);
+assert.equal(series.filter(s=>s.kind==='candle').at(-1).config.priceFormat.minMove,0.00001);
+sandbox.window.render({...data,fullscreen:true,pricePrecision:8,priceTick:0.00000001});
+assert.equal(series.filter(s=>s.kind==='candle').at(-1).config.priceFormat.precision,8);
+assert.equal(candle.close,originalClose,'Presentation precision must never rewrite candle or accounting values');
+console.log('Chart timezone, theme, accessibility font, volume, instrument precision and view preservation checks passed.');

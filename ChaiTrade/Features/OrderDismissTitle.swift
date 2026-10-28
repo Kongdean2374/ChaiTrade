@@ -31,6 +31,7 @@ struct OrderNavigationDismissObserver:UIViewControllerRepresentable{
         private weak var gestureHost:UIView?
         private var enabled=false
         private var requested=false
+        private var touchOrigin:CGPoint?
         var onDismiss:(@MainActor ()->Void)?
         #if DEBUG
         var onDiagnostic:((String)->Void)?
@@ -62,7 +63,7 @@ struct OrderNavigationDismissObserver:UIViewControllerRepresentable{
             detach();navigationBar=bar;gestureHost=host;host.addGestureRecognizer(pan)
             record("attached to order window; bar \(bar.topItem?.title ?? "") \(bar.convert(bar.bounds,to:host))")
         }
-        func detach(){gestureHost?.removeGestureRecognizer(pan);gestureHost=nil;navigationBar=nil;requested=false}
+        func detach(){gestureHost?.removeGestureRecognizer(pan);gestureHost=nil;navigationBar=nil;requested=false;touchOrigin=nil}
         func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldReceive touch:UITouch)->Bool{
             guard enabled,let host=gestureHost,let bar=navigationBar,!bar.isHidden else{return false}
             // Observe through the controller's common ancestor, but only accept
@@ -70,14 +71,19 @@ struct OrderNavigationDismissObserver:UIViewControllerRepresentable{
             // keyboard input and ordinary buttons keep their native behavior.
             let frame=bar.convert(bar.bounds,to:host),point=touch.location(in:host)
             let accepts=frame.contains(point)
+            if accepts{touchOrigin=point}
             if point.y<=frame.maxY+20{record("navigation touch \(point); bar \(frame); accepted \(accepts)")}
             return accepts
         }
         func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldRecognizeSimultaneouslyWith otherGestureRecognizer:UIGestureRecognizer)->Bool{true}
         @objc private func dragged(_ recognizer:UIPanGestureRecognizer){
             if recognizer.state == .began{requested=false;record("navigation pan began")}
-            guard enabled,!requested,recognizer.state == .changed || recognizer.state == .ended else{return}
-            let distance=recognizer.translation(in:gestureHost)
+            guard enabled,!requested,recognizer.state == .began || recognizer.state == .changed || recognizer.state == .ended,
+                  let host=gestureHost,let origin=touchOrigin else{return}
+            // UIPan's translation begins at recognition. A fast single-move
+            // swipe can therefore begin and end with translation (0,0).
+            // Preserve its accepted touch-down point in stable window space.
+            let point=recognizer.location(in:host),distance=CGPoint(x:point.x-origin.x,y:point.y-origin.y)
             if distance.y>=24,abs(distance.x)<distance.y{
                 requested=true;record("navigation pan requested cancel");onDismiss?()
             }else if recognizer.state == .ended{record("navigation pan ended without cancel: \(Int(distance.x)),\(Int(distance.y))")}

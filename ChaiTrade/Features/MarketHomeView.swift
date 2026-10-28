@@ -13,9 +13,14 @@ import ChaiTradeCore
         let grouped=String(digits.reversed().enumerated().map{($0.offset>0 && $0.offset%3==0 ? ",":"")+String($0.element)}.joined().reversed())
         return (negative ? "-":"")+grouped+(parts.count>1 ? "."+parts[1]:"")
     }
-    static func change(_ quote:Quote?,summary:QuoteSummary?)->(String,Amount)?{
+    static func precision(_ step:Amount)->Int{min(12,step.description.split(separator:".",omittingEmptySubsequences:false).dropFirst().first?.count ?? 0)}
+    static func pricePrecision(_ instrument:Instrument,at amount:Amount?)->Int{precision(instrument.rules.tick(at:amount ?? .zero))}
+    static func price(_ amount:Amount?,instrument:Instrument)->String{guard let amount else{return "—"};return number(amount.rounded(pricePrecision(instrument,at:amount)))}
+    static func quantity(_ amount:Amount?,instrument:Instrument)->String{guard let amount else{return "—"};return number(amount.rounded(precision(instrument.rules.quantityStep)))}
+    static func change(_ quote:Quote?,summary:QuoteSummary?,instrument:Instrument?=nil)->(String,Amount)?{
         guard let quote,let reference=summary?.reference,reference > .zero,let delta=try? quote.last-reference,let percent=try? (delta/reference*Amount(100)).rounded(2,.plain) else{return nil}
-        return ((delta >= .zero ? "+":"")+number(delta)+"  "+(percent >= .zero ? "+":"")+percent.description+"%",delta)
+        let displayed=instrument.map{number(delta.rounded(pricePrecision($0,at:quote.last)))} ?? number(delta)
+        return ((delta >= .zero ? "+":"")+displayed+"  "+(percent >= .zero ? "+":"")+percent.description+"%",delta)
     }
 }
 struct MarketSwitcher:View {
@@ -57,8 +62,8 @@ struct MarketProductRow:View {
                     VStack(alignment:.leading,spacing:4){Text(instrument.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2);Text(instrument.symbol+" · "+(instrument.identity?.exchange ?? instrument.asset.label)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)}
                     Spacer(minLength:4)
                     VStack(alignment:.trailing,spacing:5){
-                        if let quote=model.state?.quotes[instrument.id]{Text(MarketText.number(quote.last)).font(.subheadline.monospacedDigit().weight(.semibold)).foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.6)
-                            if let change=MarketText.change(quote,summary:model.summary(for:instrument)){Text(change.0).font(.caption2.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.taiwanColors ? .red:.green):(model.settings.taiwanColors ? .green:.red)).lineLimit(1).minimumScaleFactor(0.6)}
+                        if let quote=model.state?.quotes[instrument.id]{Text(MarketText.price(quote.last,instrument:instrument)).font(.subheadline.monospacedDigit().weight(.semibold)).foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.6)
+                            if let change=MarketText.change(quote,summary:model.summary(for:instrument),instrument:instrument){Text(change.0).font(.caption2.monospacedDigit()).foregroundStyle(change.1 >= .zero ? (model.settings.taiwanColors ? .red:.green):(model.settings.taiwanColors ? .green:.red)).lineLimit(1).minimumScaleFactor(0.6)}
                         }else if model.status(for:instrument) == .loading{ProgressView().controlSize(.small)}
                         QuoteStatusLabel(status:model.status(for:instrument))
                     }.frame(maxWidth:155,alignment:.trailing)
@@ -106,7 +111,7 @@ struct DashboardView:View {
 struct MarketIndexStrip:View {
     @EnvironmentObject var model:AppModel
     private var indices:[Instrument]{Array((model.state?.instruments ?? []).filter{$0.asset == .index && $0.identity?.legacy != true}.prefix(5))}
-    var body:some View{ScrollView(.horizontal,showsIndicators:false){HStack(spacing:12){ForEach(indices){instrument in Button{model.select(instrument)}label:{VStack(alignment:.leading,spacing:8){Text(instrument.name).font(.caption.weight(.medium));if let quote=model.state?.quotes[instrument.id]{Text(MarketText.number(quote.last)).font(.headline.monospacedDigit());if let change=MarketText.change(quote,summary:model.summary(for:instrument)){Text(change.0).font(.caption2)}}else{QuoteStatusLabel(status:model.status(for:instrument))};Text(instrument.rules.isOpen(at:model.now) ? "交易時段":"休市／非交易時段").font(.caption2).foregroundStyle(.secondary)}.frame(width:150,alignment:.leading).padding(14).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:14))}.buttonStyle(.plain).onAppear{model.visible(instrument.id,owner:"home-"+instrument.market.rawValue,present:true)}.onDisappear{model.visible(instrument.id,owner:"home-"+instrument.market.rawValue,present:false)}}}}}
+    var body:some View{ScrollView(.horizontal,showsIndicators:false){HStack(spacing:12){ForEach(indices){instrument in Button{model.select(instrument)}label:{VStack(alignment:.leading,spacing:8){Text(instrument.name).font(.caption.weight(.medium));if let quote=model.state?.quotes[instrument.id]{Text(MarketText.price(quote.last,instrument:instrument)).font(.headline.monospacedDigit());if let change=MarketText.change(quote,summary:model.summary(for:instrument),instrument:instrument){Text(change.0).font(.caption2)}}else{QuoteStatusLabel(status:model.status(for:instrument))};Text(instrument.rules.isOpen(at:model.now) ? "交易時段":"休市／非交易時段").font(.caption2).foregroundStyle(.secondary)}.frame(width:150,alignment:.leading).padding(14).background(Color(.secondarySystemGroupedBackground),in:RoundedRectangle(cornerRadius:14))}.buttonStyle(.plain).onAppear{model.visible(instrument.id,owner:"home-"+instrument.market.rawValue,present:true)}.onDisappear{model.visible(instrument.id,owner:"home-"+instrument.market.rawValue,present:false)}}}}}
 }
 struct MarketRankingPreview:View {
     @EnvironmentObject var model:AppModel
