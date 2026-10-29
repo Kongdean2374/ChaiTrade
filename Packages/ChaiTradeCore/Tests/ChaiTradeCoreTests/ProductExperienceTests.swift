@@ -71,7 +71,8 @@ import Testing
     let repo=try AccountRepository(root:root,mode:.offline),engine=try TradingEngine(context:ctx,repository:repo,initial:initial)
     var first=MarketBrowsingState();first.search="2330";first.selectedID="SIM:TWSE:2330";first.recent=[first.selectedID!]
     try await engine.saveMarketBrowsing(first,market:.stocks,activate:true,context:ctx)
-    let before=await engine.snapshot(),stored=try #require(repo.load())
+    let before=await engine.snapshot(),loadedBefore=try repo.load()
+    let stored=try #require(loadedBefore)
     var interrupted=first;interrupted.search="ETH"
     let cancelled=interrupted
     let work=Task.detached{
@@ -79,12 +80,14 @@ import Testing
         try await engine.saveMarketBrowsing(cancelled,market:.stocks,activate:true,context:ctx)
     }
     await #expect(throws:CancellationError.self){try await work.value}
-    let afterCancellation=await engine.snapshot(),afterDisk=try #require(repo.load())
+    let afterCancellation=await engine.snapshot(),loadedAfter=try repo.load()
+    let afterDisk=try #require(loadedAfter)
     #expect(try AccountRepository.encode(afterCancellation)==AccountRepository.encode(before))
     #expect(try AccountRepository.encode(afterDisk)==AccountRepository.encode(stored))
     var latest=first;latest.search="233"
     try await engine.saveMarketBrowsing(latest,market:.stocks,activate:true,context:ctx)
-    let restored=try #require(AccountRepository(root:root,mode:.offline).load())
+    let reopened=try AccountRepository(root:root,mode:.offline),loaded=try reopened.load()
+    let restored=try #require(loaded)
     #expect(restored.productPreferences?.markets["stocks"]==latest)
     #expect(restored.cash==before.cash && restored.watchlist==before.watchlist)
     #expect(restored.orders==before.orders && restored.fills==before.fills && restored.ledger==before.ledger)

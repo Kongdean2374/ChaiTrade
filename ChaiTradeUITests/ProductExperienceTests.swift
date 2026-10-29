@@ -423,7 +423,14 @@ import XCTest
         let instrument="SIM:Binance_USDⓈ-M:BTCUSDT",product=app.buttons["market-"+instrument];try reveal(product,in:app,identifier:"market-"+instrument);product.tap()
         let originalCash=baseline["cash"] as? [String:String]
         let enable=app.buttons["enableContractTrading"];try check(enable.waitForExistence(timeout:5),"Disabled contract feature has no clear next step");enable.tap()
-        let firstAcknowledgment=app.switches["acknowledgeContractRisk"];try reveal(firstAcknowledgment,in:app,identifier:"acknowledgeContractRisk");firstAcknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()
+        let firstAcknowledgment=app.switches["acknowledgeContractRisk"];try reveal(firstAcknowledgment,in:app,identifier:"acknowledgeContractRisk")
+        // SwiftUI exposes both a full-width semantic row and the native switch.
+        // The retained1.2.24 attempt used an approximate point near the row's
+        // right edge and remained off. Tap the actual native control instead;
+        // keep the original value/confirmation/cancel assertions and deadlines.
+        let firstControl=firstAcknowledgment.switches.firstMatch
+        try check(firstControl.exists && firstControl.isHittable && firstAcknowledgment.frame.contains(firstControl.frame),"Risk consent native switch is not fully reachable")
+        capture("BEFORE contract risk actual native switch tap",includeHierarchy:false);firstControl.tap()
         try waitUntil("Risk switch did not actually turn on before cancel",timeout:5){firstAcknowledgment.value as? String=="1"};app.buttons["取消"].tap()
         let canceled=try state(app)
         try check(canceled["leverageEnabled"] as? Bool==false,"Canceled consent enabled contracts")
@@ -431,7 +438,9 @@ import XCTest
         enable.tap();let acknowledgment=app.switches["acknowledgeContractRisk"]
         try reveal(acknowledgment,in:app,identifier:"acknowledgeContractRisk")
         try check(acknowledgment.value as? String=="0","Reopened consent retained a canceled acknowledgement")
-        acknowledgment.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app,identifier:"confirmContractAccess")
+        let control=acknowledgment.switches.firstMatch
+        try check(control.exists && control.isHittable && acknowledgment.frame.contains(control.frame),"Reopened risk consent native switch is not fully reachable")
+        control.tap();let accept=app.buttons["confirmContractAccess"];try reveal(accept,in:app,identifier:"confirmContractAccess")
         try waitUntil("Explicit acknowledgment does not enable the confirmation control",timeout:5){acknowledgment.value as? String=="1" && accept.isEnabled};accept.tap()
         try waitUntil("Explicit risk acceptance did not enable this account"){(try? self.state(app)["leverageEnabled"] as? Bool)==true && app.buttons["openOrder"].exists}
         app.buttons["openOrder"].tap();app.buttons["orderKind"].tap();app.buttons["市價"].tap()

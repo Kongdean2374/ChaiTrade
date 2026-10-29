@@ -1,6 +1,6 @@
 {
-  "version": "1.2.25",
-  "build": 28,
+  "version": "1.2.26",
+  "build": 29,
   "branch": "navigation-flow-20261028-v42",
   "state": "原185核心與79次UI均保留，新增取消寫入回滾／重試核心及交錯搜尋／冷啟動UI，現為186核心兩組與80UI（導航23、原互動22、產品18、逐頁5、SE／Pro各6）。Apple編譯、實際HTTP、原T45／大型封存、完整UI與九階段／25組原圖審視均待本候選同提交完成；沒有IPA，main不更新。",
   "requiredCoreFunctions": 185,
@@ -36,5 +36,6 @@
   "results": {},
   "ipa": "notproduced",
   "productReview": "pending same-source originals; source42 retired after actual PNG defect",
-  "retainedPreviousFailure": "evidence/RETAINED_1_2_24_BROWSING_AND_PAGE_FAILURES.md"
+  "retainedPreviousFailure": "evidence/RETAINED_1_2_24_BROWSING_AND_PAGE_FAILURES.md",
+  "retainedCompileFailure": "evidence/RETAINED_1_2_25_TEST_COMPILE_FAILURE.md"
 }
