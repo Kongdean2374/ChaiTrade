@@ -21,9 +21,10 @@ import ChaiTradeCore
     private(set) static var tradeWriteEdited=false
     private static var browsingWriteBarrier:Bool{fixture && ProcessInfo.processInfo.arguments.contains("--uitest-browsing-write-barrier")}
     static func didEditBrowsing(){if browsingWriteBarrier && browsingWriteStarted{browsingWriteEdited=true}}
-    static func awaitBrowsingWrite(search:String)async throws{
+    static func awaitBrowsingWrite(search:String,didStart:@MainActor ()->Void)async throws{
         guard browsingWriteBarrier,!browsingWriteStarted,search=="2330" else{return}
         browsingWriteStarted=true
+        didStart()
         let clock=ContinuousClock(),deadline=clock.now.advanced(by:.seconds(15))
         while !browsingWriteEdited{
             guard clock.now<deadline else{throw TradeError.invalid("瀏覽寫入測試未收到交錯編輯")}
@@ -32,9 +33,10 @@ import ChaiTradeCore
     }
     private static var tradeWriteBarrier:Bool{fixture && ProcessInfo.processInfo.arguments.contains("--uitest-trade-write-barrier")}
     static func didEditTrade(){if tradeWriteBarrier && tradeWriteStarted{tradeWriteEdited=true}}
-    static func awaitTradeWrite(quantity:String?)async throws{
+    static func awaitTradeWrite(quantity:String?,didStart:@MainActor ()->Void)async throws{
         guard tradeWriteBarrier,!tradeWriteStarted,quantity=="3" else{return}
         tradeWriteStarted=true
+        didStart()
         let clock=ContinuousClock(),deadline=clock.now.advanced(by:.seconds(15))
         while !tradeWriteEdited{
             guard clock.now<deadline else{throw TradeError.invalid("交易草稿寫入測試未收到交錯編輯")}

@@ -87,7 +87,7 @@ extension AppModel {
             tradeDirty=false
             do{
                 #if DEBUG
-                try await UITestSupport.awaitTradeWrite(quantity:workspace.editor?.quantity)
+                try await UITestSupport.awaitTradeWrite(quantity:workspace.editor?.quantity){self.objectWillChange.send()}
                 #endif
                 try await engine.saveTradeWorkspace(workspace,context:context)
             }catch{

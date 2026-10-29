@@ -1,0 +1,9 @@
+# 新交錯回歸的觀察同步失敗
+
+來源`ac124171af5624facf11211d247d3f7e2316cac5`，[導航CI40798519732](https://github.com/Kongdean2374/ChaiTrade/actions/runs/40798519732)，工作123200717944。完整原包12865603605，SHA256 `ece10f0ce2fcbcdd9eae97849bf9afb69b4ba06c0deeaff51ef0043ef7ad22ba`，先保留再修正。23次執行為22通過／1失敗，46份SQLite完整、23個會話均有獨立A／B，無120秒超時；失敗不因其他案例通過而改判。
+
+新案例`testEditingSearchDuringBrowsingWritePersistsLatestValueAfterColdRelaunch`未在原5秒內觀察到受控寫入開始。原PNG `A96AC5EB-7C3A-42EF-8C4F-8B3B254463CF.png`已實看，搜尋2330、台積電結果及鍵盤正常可見，沒有保存警告。原狀態`A3B99445-8D0F-4DE2-AF2F-B999165E198C.txt`顯示browsingSaving=true、search=2330、notice空，而靜態DEBUG開始旗標仍為false、待存列表仍顯示stocks。這份狀態不能單獨證明同步點的實際開始時間。
+
+程式中發布saving狀態早於寫入Task執行；Task後續改動靜態DEBUG旗標沒有通知唯讀探針重新呈現，因此測試可能讀到較舊的同步狀態。修正由真實同步點設定開始旗標之後通知觀察者，搜尋與草稿同步點一併處理。沒有在測試端硬設旗標、推進離線時間、繞過SQLite、略過交錯或放寬5／10秒等待及120秒總門檻。Release不包含這些同步旗標或通知。
+
+本修正仍須新提交完整186核心／80UI與原圖實跑驗證，不能僅由觀察通知程式推論通過。核心取消回滾與實際UI保存／冷啟動都保留。先前新增核心編譯失敗另見[原紀錄](RETAINED_1_2_25_TEST_COMPILE_FAILURE.md)。

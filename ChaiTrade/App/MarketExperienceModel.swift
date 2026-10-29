@@ -75,7 +75,7 @@ extension AppModel {
                 guard self.context==context,browseWriteGeneration==generation,let value=browsing[domain] else{return}
                 do{
                     #if DEBUG
-                    try await UITestSupport.awaitBrowsingWrite(search:value.search)
+                    try await UITestSupport.awaitBrowsingWrite(search:value.search){self.objectWillChange.send()}
                     #endif
                     try await engine.saveMarketBrowsing(value,market:domain,activate:domain==self.market,context:context)
                 }catch{
