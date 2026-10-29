@@ -64,6 +64,32 @@ import Testing
     await #expect(throws:TradeError.self){try await engine.saveMarketBrowsing(crypto,market:.stocks,activate:true,context:ctx)}
     await #expect(throws:TradeError.self){try await engine.saveMarketBrowsing(stocks,market:.stocks,context:AccountContext(mode:.online))}
 }
+@Test func cancelledBrowsingWriteRollsBackWithoutPoisoningNextCommit()async throws{
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),ctx=AccountContext(mode:.offline)
+    defer{try? FileManager.default.removeItem(at:root)}
+    let initial=try TradingEngine.initial(mode:.offline,capital:Amount("100000"),time:1000)
+    let repo=try AccountRepository(root:root,mode:.offline),engine=try TradingEngine(context:ctx,repository:repo,initial:initial)
+    var first=MarketBrowsingState();first.search="2330";first.selectedID="SIM:TWSE:2330";first.recent=[first.selectedID!]
+    try await engine.saveMarketBrowsing(first,market:.stocks,activate:true,context:ctx)
+    let before=await engine.snapshot(),stored=try #require(repo.load())
+    var interrupted=first;interrupted.search="ETH"
+    let cancelled=interrupted
+    let work=Task.detached{
+        withUnsafeCurrentTask{$0?.cancel()}
+        try await engine.saveMarketBrowsing(cancelled,market:.stocks,activate:true,context:ctx)
+    }
+    await #expect(throws:CancellationError.self){try await work.value}
+    let afterCancellation=await engine.snapshot(),afterDisk=try #require(repo.load())
+    #expect(try AccountRepository.encode(afterCancellation)==AccountRepository.encode(before))
+    #expect(try AccountRepository.encode(afterDisk)==AccountRepository.encode(stored))
+    var latest=first;latest.search="233"
+    try await engine.saveMarketBrowsing(latest,market:.stocks,activate:true,context:ctx)
+    let restored=try #require(AccountRepository(root:root,mode:.offline).load())
+    #expect(restored.productPreferences?.markets["stocks"]==latest)
+    #expect(restored.cash==before.cash && restored.watchlist==before.watchlist)
+    #expect(restored.orders==before.orders && restored.fills==before.fills && restored.ledger==before.ledger)
+    #expect(restored.simulation?.time==before.simulation?.time)
+}
 @Test func simulationNewsIsDiverseDeterministicCausalAndNeverLeaksFuture()throws{
     let state=try TradingEngine.initial(mode:.offline,capital:Amount("100000"),time:1000),sim=state.simulation!
     let stories=SimulationNews.stories(state:sim,from:sim.time-7*86400,limit:80)

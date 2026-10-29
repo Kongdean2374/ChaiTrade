@@ -15,6 +15,19 @@ import ChaiTradeCore
     static var controlledCatchup:Bool { fixture && ProcessInfo.processInfo.arguments.contains("--uitest-controlled-catchup") }
     private(set) static var favoriteBarrierArrivals=0
     private(set) static var favoriteBarrierFailed=false
+    private(set) static var browsingWriteStarted=false
+    private(set) static var browsingWriteEdited=false
+    private static var browsingWriteBarrier:Bool{fixture && ProcessInfo.processInfo.arguments.contains("--uitest-browsing-write-barrier")}
+    static func didEditBrowsing(){if browsingWriteBarrier && browsingWriteStarted{browsingWriteEdited=true}}
+    static func awaitBrowsingWrite(search:String)async throws{
+        guard browsingWriteBarrier,!browsingWriteStarted,search=="2330" else{return}
+        browsingWriteStarted=true
+        let clock=ContinuousClock(),deadline=clock.now.advanced(by:.seconds(15))
+        while !browsingWriteEdited{
+            guard clock.now<deadline else{throw TradeError.invalid("瀏覽寫入測試未收到交錯編輯")}
+            try await Task.sleep(for:.milliseconds(50))
+        }
+    }
     // Only this fixture synchronizes the first four distinct UI intents. A fixed
     // two-second sleep did not overlap the slower native pointer dispatches.
     // Real SQLite mutations still use the unmodified serial engine transaction.
@@ -80,6 +93,7 @@ struct UITestProbe: View {
         let payload:[String:Any]=[
             "visualType":String(describing:typeSize),"visualTheme":colorScheme == .dark ? "dark":"light",
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
+            "notice":model.notice ?? "","browsingSaving":model.browsingSaving,"browsingPending":model.browsingDirty.map(\.rawValue).sorted(),"browsingWriteBarrierStarted":UITestSupport.browsingWriteStarted,"browsingWriteBarrierEdited":UITestSupport.browsingWriteEdited,
             "fileArchiveWorking":model.fileArchiveWorking,"fileArchiveReady":model.fileArchiveURL != nil,"fileArchiveProgress":model.fileArchiveProgress,
             "dataShareReady":model.dataShareURL != nil,"dataShareFormat":model.dataShareURL?.pathExtension ?? "",
             "quoteFocus":model.activeProductID ?? "",

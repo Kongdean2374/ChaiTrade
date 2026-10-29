@@ -41,19 +41,53 @@ extension AppModel {
     }
     func editBrowsing(_ market:MarketDomain,change:(inout MarketBrowsingState)->Void){
         var value=browsing[market] ?? MarketBrowsingState();change(&value);browsing[market]=value;browsingDirty.insert(market)
+        #if DEBUG
+        UITestSupport.didEditBrowsing()
+        #endif
         browseSaveTask?.cancel()
         browseSaveTask=Task{
             do{try await Task.sleep(for:.milliseconds(400))}catch{return}
+            // Only debounce waiting is cancelable by the next keystroke. The
+            // writer owns its transaction and drains any edits made while busy.
+            browseSaveTask=nil
             await flushBrowsing()
         }
     }
     func flushBrowsing()async{
-        guard let engine,let context else{return}
-        let pending=browsingDirty;browsingDirty=[]
-        for domain in pending.sorted(by:{$0.rawValue<$1.rawValue}){
-            guard let value=browsing[domain],self.context==context else{return}
-            do{try await engine.saveMarketBrowsing(value,market:domain,activate:domain==self.market,context:context)}catch{browsingDirty.insert(domain);self.notice="瀏覽偏好尚未保存，請重試"}
+        if let task=browseWriteTask{await task.value;return}
+        guard let engine,let context,!browsingDirty.isEmpty else{return}
+        let generation=browseWriteGeneration
+        browsingSaving=true
+        let task=Task{[weak self] in
+            guard let self else{return}
+            defer{if self.browseWriteGeneration==generation{self.browseWriteTask=nil;self.browsingSaving=false}}
+            await self.persistBrowsing(engine:engine,context:context,generation:generation)
         }
+        browseWriteTask=task
+        await task.value
+    }
+    private func persistBrowsing(engine:TradingEngine,context:AccountContext,generation:UUID)async{
+        let failure="瀏覽偏好尚未保存，請重試"
+        while self.context==context,browseWriteGeneration==generation,!browsingDirty.isEmpty{
+            let pending=browsingDirty;browsingDirty=[]
+            var failed=false
+            for domain in pending.sorted(by:{$0.rawValue<$1.rawValue}){
+                guard self.context==context,browseWriteGeneration==generation,let value=browsing[domain] else{return}
+                do{
+                    #if DEBUG
+                    try await UITestSupport.awaitBrowsingWrite(search:value.search)
+                    #endif
+                    try await engine.saveMarketBrowsing(value,market:domain,activate:domain==self.market,context:context)
+                }catch{
+                    guard self.context==context,browseWriteGeneration==generation else{return}
+                    browsingDirty.insert(domain);failed=true;notice=failure
+                }
+            }
+            // Genuine failures remain dirty for a later explicit flush/edit;
+            // do not spin on an unavailable database or hide its warning.
+            if failed{return}
+        }
+        if self.context==context,browseWriteGeneration==generation,notice==failure{notice=nil}
     }
 
     func switchMarket(_ target:MarketDomain){

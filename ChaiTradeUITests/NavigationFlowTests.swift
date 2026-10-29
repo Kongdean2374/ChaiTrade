@@ -30,6 +30,35 @@ import XCTest
     func test2330DetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:TWSE:2330",query:"2330",crypto:false)}
     func testBTCDetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:Coinbase_Exchange:BTC-USD",query:"BTC",crypto:true)}
     func testETHDetailRemainsInMarketsWithoutPreparingAnOrder()throws{try verifyBrowsingOnly("SIM:Coinbase_Exchange:ETH-USD",query:"ETH",crypto:true)}
+    func testEditingSearchDuringBrowsingWritePersistsLatestValueAfterColdRelaunch()throws{
+        let app=launchClean(fixture:true,flags:["--uitest-full-catalog","--uitest-browsing-write-barrier"]);defer{finish()};try ready(app)
+        let initial=try state(app)
+        app.tabBars.buttons["行情"].tap();let search=app.textFields["marketSearch"];search.tap();search.typeText("2330")
+        try waitUntil("Controlled browsing write never began",timeout:5){
+            guard let s=try? self.state(app) else{return false}
+            return s["browsingWriteBarrierStarted"] as? Bool==true && s["browsingSaving"] as? Bool==true
+        }
+        // A real keystroke overlaps the pending SQLite write. It must only
+        // replace the debounce timer, never cancel the writer's transaction.
+        search.typeText(XCUIKeyboardKey.delete.rawValue)
+        try waitUntil("Latest interleaved search did not finish saving",timeout:10){
+            guard let s=try? self.state(app) else{return false}
+            return s["search"] as? String=="233" && s["browsingWriteBarrierEdited"] as? Bool==true && s["browsingSaving"] as? Bool==false && (s["browsingPending"] as? [String])?.isEmpty==true
+        }
+        let saved=try state(app)
+        try check(saved["notice"] as? String != "瀏覽偏好尚未保存，請重試","Normal interleaved browsing left a false save warning")
+        capture("FLOW interleaved browsing writer saves latest search without cancellation warning",includeHierarchy:false,snapshot:saved)
+        app.terminate();app.launch();try ready(app);app.tabBars.buttons["行情"].tap()
+        try check(app.textFields["marketSearch"].value as? String=="233","Cold relaunch lost the latest interleaved search")
+        let restored=try state(app)
+        try check(restored["market"] as? String=="stocks" && (restored["mode"] as? String)==(initial["mode"] as? String),"Browsing write changed market or account")
+        try check(restored["session"] as? String==session,"Browsing relaunch changed isolated session")
+        try check((restored["cash"] as? [String:String])==(initial["cash"] as? [String:String]),"Browsing write changed cash")
+        try check((restored["time"] as? Int64)==(initial["time"] as? Int64),"Browsing write advanced offline time")
+        for key in ["orders","fills","journals","watchlist"]{try check((restored[key] as? [Any])?.isEmpty==true,"Browsing write changed "+key)}
+        try check(restored["notice"] as? String != "瀏覽偏好尚未保存，請重試","Relaunch retained a browsing failure warning")
+        capture("FLOW latest browsing search survives cold relaunch with account unchanged",includeHierarchy:false,snapshot:restored)
+    }
 }
 
 @MainActor final class TradingHandoffTests:IsolatedUITestCase{

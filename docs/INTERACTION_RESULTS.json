@@ -1,10 +1,10 @@
 {
-  "version": "1.2.24",
-  "build": 27,
+  "version": "1.2.25",
+  "build": 28,
   "branch": "navigation-flow-20261028-v42",
-  "state": "pending full same-source verification; no accepted IPA",
+  "state": "原185核心與79次UI均保留，新增取消寫入回滾／重試核心及交錯搜尋／冷啟動UI，現為186核心兩組與80UI（導航23、原互動22、產品18、逐頁5、SE／Pro各6）。Apple編譯、實際HTTP、原T45／大型封存、完整UI與九階段／25組原圖審視均待本候選同提交完成；沒有IPA，main不更新。",
   "requiredCoreFunctions": 185,
-  "requiredUI": 79,
+  "requiredUI": 80,
   "expectedUI": {
     "navigation": 22,
     "original": 22,
@@ -22,5 +22,19 @@
     "App21 UI original17pass/1timeout/1uncompleted/1failure and product17pass/1timeout; original archives and inspected evidence retained",
     "App23 Pro5pass/1timeout/1uncompleted,原包與實看兩張原圖保留；成功最後採證超時仍判失敗。"
   ],
-  "physicalDeviceAcceptance": "not executed; original thresholds retained"
+  "physicalDeviceAcceptance": "not executed; original thresholds retained",
+  "sourceCommit": "pending new exact-source candidate",
+  "requiredCore": 186,
+  "caseCounts": {
+    "navigation": 23,
+    "original": 22,
+    "product": 18,
+    "pages": 5,
+    "visualSE": 6,
+    "visualPro": 6
+  },
+  "results": {},
+  "ipa": "notproduced",
+  "productReview": "pending same-source originals; source42 retired after actual PNG defect",
+  "retainedPreviousFailure": "evidence/RETAINED_1_2_24_BROWSING_AND_PAGE_FAILURES.md"
 }
