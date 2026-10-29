@@ -1,22 +1,27 @@
-name: Focused market filter regression evidence
+name: Focused UI failure and adjacent-path validation
 on:
   push:
-    branches: [navigation-filter-red-20261028]
+    branches: [navigation-filter-red-20261028, verification-focus-20261029]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  market-filter-regression:
+  focused-ui:
     runs-on: macos-15
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        device: ["iPhone SE (3rd generation)", "iPhone 17 Pro"]
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      CHAI_SIMULATOR_NAME: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 2
       - run: bash scripts/preflight.sh
-      - name: Independent clean market empty search and clear filters
+      - name: Original failure and directly affected picker/search paths
         shell: bash
         run: |
           set -euo pipefail
@@ -24,14 +29,20 @@ jobs:
           simulator_id="$(python3 scripts/prepare_simulator.py)"
           common=(-project ChaiTrade.xcodeproj -scheme ChaiTrade -destination "platform=iOS Simulator,id=$simulator_id,arch=$(uname -m)" -derivedDataPath build/UISimulator CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='' ONLY_ACTIVE_ARCH=YES ARCHS="$(uname -m)")
           xcodebuild build-for-testing "${common[@]}" 2>&1 | tee build/logs/navigation-filter-build.log
-          xcodebuild test-without-building "${common[@]}" -resultBundlePath build/NavigationFlowTests.xcresult -only-testing:ChaiTradeUITests/TradeWorkspaceInteractionTests/testMarketEmptySearchClearResetsVisibleQueryAndResultsWithoutChangingTrade -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 2>&1 | tee build/logs/navigation-filter-tests.log
-      - name: Preserve evidence before making any product correction
+          xcodebuild test-without-building "${common[@]}" -resultBundlePath build/NavigationFlowTests.xcresult \
+            -only-testing:ChaiTradeUITests/ProductVisualTests/testDarkLargeTradePickerChineseKeyboardAndFilters \
+            -only-testing:ChaiTradeUITests/ProductVisualTests/testLightTradePickerChineseKeyboardAndFilters \
+            -only-testing:ChaiTradeUITests/TradeWorkspaceInteractionTests/testKeyboardOpenCanScrollAndSelectASecondSearchResultWithoutChangingFavorites \
+            -only-testing:ChaiTradeUITests/TradeWorkspaceInteractionTests/testMarketEmptySearchClearResetsVisibleQueryAndResultsWithoutChangingTrade \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
+            2>&1 | tee build/logs/navigation-filter-tests.log
+      - name: Preserve original screenshots, failures and independent accounts
         if: always()
         run: python3 scripts/collect_diagnostics.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: market-filter-regression-evidence
+          name: focused-ui-${{ strategy.job-index }}
           path: |
             build/logs
             build/NavigationFlowTests.xcresult
