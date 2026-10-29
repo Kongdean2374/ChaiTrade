@@ -17,6 +17,11 @@ device=next((d for d in devices if d['name']==name),None) or fresh()
 # Actual UI jobs use the normal path below; no test or acceptance allowance changes.
 if os.environ.get('CHAI_PREPARE_BUILD_ONLY')=='1':
  print(device['udid']);raise SystemExit(0)
+# UI jobs own a fresh OS container as well as independent App account UUIDs.
+# The runner image's default device retained a WebKit extension-launch stall
+# (RunningBoardServices wait) across App relaunches. Keep the same runtime,
+# device type, 180-second boot gate and all native App/test deadlines.
+device=fresh()
 records=[]
 for attempt in range(2):
  started=time.monotonic();udid=device['udid']

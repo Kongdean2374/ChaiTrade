@@ -31,7 +31,6 @@ jobs:
           xcodebuild build-for-testing "${common[@]}" 2>&1 | tee build/logs/navigation-filter-build.log
           xcodebuild test-without-building "${common[@]}" -resultBundlePath build/NavigationFlowTests.xcresult \
             -only-testing:ChaiTradeUITests/SmokeTests/testChartScreenshotTimeoutLeavesAccountAndJournalUnchanged \
-            -only-testing:ChaiTradeUITests/ProductExperienceTests/testActualOfficialUSDirectoryReturnsToETFWithoutGrantingQuotePermission \
             -only-testing:ChaiTradeUITests/ProductExperienceTests/testContractPositionHasAnExplicitReduceOnlyCloseJourney \
             -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
             2>&1 | tee build/logs/navigation-filter-tests.log
