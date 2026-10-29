@@ -398,8 +398,20 @@ import XCTest
         let search=app.textFields["tradePickerSearch"];search.tap();search.typeText("ETH")
         try check(app.keyboards.firstMatch.exists,"Picker scroll case did not open keyboard")
         let rows=app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","trade-product-"))
+        let exact=app.buttons["trade-product-SIM:Coinbase_Exchange:ETH-USD"]
+        let second=app.buttons["trade-product-SIM:Coinbase_Exchange:ETC-USD"]
+        // Retained1.2.28 compared the preceding E/20-product presentation;
+        // its next native tree already had ETH above ETC. Keep the original
+        // first-row assertion and120s gate, but wait for this actual filter to
+        // present, also checking physical order rather than tree order alone.
+        try waitUntil("Exact ETH filtering has not finished presenting",timeout:5){
+            guard search.value as? String=="ETH",rows.firstMatch.identifier=="trade-product-SIM:Coinbase_Exchange:ETH-USD",exact.exists,second.exists else{return false}
+            let a=exact.frame,b=second.frame
+            return !a.isNull && !a.isInfinite && !b.isNull && !b.isInfinite && a.height>0 && b.height>0 && a.minY.isFinite && b.minY.isFinite && a.maxY<=b.minY
+        }
         try check(rows.firstMatch.identifier=="trade-product-SIM:Coinbase_Exchange:ETH-USD","Exact ETH ticker is ranked below a name substring")
-        let second=app.buttons["trade-product-SIM:Coinbase_Exchange:ETC-USD"];try reveal(second,in:app);second.tap()
+        capture("FLOW settled exact ETH search ranks above ETC with keyboard",includeHierarchy:false)
+        try reveal(second,in:app);second.tap()
         try waitUntil("Second result could not be selected after keyboard scrolling"){(try? self.state(app)["tradeProduct"] as? String)=="SIM:Coinbase_Exchange:ETC-USD"}
         let after=try state(app);try check((after["watchlist"] as? [String])?.isEmpty==true,"Scroll accidentally toggled a favorite")
         try check((after["orders"] as? [String])?.isEmpty==true,"Search result selection sent an order")

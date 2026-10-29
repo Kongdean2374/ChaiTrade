@@ -1,6 +1,6 @@
 # 瀏覽與交易草稿的儲存競態
 
-App1.2.28（31）候選，以下新斷言仍須同提交原生／核心完整實跑。版本與結果以[目前驗證](VALIDATION_CURRENT.md)為準；未執行不列通過。
+App1.2.29（32）候選，以下新斷言仍須同提交原生／核心完整實跑。版本與結果以[目前驗證](VALIDATION_CURRENT.md)為準；未執行不列通過。
 
 正常ETH瀏覽出現舊保存警告的原圖／原包見[evidence/RETAINED_1_2_24_BROWSING_AND_PAGE_FAILURES.md](evidence/RETAINED_1_2_24_BROWSING_AND_PAGE_FAILURES.md)。搜尋與交易編輯原先都可由下一次輸入取消已進入儲存的防抖任務；SQLite查核會尊重取消並回滾。兩者改成獨立單一寫入者，防抖只取消等待，待存變更在寫入期間仍保留並合併。真正失敗保留待存及對應警告；成功只清除自己的舊警告，不清除其他訊息。帳戶重綁定以context／generation隔離舊回呼；交易原revision與完整身份驗證保留。
 
@@ -12,3 +12,6 @@ App1.2.28（31）候選，以下新斷言仍須同提交原生／核心完整實
 
 
 DEBUG交錯同步點設定真實旗標後會通知唯讀探針更新，修正舊快照無法觀察開始狀態；不硬設通過結果、不跳過SQLite、不放寬原等待。見[原失敗](evidence/RETAINED_1_2_25_BARRIER_OBSERVATION_FAILURE.md)。本候選完整186核心兩組／80UI／實際HTTP／原T45／封存／Apple編譯／原圖仍待同提交結果，沒有IPA。
+
+
+本候選保留ETH精確身份第一列原斷言，在原案例120秒內新增5秒有界搜尋呈現及實體排序核對後才比較，仍執行原鍵盤捲動／ETC實際選取／自選與帳務不變；原120秒不放寬。見[原始過渡擷取與階層](evidence/RETAINED_1_2_28_SEARCH_PRESENTATION_FAILURE.md)。186核心兩組／80UI及所有關卡待本提交完整實跑，沒有IPA。
