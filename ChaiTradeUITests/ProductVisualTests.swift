@@ -3,7 +3,7 @@ import XCTest
 @MainActor final class ProductVisualTests:IsolatedUITestCase{
     private func start(_ app:XCUIApplication,theme:String,large:Bool)throws{
         let button=app.buttons["startTrading"];try check(button.waitForExistence(timeout:15) && button.isHittable,"Onboarding start is not reachable at this screen/font size")
-        capture("VISUAL onboarding "+theme+(large ? " accessibility3":" standard"));button.tap()
+        capture("VISUAL onboarding "+theme+(large ? " accessibility3":" standard"),includeHierarchy:false);button.tap()
         try check(app.tabBars.buttons["總覽"].waitForExistence(timeout:30),"Fresh visual account did not load")
         let s=try state(app);try check(s["session"] as? String==session,"Visual case inherited another session")
         try check((s["orders"] as? [String])?.isEmpty==true && (s["fills"] as? [[String:String]])?.isEmpty==true,"Visual case inherited transactions")
@@ -44,13 +44,27 @@ import XCTest
         app.tabBars.buttons["資產"].tap();try check(app.navigationBars["資產"].exists,"Cancel blocked Tab switching")
     }
     func testDarkLargeTextAssetsAndSettingsScrollToBottom()throws{
-        let app=launchClean(flags:["--uitest-dark","--uitest-large-type"]);defer{finish()};try start(app,theme:"dark",large:true)
-        app.tabBars.buttons["資產"].tap();capture("AFTER VISUAL dark accessibility assets")
-        let bottom=app.staticTexts["portfolioBottom"];try reveal(bottom,in:app);try check(bottom.isHittable,"Large text asset bottom is not reachable");capture("AFTER VISUAL dark accessibility assets bottom")
+        let app=launchClean(flags:["--uitest-dark","--uitest-large-type"]);var completed=false;defer{finish(includeHierarchy:!completed)};try start(app,theme:"dark",large:true)
+        let before=try state(app)
+        // Retained cb11e5c reached and closed both pages before120s, then
+        // crossed the unchanged deadline while collecting another full AX tree.
+        // Keep every native gesture, PNG and hit test; failure capture still
+        // includes the complete hierarchy. Successful screenshots need no
+        // repeated traversal of the same125-product account payload.
+        app.tabBars.buttons["資產"].tap();capture("AFTER VISUAL dark accessibility assets",includeHierarchy:false)
+        let bottom=app.staticTexts["portfolioBottom"];try reveal(bottom,in:app);try check(bottom.isHittable,"Large text asset bottom is not reachable");capture("AFTER VISUAL dark accessibility assets bottom",includeHierarchy:false)
         app.tabBars.buttons["總覽"].tap();app.buttons["設定"].tap()
         let diagnostic=app.buttons["進階診斷"];try reveal(diagnostic,in:app);try check(diagnostic.isHittable,"Large text settings final group is blocked")
-        capture("AFTER VISUAL dark accessibility settings bottom")
+        capture("AFTER VISUAL dark accessibility settings bottom",includeHierarchy:false)
         app.buttons["完成"].tap();try check(app.tabBars.buttons["總覽"].isHittable,"Closing settings left an overlay")
+        let after=try state(app)
+        try check((after["mode"] as? String)==(before["mode"] as? String),"Visual navigation changed the account mode")
+        try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Visual navigation changed funds")
+        try check((after["orders"] as? [String])==(before["orders"] as? [String]),"Visual navigation created orders")
+        try check((after["fills"] as? [[String:String]])==(before["fills"] as? [[String:String]]),"Visual navigation changed fills")
+        try check((after["watchlist"] as? [String])==(before["watchlist"] as? [String]),"Visual navigation changed favorites")
+        try check(after["visualType"] as? String=="accessibility3" && after["visualTheme"] as? String=="dark","Final screen lost requested text size or theme")
+        completed=true
     }
     func testLongChineseJournalAtLargeTextPreservesContentOnce()throws{
         let app=launchClean(flags:["--uitest-dark","--uitest-large-type"]);defer{finish()};try start(app,theme:"dark",large:true)

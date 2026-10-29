@@ -1,7 +1,7 @@
 {
-  "version": "1.2.23",
-  "build": 26,
-  "branch": "navigation-flow-20261028-v41",
+  "version": "1.2.24",
+  "build": 27,
+  "branch": "navigation-flow-20261028-v42",
   "state": "pending full same-source verification; no accepted IPA",
   "requiredCoreFunctions": 185,
   "requiredUI": 79,
@@ -14,12 +14,13 @@
     "visualPro": 6
   },
   "passed": false,
-  "previousSource": "a2fa45ff2c676434c2b77c6c631cbac6a4155800",
+  "previousSource": "cb11e5cf038f5834c8596939eb4226c243feefbe",
   "retainedFailures": [
     "App21 manual review:stock search hint incorrectly suggestsBTC/ETH",
     "App21 secondCore upload CreateArtifact failed after all software steps passed; logs retained",
     "App20 original UI timeouts and real T45 failures remain retained",
-    "App21 UI original17pass/1timeout/1uncompleted/1failure and product17pass/1timeout; original archives and inspected evidence retained"
+    "App21 UI original17pass/1timeout/1uncompleted/1failure and product17pass/1timeout; original archives and inspected evidence retained",
+    "App23 Pro5pass/1timeout/1uncompleted,原包與實看兩張原圖保留；成功最後採證超時仍判失敗。"
   ],
   "physicalDeviceAcceptance": "not executed; original thresholds retained"
 }
