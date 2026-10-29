@@ -163,7 +163,11 @@ import XCTest
         try check((after["cash"] as? [String:String])==(before["cash"] as? [String:String]),"Failed capture changed cash")
         try check((after["orders"] as? [String])==(before["orders"] as? [String]),"Failed capture created orders")
         try check((after["journals"] as? [[String:String]])==(before["journals"] as? [[String:String]]),"Failed capture saved a journal")
-        try check(capture.isEnabled,"Timeout did not release the retry control")
+        // The offline clock can start a separate candle refresh between the
+        // state snapshot above and this native query. A loading chart is
+        // intentionally disabled; require the real retry control to recover
+        // within five seconds without changing the 120-second case allowance.
+        try waitUntil("Timeout did not release the retry control",timeout:5){capture.isEnabled}
         completed=true
     }
 

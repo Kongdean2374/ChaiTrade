@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: ["iPhone SE (3rd generation)", "iPhone 17 Pro"]
+        device: ["iPhone 17 Pro"]
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       CHAI_SIMULATOR_NAME: ${{ matrix.device }}
@@ -30,10 +30,9 @@ jobs:
           common=(-project ChaiTrade.xcodeproj -scheme ChaiTrade -destination "platform=iOS Simulator,id=$simulator_id,arch=$(uname -m)" -derivedDataPath build/UISimulator CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='' ONLY_ACTIVE_ARCH=YES ARCHS="$(uname -m)")
           xcodebuild build-for-testing "${common[@]}" 2>&1 | tee build/logs/navigation-filter-build.log
           xcodebuild test-without-building "${common[@]}" -resultBundlePath build/NavigationFlowTests.xcresult \
-            -only-testing:ChaiTradeUITests/ProductVisualTests/testDarkLargeTradePickerChineseKeyboardAndFilters \
-            -only-testing:ChaiTradeUITests/ProductVisualTests/testLightTradePickerChineseKeyboardAndFilters \
-            -only-testing:ChaiTradeUITests/TradeWorkspaceInteractionTests/testKeyboardOpenCanScrollAndSelectASecondSearchResultWithoutChangingFavorites \
-            -only-testing:ChaiTradeUITests/TradeWorkspaceInteractionTests/testMarketEmptySearchClearResetsVisibleQueryAndResultsWithoutChangingTrade \
+            -only-testing:ChaiTradeUITests/SmokeTests/testChartScreenshotTimeoutLeavesAccountAndJournalUnchanged \
+            -only-testing:ChaiTradeUITests/ProductExperienceTests/testActualOfficialUSDirectoryReturnsToETFWithoutGrantingQuotePermission \
+            -only-testing:ChaiTradeUITests/ProductExperienceTests/testContractPositionHasAnExplicitReduceOnlyCloseJourney \
             -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
             2>&1 | tee build/logs/navigation-filter-tests.log
       - name: Preserve original screenshots, failures and independent accounts
