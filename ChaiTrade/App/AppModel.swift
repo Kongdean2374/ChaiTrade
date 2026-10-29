@@ -70,6 +70,9 @@ struct ChartAmendment: Identifiable {
     @Published var tradeClosingPosition:Position?
     @Published var tradeSession=UUID()
     var tradeSaveTask:Task<Void,Never>?
+    var tradeWriteTask:Task<Void,Never>?
+    var tradeWriteGeneration=UUID()
+    @Published var tradeSaving=false
     var tradeDirty=false
     @Published var quoteIssues:[String:MarketIssueKind]=[:]
     @Published var quoteRetryAt:[String:Int64]=[:]
@@ -457,7 +460,7 @@ struct ChartAmendment: Identifiable {
     func clearChartCaches(){chartGeneration=UUID();candleTask?.cancel();chartLimitation=nil;chartRenderings=[:];chartCache.removeAll();chartCacheLimitations.removeAll();chartCacheOrder.removeAll();Simulation.clearChartCache()}
     func rebindRestoredAccount()async throws{
         guard let previous=engine,let old=context else{throw TradeError.wrongAccount}
-        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel();browseSaveTask?.cancel();browseWriteGeneration=UUID();browseWriteTask?.cancel();browseWriteTask=nil;browsingSaving=false;browsingDirty=[];summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute = -1;summaryGeneration=UUID()
+        quoteServiceTask?.cancel();quoteServiceTask=nil;quoteServiceGeneration=UUID();boardQuoteTask?.cancel();browseSaveTask?.cancel();browseWriteGeneration=UUID();browseWriteTask?.cancel();browseWriteTask=nil;browsingSaving=false;browsingDirty=[];tradeSaveTask?.cancel();tradeWriteGeneration=UUID();tradeWriteTask?.cancel();tradeWriteTask=nil;tradeSaving=false;tradeDirty=false;summaryTask?.cancel();summaryTask=nil;summaryAttemptedIDs=[];summaryMinute = -1;summaryGeneration=UUID()
         await quoteScheduler.cancel(context:old);try await previous.retire(context:old)
         let snapshot=await previous.snapshot(),next=AccountContext(mode:old.mode),root=self.root
         do{

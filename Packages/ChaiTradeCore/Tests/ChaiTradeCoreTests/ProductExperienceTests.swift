@@ -92,6 +92,25 @@ import Testing
     #expect(restored.cash==before.cash && restored.watchlist==before.watchlist)
     #expect(restored.orders==before.orders && restored.fills==before.fills && restored.ledger==before.ledger)
     #expect(restored.simulation?.time==before.simulation?.time)
+    let stock=try #require(initial.instruments.first{$0.id=="SIM:TWSE:2330"})
+    var firstDraft=TradeWorkspace(accountID:ctx.accountID,instrument:stock);firstDraft.editor=TradeEditor()
+    try await engine.saveTradeWorkspace(firstDraft,context:ctx)
+    let beforeTrade=await engine.snapshot(),diskBeforeTrade=try repo.load()
+    let storedTrade=try #require(diskBeforeTrade)
+    var interruptedDraft=firstDraft;interruptedDraft.revision=2;interruptedDraft.editor!.quantity="3"
+    let cancelledDraft=interruptedDraft
+    let draftWork=Task.detached{withUnsafeCurrentTask{$0?.cancel()};try await engine.saveTradeWorkspace(cancelledDraft,context:ctx)}
+    await #expect(throws:CancellationError.self){try await draftWork.value}
+    let afterTrade=await engine.snapshot(),diskAfterTrade=try repo.load()
+    let storedAfterTrade=try #require(diskAfterTrade)
+    #expect(try AccountRepository.encode(afterTrade)==AccountRepository.encode(beforeTrade))
+    #expect(try AccountRepository.encode(storedAfterTrade)==AccountRepository.encode(storedTrade))
+    var latestDraft=firstDraft;latestDraft.revision=3;latestDraft.editor!.quantity="7"
+    try await engine.saveTradeWorkspace(latestDraft,context:ctx)
+    let finalLoaded=try AccountRepository(root:root,mode:.offline).load()
+    let final=try #require(finalLoaded)
+    #expect(final.productPreferences?.tradeWorkspace==latestDraft)
+    #expect(final.cash==before.cash && final.orders==before.orders && final.fills==before.fills && final.ledger==before.ledger)
 }
 @Test func simulationNewsIsDiverseDeterministicCausalAndNeverLeaksFuture()throws{
     let state=try TradingEngine.initial(mode:.offline,capital:Amount("100000"),time:1000),sim=state.simulation!

@@ -17,6 +17,8 @@ import ChaiTradeCore
     private(set) static var favoriteBarrierFailed=false
     private(set) static var browsingWriteStarted=false
     private(set) static var browsingWriteEdited=false
+    private(set) static var tradeWriteStarted=false
+    private(set) static var tradeWriteEdited=false
     private static var browsingWriteBarrier:Bool{fixture && ProcessInfo.processInfo.arguments.contains("--uitest-browsing-write-barrier")}
     static func didEditBrowsing(){if browsingWriteBarrier && browsingWriteStarted{browsingWriteEdited=true}}
     static func awaitBrowsingWrite(search:String)async throws{
@@ -25,6 +27,17 @@ import ChaiTradeCore
         let clock=ContinuousClock(),deadline=clock.now.advanced(by:.seconds(15))
         while !browsingWriteEdited{
             guard clock.now<deadline else{throw TradeError.invalid("瀏覽寫入測試未收到交錯編輯")}
+            try await Task.sleep(for:.milliseconds(50))
+        }
+    }
+    private static var tradeWriteBarrier:Bool{fixture && ProcessInfo.processInfo.arguments.contains("--uitest-trade-write-barrier")}
+    static func didEditTrade(){if tradeWriteBarrier && tradeWriteStarted{tradeWriteEdited=true}}
+    static func awaitTradeWrite(quantity:String?)async throws{
+        guard tradeWriteBarrier,!tradeWriteStarted,quantity=="3" else{return}
+        tradeWriteStarted=true
+        let clock=ContinuousClock(),deadline=clock.now.advanced(by:.seconds(15))
+        while !tradeWriteEdited{
+            guard clock.now<deadline else{throw TradeError.invalid("交易草稿寫入測試未收到交錯編輯")}
             try await Task.sleep(for:.milliseconds(50))
         }
     }
@@ -94,6 +107,7 @@ struct UITestProbe: View {
             "visualType":String(describing:typeSize),"visualTheme":colorScheme == .dark ? "dark":"light",
             "session":session,"ready":s != nil,"tab":model.tab,"selected":model.selectedID,
             "notice":model.notice ?? "","browsingSaving":model.browsingSaving,"browsingPending":model.browsingDirty.map(\.rawValue).sorted(),"browsingWriteBarrierStarted":UITestSupport.browsingWriteStarted,"browsingWriteBarrierEdited":UITestSupport.browsingWriteEdited,
+            "tradeSaving":model.tradeSaving,"tradePending":model.tradeDirty,"tradeWriteBarrierStarted":UITestSupport.tradeWriteStarted,"tradeWriteBarrierEdited":UITestSupport.tradeWriteEdited,
             "fileArchiveWorking":model.fileArchiveWorking,"fileArchiveReady":model.fileArchiveURL != nil,"fileArchiveProgress":model.fileArchiveProgress,
             "dataShareReady":model.dataShareURL != nil,"dataShareFormat":model.dataShareURL?.pathExtension ?? "",
             "quoteFocus":model.activeProductID ?? "",

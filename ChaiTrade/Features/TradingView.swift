@@ -304,7 +304,13 @@ struct OrderForm:View{
     }.sheet(isPresented:$choosingOrderKind){orderKindSelection}
         .onAppear{guard !initialized else{return};initialized=true;price=initialLimitPrice;side=initialSide;contractAction=initialSide == .buy ? .openLong:.openShort;unit=instrument.usesTaiwanBoards ? (initialBoard == .regular ? "張":"股"):instrument.quantityUnit;if instrument.usesTaiwanBoards{tif = .DAY};if instrument.asset == .crypto{quantity="0.001"};if let position=initialPosition{reduceOnly=true;side=position.quantity > .zero ? .sell:.buy;contractAction=position.quantity > .zero ? .closeLong:.closeShort;quantity=position.quantity.magnitude.description;leverage=position.leverage;margin=position.marginMode};if initialPosition==nil,workspaceSession==model.tradeSession,model.tradeWorkspace?.product.matches(instrument)==true,let saved=model.tradeWorkspace?.editor{restoreEditor(saved)};baseline=editorSnapshot}
         .onDisappear{Task{await model.flushTradeWorkspace()}}
-        .onChange(of:editorSnapshot){_,value in guard initialized,baseline != value,!submitted,let session=workspaceSession else{return};model.updateTradeEditor(value,instrument:instrument,context:accountContext,session:session)}
+        .onChange(of:editorSnapshot){_,value in
+            guard initialized,!submitted,let session=workspaceSession else{return}
+            // Ignore initial presentation only. Returning an edited form to its
+            // original values is still a real edit that must replace the draft.
+            guard baseline != value || model.tradeWorkspace?.editor != nil else{return}
+            model.updateTradeEditor(value,instrument:instrument,context:accountContext,session:session)
+        }
         .onChange(of:reduceOnly){_,closing in if closing,let position=selectedPosition{side=position.quantity > .zero ? .sell:.buy;leverage=position.leverage;margin=position.marginMode}}
         .onChange(of:unit){_,_ in if board == .oddLot{kind = .limit;tif = .DAY;postOnly=false;protection="無";model.changeBoard(.oddLot)}else if instrument.usesTaiwanBoards{model.changeBoard(.regular)}}
         .alert("確認本機模擬委託",isPresented:$confirm){Button("確認送出"){Task{await send()}};Button("取消",role:.cancel){}}message:{Text(confirmationText)}

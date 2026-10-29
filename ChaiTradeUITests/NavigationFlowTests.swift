@@ -440,10 +440,22 @@ import XCTest
         capture("FLOW vertical chart gesture scrolls page without changing product or account")
     }
     func testUnsentTradeDraftAndIdentitySurviveColdRelaunch()throws{
-        let app=launchClean(fixture:true);defer{finish()};try ready(app)
+        let app=launchClean(fixture:true,flags:["--uitest-trade-write-barrier"]);defer{finish()};try ready(app)
         let before=try state(app);app.tabBars.buttons["交易"].tap();app.buttons["openOrder"].tap()
-        let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap();quantity.typeText(XCUIKeyboardKey.delete.rawValue+"7")
+        let quantity=app.textFields["orderQuantity"];try reveal(quantity,in:app);quantity.tap();quantity.typeText(XCUIKeyboardKey.delete.rawValue+"3")
+        try waitUntil("Controlled trade draft write never began",timeout:5){
+            guard let s=try? self.state(app) else{return false}
+            return s["tradeWriteBarrierStarted"] as? Bool==true && s["tradeSaving"] as? Bool==true
+        }
+        quantity.typeText(XCUIKeyboardKey.delete.rawValue+"1")
+        try waitUntil("Returning to initial quantity left the previous edited draft",timeout:5){(try? self.state(app)["tradeDraftQuantity"] as? String)=="1"}
+        quantity.typeText(XCUIKeyboardKey.delete.rawValue+"7")
         app.buttons["完成"].tap();try waitUntil("Draft not retained before relaunch"){(try? self.state(app)["tradeDraftQuantity"] as? String)=="7"}
+        try waitUntil("Interleaved draft did not finish saving",timeout:10){
+            guard let s=try? self.state(app) else{return false}
+            return s["tradeWriteBarrierEdited"] as? Bool==true && s["tradeSaving"] as? Bool==false && s["tradePending"] as? Bool==false
+        }
+        try check(try state(app)["notice"] as? String != "交易草稿尚未保存，請稍後重試","Interleaved trade draft left a false cancellation warning")
         let saved=try state(app);XCUIDevice.shared.press(.home);app.activate();app.terminate();app.launch()
         try check(app.tabBars.buttons["交易"].waitForExistence(timeout:30),"Draft restart failed")
         app.tabBars.buttons["交易"].tap();let restored=try state(app)

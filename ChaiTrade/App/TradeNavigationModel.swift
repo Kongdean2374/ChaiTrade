@@ -27,7 +27,7 @@ extension AppModel {
     }
     var tradeInstrument:Instrument?{guard let product=tradeWorkspace?.product else{return nil};return state?.instruments.first{product.matches($0)}}
     func restoreTradeWorkspace(){
-        tradeSaveTask?.cancel();tradeDirty=false;pendingTrade=nil;tradeFormRequest=nil;tradeClosingPosition=nil;tradeSession=UUID();marketPaths=[:]
+        tradeSaveTask?.cancel();tradeWriteGeneration=UUID();tradeWriteTask?.cancel();tradeWriteTask=nil;tradeSaving=false;tradeDirty=false;pendingTrade=nil;tradeFormRequest=nil;tradeClosingPosition=nil;tradeSession=UUID();marketPaths=[:]
         if let saved=state?.productPreferences?.tradeWorkspace{tradeWorkspace=saved}
         else if let i=selected,i.asset != .index,let context{tradeWorkspace=TradeWorkspace(accountID:context.accountID,instrument:i)}
         else{tradeWorkspace=nil}
@@ -58,6 +58,9 @@ extension AppModel {
     func updateTradeEditor(_ editor:TradeEditor,instrument:Instrument,context:AccountContext,session:UUID){
         guard self.context==context,tradeSession==session,var workspace=tradeWorkspace,workspace.product.matches(instrument),workspace.editor != editor else{return}
         workspace.editor=editor;workspace.side=editor.side;workspace.board=instrument.usesTaiwanBoards && editor.unit=="股" ? .oddLot:.regular;workspace.revision+=1;tradeWorkspace=workspace;saveTradeSoon()
+        #if DEBUG
+        UITestSupport.didEditTrade()
+        #endif
     }
     func clearTradeEditor(session:UUID){
         guard tradeSession==session,var saved=tradeWorkspace else{return}
@@ -65,11 +68,34 @@ extension AppModel {
     }
     func saveTradeSoon(){
         tradeDirty=true;tradeSaveTask?.cancel()
-        tradeSaveTask=Task{do{try await Task.sleep(for:.milliseconds(250))}catch{return};await flushTradeWorkspace()}
+        tradeSaveTask=Task{do{try await Task.sleep(for:.milliseconds(250))}catch{return};tradeSaveTask=nil;await flushTradeWorkspace()}
     }
     func flushTradeWorkspace()async{
-        guard tradeDirty,let workspace=tradeWorkspace,let context,let engine else{return};tradeDirty=false
-        do{try await engine.saveTradeWorkspace(workspace,context:context)}catch{guard self.context==context else{return};tradeDirty=true;notice="交易草稿尚未保存，請稍後重試"}
+        if let task=tradeWriteTask{await task.value;return}
+        guard tradeDirty,tradeWorkspace != nil,let context,let engine else{return}
+        let generation=tradeWriteGeneration;tradeSaving=true
+        let task=Task{[weak self] in
+            guard let self else{return}
+            defer{if self.tradeWriteGeneration==generation{self.tradeWriteTask=nil;self.tradeSaving=false}}
+            await self.persistTradeWorkspace(engine:engine,context:context,generation:generation)
+        }
+        tradeWriteTask=task;await task.value
+    }
+    private func persistTradeWorkspace(engine:TradingEngine,context:AccountContext,generation:UUID)async{
+        let failure="交易草稿尚未保存，請稍後重試"
+        while self.context==context,tradeWriteGeneration==generation,tradeDirty,let workspace=tradeWorkspace{
+            tradeDirty=false
+            do{
+                #if DEBUG
+                try await UITestSupport.awaitTradeWrite(quantity:workspace.editor?.quantity)
+                #endif
+                try await engine.saveTradeWorkspace(workspace,context:context)
+            }catch{
+                guard self.context==context,tradeWriteGeneration==generation else{return}
+                tradeDirty=true;notice=failure;return
+            }
+        }
+        if self.context==context,tradeWriteGeneration==generation,notice==failure{notice=nil}
     }
     func focusTradeProduct(_ i:Instrument){
         focusProduct(i)
